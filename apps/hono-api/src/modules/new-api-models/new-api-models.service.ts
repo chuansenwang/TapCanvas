@@ -116,7 +116,7 @@ async function doFetchNewApiModelList(env: WorkerEnv): Promise<NewApiModelListIt
 		// `resolution` enum — without it the consumer cannot surface per-spec
 		// pricing and the model degrades to a flat fallback (e.g. 14 credits
 		// regardless of duration), which is misleading to end users.
-		`${config.baseUrl}/api/models/list?enabled=true&require_video_spec=true`,
+		`${config.baseUrl}/api/models/list?enabled=true`,
 		{
 			method: "GET",
 			headers: {
@@ -345,6 +345,11 @@ function parseStringList(raw: string | null | undefined): string[] {
 				.map((item) => (typeof item === "string" ? item.trim() : ""))
 				.filter(Boolean);
 		}
+		if (parsed && typeof parsed === "object") {
+			return Object.values(parsed)
+				.map((item) => (typeof item === "string" ? item.trim() : ""))
+				.filter(Boolean);
+		}
 	} catch {
 		// fall through
 	}
@@ -368,6 +373,7 @@ function normalizeKindFromEndpoints(endpoints: string[]): NewApiModelKind {
 	const normalized = new Set(endpoints.map((item) => item.trim().toLowerCase()).filter(Boolean));
 	if (normalized.has("openai-video")) return "video";
 	if (normalized.has("image-generation")) return "image";
+	if (normalized.has("gemini") || normalized.has("openai") || normalized.has("yunwu")) return "image";
 	return "text";
 }
 

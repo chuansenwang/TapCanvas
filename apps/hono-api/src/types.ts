@@ -46,6 +46,8 @@ export type WorkerEnv = Record<string, unknown> & {
 	RUSTFS_REGION?: string;
 	RUSTFS_BUCKET?: string;
 	RUSTFS_PUBLIC_BASE_URL?: string;
+	LOCAL_ASSET_STORAGE_DIR?: string;
+	LOCAL_ASSET_PUBLIC_BASE_URL?: string;
 	// Local debug: HTTP request/response logging (stdout; use `pnpm dev:log` to tee into log.txt)
 	DEBUG_HTTP_LOG?: string;
 	DEBUG_HTTP_LOG_UNSAFE?: string;

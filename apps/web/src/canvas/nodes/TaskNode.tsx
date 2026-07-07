@@ -1388,6 +1388,33 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     const fallback = imageResults.find((img) => typeof img?.url === 'string' && img.url.trim().length > 0)
     return fallback?.url ?? null
   }, [hasPrimaryImage, imagePrimaryIndex, imageResults])
+  const [primaryImageNaturalSize, setPrimaryImageNaturalSize] = React.useState<{ width: number; height: number } | null>(null)
+  React.useEffect(() => {
+    const src = typeof primaryImageUrl === 'string' ? primaryImageUrl.trim() : ''
+    if (!src) {
+      setPrimaryImageNaturalSize(null)
+      return
+    }
+    let cancelled = false
+    const img = new window.Image()
+    img.onload = () => {
+      if (cancelled) return
+      const width = Number(img.naturalWidth || 0)
+      const height = Number(img.naturalHeight || 0)
+      if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+        setPrimaryImageNaturalSize({ width, height })
+      } else {
+        setPrimaryImageNaturalSize(null)
+      }
+    }
+    img.onerror = () => {
+      if (!cancelled) setPrimaryImageNaturalSize(null)
+    }
+    img.src = src
+    return () => {
+      cancelled = true
+    }
+  }, [primaryImageUrl])
   const adoptedImageMetadata = React.useMemo<AdoptedAssetMetadata | null>(() => {
     const raw = (data as { adoptedImageAsset?: unknown } | undefined)?.adoptedImageAsset
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
@@ -5191,8 +5218,13 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     if (coreKind === 'video') return { width: 400, height: 225, minWidth: 240, maxWidth: 960, minHeight: 160, maxHeight: 720 }
     if (isStoryboardEditorNode) return { width: 560, height: 470, minWidth: 360, maxWidth: 960, minHeight: 260, maxHeight: 760 }
     if (kind === 'imageEdit') return { width: 320, height: 220, minWidth: 180, maxWidth: 420, minHeight: 120, maxHeight: 420 }
+    if (primaryImageNaturalSize && primaryImageNaturalSize.width > 0 && primaryImageNaturalSize.height > 0) {
+      const width = 120
+      const computedHeight = Math.round(width * (primaryImageNaturalSize.height / primaryImageNaturalSize.width))
+      return { width, height: Math.max(90, Math.min(420, computedHeight)), minWidth: 110, maxWidth: 420, minHeight: 90, maxHeight: 420 }
+    }
     return { width: 120, height: 210, minWidth: 110, maxWidth: 420, minHeight: 90, maxHeight: 420 }
-  }, [coreKind, isStoryboardEditorNode, kind])
+  }, [coreKind, isStoryboardEditorNode, kind, primaryImageNaturalSize])
 
   const nodeWidth = isResizableVisualNode
     ? clampFinite((data as any)?.nodeWidth, visualNodeDefaults.minWidth, visualNodeDefaults.maxWidth, visualNodeDefaults.width)
@@ -5205,6 +5237,33 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
   const nodeHeight = isResizableVisualNode
     ? clampFinite((data as any)?.nodeHeight, visualNodeDefaults.minHeight, visualNodeDefaults.maxHeight, visualNodeDefaults.height)
     : null
+  React.useEffect(() => {
+    if (!isResizableVisualNode) return
+    if (kind === 'imageEdit') return
+    if (coreKind !== 'image') return
+    if (!primaryImageNaturalSize || primaryImageNaturalSize.width <= 0 || primaryImageNaturalSize.height <= 0) return
+
+    const currentWidthRaw = Number((data as any)?.nodeWidth)
+    const currentHeightRaw = Number((data as any)?.nodeHeight)
+    const baseWidth = Number.isFinite(currentWidthRaw) && currentWidthRaw > 0 ? currentWidthRaw : nodeWidth
+    const expectedHeight = Math.max(
+      visualNodeDefaults.minHeight,
+      Math.min(
+        visualNodeDefaults.maxHeight,
+        Math.round(baseWidth * (primaryImageNaturalSize.height / primaryImageNaturalSize.width)),
+      ),
+    )
+    const currentHeight = Number.isFinite(currentHeightRaw) && currentHeightRaw > 0
+      ? currentHeightRaw
+      : (nodeHeight ?? visualNodeDefaults.height)
+
+    if (Math.abs(currentHeight - expectedHeight) <= 2) return
+
+    updateNodeData(id, {
+      ...(Number.isFinite(currentWidthRaw) && currentWidthRaw > 0 ? null : { nodeWidth: baseWidth }),
+      nodeHeight: expectedHeight,
+    })
+  }, [coreKind, data, id, isResizableVisualNode, kind, nodeHeight, nodeWidth, primaryImageNaturalSize, updateNodeData, visualNodeDefaults.height, visualNodeDefaults.maxHeight, visualNodeDefaults.minHeight])
   const toolbarBaseWidth = useMediaFocusToolbar ? 650 : 380
   const toolbarMinScale = 220 / toolbarBaseWidth
   const toolbarScale = Math.max(toolbarMinScale, canvasZoom)

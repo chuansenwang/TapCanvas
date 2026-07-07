@@ -2500,6 +2500,20 @@ async function assertNewApiRouteEnabledForTask(
 		return modelName === normalizedModelKey || requestModelKey === normalizedModelKey;
 	});
 	if (!matched) {
+		console.warn("[new-api-model-check] model not matched", {
+			vendor: vendorKey,
+			requestedModel: modelKey,
+			normalizedModelKey,
+			taskKind: input.taskKind,
+			kind,
+			enabledModels: enabledModels.map((model) => ({
+				modelName: model.modelName,
+				requestModelKey: model.requestModelKey,
+				kind: model.kind,
+				enabled: model.enabled,
+				endpoints: model.endpoints,
+			})),
+		});
 		throw new AppError("模型已停用或未出现在 new-api 启用列表中，拒绝调用上游", {
 			status: 400,
 			code: "new_api_model_disabled",

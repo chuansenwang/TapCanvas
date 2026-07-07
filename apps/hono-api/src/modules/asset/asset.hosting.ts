@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { AppContext } from "../../types";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { fetchWithHttpDebugLog } from "../../httpDebugLog";
@@ -237,7 +239,15 @@ async function buildInlineSourceKey(input: {
 	return `inline:${mime};uuid:${crypto.randomUUID()}`;
 }
 
-type StorageTarget = { kind: "rustfs"; config: RustfsConfig };
+type StorageTarget =
+	| { kind: "rustfs"; config: RustfsConfig }
+	| { kind: "local"; config: string };
+
+function readLocalAssetStorageDir(env: AppContext["env"]): string {
+	const direct = typeof env.LOCAL_ASSET_STORAGE_DIR === "string" ? env.LOCAL_ASSET_STORAGE_DIR.trim() : "";
+	if (direct) return direct;
+	return typeof process.env.LOCAL_ASSET_STORAGE_DIR === "string" ? process.env.LOCAL_ASSET_STORAGE_DIR.trim() : "";
+}
 
 async function uploadToStorageFromUrl(options: {
 	c: AppContext;
@@ -293,6 +303,15 @@ async function uploadToStorageFromUrl(options: {
 	const key = buildStorageKey(userId, ext, options.prefix);
 
 	try {
+		if (options.storage.kind === "local") {
+			const buf = new Uint8Array(await res.arrayBuffer());
+			const filePath = path.join(options.storage.config, ...key.split("/"));
+			await fs.mkdir(path.dirname(filePath), { recursive: true });
+			await fs.writeFile(filePath, buf);
+			console.log("[asset-hosting] local storage put ok", { key, filePath });
+			const url = publicBase ? `${publicBase}/${key}` : `/${key}`;
+			return { key, url };
+		}
 		const stream = res.body;
 		const client = createRustfsClient(c.env);
 
@@ -399,6 +418,13 @@ async function uploadToStorageFromInlineBytes(options: {
 		.trim();
 	const ext = detectExtension("", contentType);
 	const key = buildStorageKey(options.userId, ext, options.prefix);
+	if (options.storage.kind === "local") {
+		const filePath = path.join(options.storage.config, ...key.split("/"));
+		await fs.mkdir(path.dirname(filePath), { recursive: true });
+		await fs.writeFile(filePath, options.bytes);
+		const url = publicBase ? `${publicBase}/${key}` : `/${key}`;
+		return { key, url };
+	}
 
 	const client = createRustfsClientFromConfig(options.storage.config);
 	await client.send(
@@ -724,6 +750,11 @@ export async function hostTaskAssetsInWorker(options: {
 	let cachedStorage: StorageTarget | null = null;
 	const getStorageOrThrow = (): StorageTarget => {
 		if (cachedStorage) return cachedStorage;
+		const localDir = readLocalAssetStorageDir(c.env);
+		if (localDir) {
+			cachedStorage = { kind: "local", config: localDir };
+			return cachedStorage;
+		}
 		const rustfs = resolveRustfsConfig(c.env);
 		if (rustfs) {
 			cachedStorage = { kind: "rustfs", config: rustfs };
@@ -734,6 +765,7 @@ export async function hostTaskAssetsInWorker(options: {
 			code: "oss_not_configured",
 			details: {
 				bindings: [
+					"LOCAL_ASSET_STORAGE_DIR",
 					"R2_BUCKET_URL",
 					"R2_ENDPOINT_URL",
 					"R2_BUCKET",

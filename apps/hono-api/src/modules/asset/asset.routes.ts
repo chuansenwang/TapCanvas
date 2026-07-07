@@ -8252,6 +8252,49 @@ assetRouter.get("/r2/*", async (c) => {
 	}
 });
 
+assetRouter.get("/local/*", async (c) => {
+	const configuredDir = typeof c.env.LOCAL_ASSET_STORAGE_DIR === "string" ? c.env.LOCAL_ASSET_STORAGE_DIR.trim() : "";
+	const storageDir = configuredDir || (typeof process.env.LOCAL_ASSET_STORAGE_DIR === "string" ? process.env.LOCAL_ASSET_STORAGE_DIR.trim() : "");
+	if (!storageDir) {
+		return c.json({ error: "Object storage is not configured" }, 500);
+	}
+
+	const pathname = new URL(c.req.url).pathname;
+	const prefix = "/assets/local/";
+	const key = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
+	if (!key) {
+		return c.json({ error: "key is required" }, 400);
+	}
+
+	const filePath = path.join(storageDir, ...key.split("/"));
+	let body: Uint8Array;
+	try {
+		body = await fs.readFile(filePath);
+	} catch {
+		return c.json({ error: "not found" }, 404);
+	}
+
+	const ext = path.extname(filePath).toLowerCase();
+	const contentType = ext === ".png"
+		? "image/png"
+		: ext === ".jpg" || ext === ".jpeg"
+			? "image/jpeg"
+			: ext === ".webp"
+				? "image/webp"
+				: ext === ".gif"
+					? "image/gif"
+					: ext === ".mp4"
+						? "video/mp4"
+						: ext === ".webm"
+							? "video/webm"
+							: "application/octet-stream";
+	const headers = new Headers();
+	headers.set("Content-Type", contentType);
+	headers.set("Cache-Control", "public, max-age=31536000, immutable");
+	headers.set("Access-Control-Allow-Origin", "*");
+	return new Response(body, { status: 200, headers });
+});
+
 // Upload a user asset file to configured object storage and persist it as an asset row.
 assetRouter.post("/upload", authMiddleware, async (c) => {
 	const userId = c.get("userId");

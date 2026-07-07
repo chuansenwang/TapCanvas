@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { AppError } from "../../middleware/error";
 import type { AppContext } from "../../types";
@@ -38,6 +40,46 @@ function buildInlineAssetKey(userId: string, ext: string, prefix: string): strin
 	return `${dir}/${safeUser}/${datePrefix}/${random}.${ext || "bin"}`;
 }
 
+function readLocalAssetStorageDir(c: AppContext): string {
+	const direct = typeof c.env.LOCAL_ASSET_STORAGE_DIR === "string" ? c.env.LOCAL_ASSET_STORAGE_DIR.trim() : "";
+	if (direct) return direct;
+	return typeof process.env.LOCAL_ASSET_STORAGE_DIR === "string" ? process.env.LOCAL_ASSET_STORAGE_DIR.trim() : "";
+}
+
+async function uploadInlineImageToLocalStorage(options: {
+	c: AppContext;
+	userId: string;
+	mimeType: string;
+	base64: string;
+	prefix?: string;
+}): Promise<string> {
+	const storageDir = readLocalAssetStorageDir(options.c);
+	if (!storageDir) {
+		throw new AppError("Object storage is not configured", {
+			status: 500,
+			code: "oss_not_configured",
+			details: {
+				bindings: [
+					"LOCAL_ASSET_STORAGE_DIR",
+					"R2_BUCKET_URL",
+					"R2_ENDPOINT_URL",
+					"R2_BUCKET",
+					"RUSTFS_ENDPOINT_URL",
+					"RUSTFS_BUCKET",
+				],
+			},
+		});
+	}
+	const ext = detectImageExtensionFromMimeType(options.mimeType);
+	const key = buildInlineAssetKey(options.userId, ext, options.prefix || "gen/images");
+	const bytes = decodeBase64ToBytes(options.base64);
+	const filePath = path.join(storageDir, ...key.split("/"));
+	await fs.mkdir(path.dirname(filePath), { recursive: true });
+	await fs.writeFile(filePath, bytes);
+	const publicBase = resolvePublicAssetBaseUrl(options.c).trim().replace(/\/+$/, "");
+	return publicBase ? `${publicBase}/${key}` : `/assets/local/${key}`;
+}
+
 export async function uploadInlineImageToRustfs(options: {
 	c: AppContext;
 	userId: string;
@@ -46,6 +88,9 @@ export async function uploadInlineImageToRustfs(options: {
 	prefix?: string;
 }): Promise<string> {
 	const { c, userId, mimeType, base64 } = options;
+	if (readLocalAssetStorageDir(c)) {
+		return uploadInlineImageToLocalStorage(options);
+	}
 	const rustfs = resolveRustfsConfig(c.env);
 	if (!rustfs) {
 		throw new AppError("Object storage is not configured", {
