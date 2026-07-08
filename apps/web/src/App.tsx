@@ -1,7 +1,7 @@
 import React from 'react'
 import { AppShell, ActionIcon, Group, Box, Button, TextInput, Badge, Text, useMantineColorScheme, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconBrandGithub, IconDownload, IconLanguage, IconMoonStars, IconSun, IconHelpCircle } from '@tabler/icons-react'
+import { IconBrandGithub, IconDownload, IconLanguage, IconMoonStars, IconSun, IconHelpCircle, IconFolders } from '@tabler/icons-react'
 import Canvas from './canvas/Canvas'
 import GithubGate from './auth/GithubGate'
 import PhonePasswordSetupModal from './auth/PhonePasswordSetupModal'
@@ -70,7 +70,7 @@ import { validateWorkflowIoForRun } from './canvas/workflowIo'
 import HomePage from './ui/HomePage'
 import { hasPendingUploads } from './ui/pendingUploadGuard'
 import { buildStudioUrl, isGithubOauthCallbackRoute, isStudioRoute, type StudioOwnerType, type StudioPanel } from './utils/appRoutes'
-import { spaReplace } from './utils/spaNavigate'
+import { spaNavigate, spaReplace } from './utils/spaNavigate'
 import { preloadModelOptions } from './config/useModelOptions'
 
 const FEATURE_TOUR_VERSION = 'v2'
@@ -1002,6 +1002,30 @@ function CanvasApp({ routeKey }: { routeKey?: string }): JSX.Element {
     }
   }, [])
 
+  const studioLandingCards = React.useMemo(() => ([
+    {
+      key: 'storyboard',
+      title: '故事板生成引导',
+      description: '输入故事 → 场景卡 → 分镜',
+      tone: 'warm',
+      onClick: () => setActivePanel('nanoComic'),
+    },
+    {
+      key: 'image',
+      title: '一句话出图',
+      description: '文本 → 参考图',
+      tone: 'neutral',
+      onClick: () => setActivePanel('add'),
+    },
+    {
+      key: 'video',
+      title: '首帧转视频',
+      description: '关键帧 → 短视频',
+      tone: 'cool',
+      onClick: () => setActivePanel('add'),
+    },
+  ]), [setActivePanel])
+
   return (
     <AppShell
       data-compact={'false'}
@@ -1024,6 +1048,24 @@ function CanvasApp({ routeKey }: { routeKey?: string }): JSX.Element {
         }}>
           <GithubGate className="app-github-gate">
             <Canvas className="app-canvas" />
+            {!hasCanvasNodes ? (
+              <div className="app-studio-landing" data-tour="empty-quickstart">
+                <div className="app-studio-landing__hint">✦ 右键画布 自由生成节点</div>
+                <div className="app-studio-landing__cards">
+                  {studioLandingCards.map((card) => (
+                    <button
+                      key={card.key}
+                      type="button"
+                      className={`app-studio-landing__card app-studio-landing__card--${card.tone}`}
+                      onClick={card.onClick}
+                    >
+                      <div className="app-studio-landing__card-title">{card.title}</div>
+                      <div className="app-studio-landing__card-desc">{card.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </GithubGate>
         </Box>
       </AppShell.Main>
@@ -1038,6 +1080,16 @@ function CanvasApp({ routeKey }: { routeKey?: string }): JSX.Element {
         <div className="app-header-overlay">
           <Group className="app-header" justify="space-between" p="sm" wrap="nowrap">
             <Group className="app-header-left" wrap="nowrap">
+              <button
+                type="button"
+                className="app-project-flow-entry"
+                onClick={() => spaNavigate('/projects')}
+              >
+                <span className="app-project-flow-entry__icon" aria-hidden>
+                  <IconFolders size={15} />
+                </span>
+                <span className="app-project-flow-entry__label">项目流程</span>
+              </button>
               <Badge className="app-owner-badge" color={currentOwnerType === 'shot' ? 'orange' : currentOwnerType === 'chapter' ? 'blue' : 'gray'} variant="light">
                 {formatStudioOwnerLabel(currentOwnerType)}
               </Badge>
@@ -1143,6 +1195,20 @@ function CanvasApp({ routeKey }: { routeKey?: string }): JSX.Element {
           <div className="app-header-secondary-row">
             <div id="tc-canvas-breadcrumb-slot" className="app-header-secondary-slot app-header-secondary-slot--left" />
             <div id="tc-canvas-visibility-slot" className="app-header-secondary-slot app-header-secondary-slot--right app-header-secondary-slot--canvas-visibility"/>
+          </div>
+          <div className="app-header-tertiary-row">
+            <button type="button" className="app-header-pill">选择风格</button>
+            <button type="button" className="app-header-pill">选择导演</button>
+          </div>
+          <div className="app-asset-entry-overlay">
+            <button
+              type="button"
+              className="app-asset-entry"
+              onClick={() => setActivePanel('assets')}
+            >
+              <span className="app-asset-entry__icon">&gt;_</span>
+              <span className="app-asset-entry__label">资产管理</span>
+            </button>
           </div>
         </div>
         <FloatingNav className="app-floating-nav" />

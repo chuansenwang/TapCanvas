@@ -1,12 +1,11 @@
 import React from 'react'
 import { ActionIcon, Badge, Stack, Tooltip, useMantineColorScheme } from '@mantine/core'
-import { IconPlus, IconTopologyStar3, IconListDetails, IconHistory, IconFolders, IconMovie, IconChartBar, IconTerminal2, IconLayoutGrid } from '@tabler/icons-react'
+import { IconPlus, IconTopologyStar3, IconListDetails, IconHistory, IconMovie, IconChartBar, IconTerminal2, IconLayoutGrid } from '@tabler/icons-react'
 import { useAuth } from '../auth/store'
 import { useIsAdmin } from '../auth/isAdmin'
 import { useUIStore } from './uiStore'
 import { PanelCard } from './PanelCard'
 import { $ } from '../canvas/i18n'
-import { spaNavigate } from '../utils/spaNavigate'
 
 type FloatingNavItemProps = {
   label: string
@@ -102,9 +101,9 @@ export default function FloatingNav({ className }: { className?: string }): JSX.
   const navClassName = ['floating-nav', className].filter(Boolean).join(' ')
 
   return (
-    <div className={navClassName} style={{ position: 'fixed', left: 16, top: '50%', transform: 'translateY(-50%)', zIndex: 300 }} data-ux-floating data-tour="floating-nav">
-      <PanelCard className="floating-nav-card" padding="compact" data-ux-floating>
-        <Stack className="floating-nav-stack" align="center" gap={6}>
+    <div className={navClassName} style={{ position: 'fixed', left: '50%', bottom: 22, transform: 'translateX(-50%)', zIndex: 300 }} data-ux-floating data-tour="floating-nav">
+      <PanelCard className="floating-nav-card floating-nav-card--dock" padding="compact" data-ux-floating>
+        <Stack className="floating-nav-stack floating-nav-stack--dock" align="center" gap={6}>
           <Tooltip className="floating-nav-add-tooltip" label={$('添加节点')} position="right" withArrow>
             <ActionIcon
               className="floating-nav-add"
@@ -117,7 +116,6 @@ export default function FloatingNav({ className }: { className?: string }): JSX.
               onMouseEnter={(e) => {
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 setPanelAnchorY(r.top + r.height/2);
-                if (activePanel !== 'template') setActivePanel('add')
               }}
               onClick={() => setActivePanel(activePanel === 'add' ? null : 'add')}
               data-ux-floating
@@ -127,12 +125,13 @@ export default function FloatingNav({ className }: { className?: string }): JSX.
           </Tooltip>
           <div className="floating-nav-divider" />
           <FloatingNavItem
-            label={$('项目')}
-            icon={<IconFolders className="floating-nav-item-icon" size={18} />}
-            tooltipLabel="项目管理"
-            onHover={() => { setActivePanel(null) }}
-            onClick={() => { setActivePanel(null); spaNavigate('/projects') }}
-            active={false}
+            label={$('漫剧工作台')}
+            icon={<IconLayoutGrid className="floating-nav-item-icon" size={18} />}
+            tooltipLabel="画布内分镜工作台"
+            onClick={() => {
+              setActivePanel(activePanel === 'nanoComic' ? null : 'nanoComic')
+            }}
+            active={activePanel === 'nanoComic'}
             activeStyle={activeItemStyle}
           />
           <FloatingNavItem
@@ -149,34 +148,11 @@ export default function FloatingNav({ className }: { className?: string }): JSX.
             activeStyle={activeItemStyle}
           />
           <FloatingNavItem
-            label={$('我的资产')}
-            icon={<IconListDetails className="floating-nav-item-icon" size={18} />}
-            onHover={(y) => { setPanelAnchorY(y); setActivePanel('assets') }}
-            active={activePanel === 'assets'}
-            activeStyle={activeItemStyle}
-          />
-          <FloatingNavItem
-            label={$('漫剧工作台')}
-            icon={<IconLayoutGrid className="floating-nav-item-icon" size={18} />}
-            tooltipLabel="画布内分镜工作台"
-            onClick={() => {
-              setActivePanel(activePanel === 'nanoComic' ? null : 'nanoComic')
-            }}
-            active={activePanel === 'nanoComic'}
-            activeStyle={activeItemStyle}
-          />
-          <FloatingNavItem
-            label={$('TapShow')}
-            icon={<IconMovie className="floating-nav-item-icon" size={18} />}
-            onHover={(y) => { setPanelAnchorY(y); setActivePanel('tapshow') }}
-            active={activePanel === 'tapshow'}
-            activeStyle={activeItemStyle}
-          />
-          <FloatingNavItem
-            label={$('运行记录')}
+            label={$('对话')}
             icon={<IconTerminal2 className="floating-nav-item-icon" size={18} />}
-            onHover={(y) => { setPanelAnchorY(y); setActivePanel('runs') }}
-            active={activePanel === 'runs'}
+            tooltipLabel="AI 对话"
+            onClick={() => { setActivePanel(activePanel === 'account' ? null : 'account') }}
+            active={activePanel === 'account'}
             activeStyle={activeItemStyle}
           />
           {isAdmin && (
@@ -204,13 +180,6 @@ export default function FloatingNav({ className }: { className?: string }): JSX.
               </ActionIcon>
             </Tooltip>
           )}
-          <FloatingNavItem
-            label={$('历史记录')}
-            icon={<IconHistory className="floating-nav-item-icon" size={18} />}
-            onHover={(y) => { setPanelAnchorY(y); setActivePanel('history') }}
-            active={activePanel === 'history'}
-            activeStyle={activeItemStyle}
-          />
           <div className="floating-nav-divider floating-nav-divider--bottom" />
           <button
             type="button"

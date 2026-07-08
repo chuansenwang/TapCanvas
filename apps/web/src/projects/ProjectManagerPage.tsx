@@ -1,10 +1,10 @@
 import React from 'react'
 import { AppShell, Group, Title, ActionIcon, Box, Text, Paper, Stack, TextInput, Button, Divider, Breadcrumbs, Anchor, Modal, Badge, ScrollArea, Menu, Textarea, Select, FileInput, Progress, Collapse, SimpleGrid, Alert } from '@mantine/core'
-import { IconArrowLeft, IconFolderPlus, IconFilePlus, IconSearch, IconChevronRight, IconFolder, IconLayoutGrid, IconDots, IconTrash, IconEdit, IconPhoto, IconArrowRight, IconSparkles, IconBooks, IconLayoutKanban } from '@tabler/icons-react'
+import { IconArrowLeft, IconFolderPlus, IconFilePlus, IconSearch, IconChevronRight, IconFolder, IconLayoutGrid, IconDots, IconTrash, IconEdit, IconPhoto, IconArrowRight, IconSparkles, IconBooks, IconLayoutKanban, IconSun, IconBrandGithub, IconPlus } from '@tabler/icons-react'
 import GithubGate from '../auth/GithubGate'
 import { useAuth } from '../auth/store'
 import { listProjectChapters, listProjects, upsertProject, deleteProject, listServerAssets, createServerAsset, updateServerAssetData, type ChapterDto, type ProjectDto } from '../api/server'
-import { buildProjectDirectoryUrl, buildProjectUrl, buildStudioUrl } from '../utils/appRoutes'
+import { buildProjectDirectoryUrl, buildStudioUrl } from '../utils/appRoutes'
 import { spaNavigate } from '../utils/spaNavigate'
 import { createDefaultFs, listChildren, pathToRoot, createFolder, createProjectNode, renameNode, deleteNode, moveNode, ensureProjectNodesExist, type ProjectFsNode, type ProjectFsState } from './projectFs'
 import ProjectAssetsViewer from './ProjectAssetsViewer'
@@ -516,8 +516,10 @@ export default function ProjectManagerPage(): JSX.Element {
       setActiveFolderId(node.id)
       return
     }
-    spaNavigate(buildProjectUrl(node.projectId))
+    spaNavigate(buildStudioUrl(node.projectId))
   }
+
+  const recentProjectCards = React.useMemo(() => filteredProjectCards.slice(0, 8), [filteredProjectCards])
 
   const openProjectAssets = (node: ProjectFsNode) => {
     if (node.kind !== 'project') return
@@ -731,7 +733,7 @@ export default function ProjectManagerPage(): JSX.Element {
               setActiveFolderId(node.id)
               return
             }
-            spaNavigate(buildProjectUrl(node.projectId))
+            spaNavigate(buildStudioUrl(node.projectId))
           }}
           draggable={node.id !== fs.rootId}
           onDragStart={(event) => {
@@ -787,206 +789,108 @@ export default function ProjectManagerPage(): JSX.Element {
   }
 
   return (
-    <AppShell className="tc-pm__shell" header={{ height: 56 }} padding={0}>
+    <AppShell className="tc-pm__shell tc-pm__shell--immersive" header={{ height: 0 }} padding={0}>
       <FeatureTour opened={managerTourOpen} steps={managerTourSteps} onClose={closeManagerTour} />
-      <AppShell.Header className="tc-pm__header">
-        <Group className="tc-pm__header-inner" justify="space-between" h="100%" px={16}>
-          <Group className="tc-pm__header-left" gap={10}>
-            <ActionIcon className="tc-pm__back" variant="subtle" onClick={() => spaNavigate(buildStudioUrl())}>
-              <IconArrowLeft className="tc-pm__back-icon" size={18} />
-            </ActionIcon>
-            <Box>
-              <Title className="tc-pm__title" order={3}>项目入口</Title>
-              <Text size="xs" c="dimmed">创建项目、查看共享资产，并打开画布内的漫剧工作台。</Text>
-            </Box>
-            <Badge className="tc-pm__badge" variant="light" color="gray">
-              {loading ? '同步中' : `项目 ${projects.length} 个`}
-            </Badge>
-          </Group>
-
-          <Group className="tc-pm__header-right" gap={10}>
-            <TextInput
-              className="tc-pm__search"
-              value={query}
-              onChange={(e) => setQuery(e.currentTarget.value)}
-              leftSection={<IconSearch className="tc-pm__search-icon" size={14} />}
-              placeholder="搜索项目"
-              size="sm"
-              w={320}
-            />
-            <CanvasEntryButton
-              href={focusedProjectId ? buildStudioUrl({ projectId: focusedProjectId, panel: 'nanoComic' }) : buildStudioUrl({ panel: 'nanoComic' })}
-              label="漫剧工作台"
-              variant="light"
-              size="sm"
-            />
-            <Button className="tc-pm__new-project" variant="filled" size="sm" leftSection={<IconFilePlus className="tc-pm__new-project-icon" size={14} />} onClick={() => openCreate('project')} data-tour="project-manager-create">
-              上传原文
-            </Button>
-          </Group>
-        </Group>
-      </AppShell.Header>
-
       <AppShell.Main className="tc-pm__main">
         <GithubGate className="tc-pm__gate">
-          <div className="tc-pm__layout">
-            {showGroupingUi ? (
-              <aside className="tc-pm__sidebar">
-                <div className="tc-pm__sidebar-top">
-                  <Text className="tc-pm__sidebar-title" size="xs" c="dimmed">
-                    {hasCustomGroups ? '项目目录 / 分组' : '项目目录'}
-                  </Text>
+          <div className="tc-pm__hero-shell">
+            <div className="tc-pm__hero-backdrop" />
+            <div className="tc-pm__hero-topbar">
+              <div className="tc-pm__hero-brand">
+                <div className="tc-pm__hero-logo" />
+                <span className="tc-pm__hero-brand-text">TapCanvas</span>
+              </div>
+              <div className="tc-pm__hero-nav">
+                <button type="button" className="tc-pm__hero-tab tc-pm__hero-tab--active">主页</button>
+                <button type="button" className="tc-pm__hero-tab" onClick={() => spaNavigate(buildStudioUrl())}>工作空间</button>
+              </div>
+              <div className="tc-pm__hero-actions">
+                <ActionIcon className="tc-pm__hero-icon" variant="subtle" aria-label="theme">
+                  <IconSun size={18} />
+                </ActionIcon>
+                <ActionIcon className="tc-pm__hero-icon" variant="subtle" aria-label="github" component="a" href="https://github.com/anymouschina/TapCanvas" target="_blank" rel="noopener noreferrer">
+                  <IconBrandGithub size={18} />
+                </ActionIcon>
+                <ActionIcon className="tc-pm__hero-icon" variant="subtle" aria-label="new project" onClick={() => openCreate('project')} data-tour="project-manager-create">
+                  <IconPlus size={18} />
+                </ActionIcon>
+              </div>
+            </div>
+
+            <div className="tc-pm__hero-center" data-tour="project-manager-path">
+              <div className="tc-pm__hero-copy">
+                <div className="tc-pm__hero-kicker">欢迎使用 TapCanvas.</div>
+                <Title className="tc-pm__hero-title" order={1}>把一个想法变成画布。</Title>
+                <Text className="tc-pm__hero-subtitle">
+                  从原文、分镜到画布执行，项目首页只保留最短路径。
+                </Text>
+                <div className="tc-pm__hero-pills">
+                  <button type="button" className="tc-pm__hero-pill" onClick={() => spaNavigate(buildStudioUrl())}>生成一段 15s 短视频</button>
+                  <button type="button" className="tc-pm__hero-pill" onClick={() => openCreate('project')}>帮我写一个悬疑故事</button>
+                  <button type="button" className="tc-pm__hero-pill" onClick={() => setActiveFolderId(fs.rootId)}>做一组产品宣传分镜</button>
+                  <button type="button" className="tc-pm__hero-pill" onClick={() => openCreate('project')}>创作漫画风格图文</button>
                 </div>
-                <ScrollArea className="tc-pm__sidebar-scroll" type="hover">
-                  <div
-                    className="tc-pm__tree"
-                    onContextMenu={(event) => {
-                      const target = event.target as HTMLElement | null
-                      if (target?.closest('.tc-pm__tree-button')) return
-                      event.preventDefault()
-                      openContextMenu(event.clientX, event.clientY, activeFolderId || fs.rootId, null)
-                    }}
-                  >
-                    {renderTree(fs.rootId, 0)}
-                  </div>
-                </ScrollArea>
-              </aside>
-            ) : null}
-
-            <section className="tc-pm__content">
-              {showGroupingUi ? (
-                <div className="tc-pm__content-top">
-                  <Breadcrumbs className="tc-pm__breadcrumbs" separator=" / ">
-                    {crumbs.map((c) => (
-                      <Anchor
-                        className="tc-pm__crumb"
-                        key={c.id}
-                        onClick={() => setActiveFolderId(c.id)}
-                      >
-                        {c.name}
-                      </Anchor>
-                    ))}
-                  </Breadcrumbs>
+                <div className="tc-pm__hero-input-row">
+                  <TextInput className="tc-pm__hero-input" placeholder="开始一段灵感对话…" />
+                  <Button className="tc-pm__hero-input-submit" variant="subtle">↑</Button>
                 </div>
-              ) : null}
-
-              <div className="tc-pm__top-grid">
-              <PanelCard className="tc-pm__quickstart-card" padding="default" mb="md" data-tour="project-manager-path">
-                <Group className="tc-pm__quickstart-layout" justify="space-between" align="flex-start" gap="lg">
-                  <Box className="tc-pm__quickstart-copy" style={{ flex: 1, minWidth: 260 }}>
-                    <Badge variant="light" color="blue">章节生产入口</Badge>
-                    <Title order={4} mt={10}>先选项目，再进画布工作台</Title>
-                    <Text size="sm" c="dimmed" mt={6}>
-                      这里只做两件事：启动项目，或接力回到画布内的漫剧工作台。逐章生成、确认、沉淀资产都在画布里完成。
-                    </Text>
-                    <Group gap="xs" mt="md">
-                      <Button leftSection={<IconSparkles size={14} />} onClick={() => openCreate('project')}>
-                        新建项目
-                      </Button>
-                      <Button variant="light" onClick={() => spaNavigate('/')}>
-                        回到工作台首页
-                      </Button>
-                    </Group>
-                  </Box>
-                  <SimpleGrid className="tc-pm__quickstart-steps" cols={1} spacing="sm">
-                    <InlinePanel className="tc-pm__quickstart-step">
-                      <Text size="sm" fw={700}>1. 上传原文并锁定画风</Text>
-                      <Text size="xs" c="dimmed" mt={4}>先把文本与视觉共识一次建好。</Text>
-                    </InlinePanel>
-                    <InlinePanel className="tc-pm__quickstart-step">
-                      <Text size="sm" fw={700}>2. 自动补齐章节目录</Text>
-                      <Text size="xs" c="dimmed" mt={4}>系统会优先把你送进最近可编辑章节。</Text>
-                    </InlinePanel>
-                    <InlinePanel className="tc-pm__quickstart-step">
-                      <Text size="sm" fw={700}>3. 只在项目级调整时回这里</Text>
-                      <Text size="xs" c="dimmed" mt={4}>共享记忆、分组整理、归档删除都在这里做。</Text>
-                    </InlinePanel>
-                  </SimpleGrid>
-                </Group>
-              </PanelCard>
-
-              {featuredProjectCards.length > 0 ? (
-                <PanelCard className="tc-pm__overview-card" padding="default" mb="md">
-                  <Group justify="space-between" align="flex-start" mb="sm" gap="md">
-                    <Box>
-                      <Badge variant="light" color="grape">继续生产</Badge>
-                      <Title order={4} mt={10}>最近可接力项目</Title>
-                      <Text size="sm" c="dimmed" mt={6}>
-                        这里只放最近 3 个项目，完整列表在下方网格。
-                      </Text>
-                    </Box>
-                    <InlinePanel className="tc-pm__overview-tip">
-                      <Text size="xs" c="dimmed">目标</Text>
-                      <Text size="sm" fw={700} mt={4}>首屏先看到能继续的项目</Text>
-                    </InlinePanel>
-                  </Group>
-                  <SimpleGrid className="tc-pm__overview-grid" cols={{ base: 1, xl: 3 }} spacing="sm">
-                    {featuredProjectCards.map(({ project, chapterCount, recentChapter }) => (
-                      <PanelCard
-                        className={['tc-pm__project-overview-item', focusedProjectId === project.id ? 'is-focused' : ''].filter(Boolean).join(' ')}
-                        key={project.id}
-                      >
-                        <Stack gap="xs">
-                          <Group justify="space-between" align="flex-start" gap="sm">
-                            <Box style={{ flex: 1, minWidth: 0 }}>
-                              <Text fw={700} size="sm">{project.name}</Text>
-                              <Text size="xs" c="dimmed" mt={4}>
-                                {recentChapter
-                                  ? `最近章节：${recentChapter.title || `第 ${recentChapter.index} 章`} · ${recentChapter.status}`
-                                  : '项目已创建，等待第一章就绪'}
-                              </Text>
-                            </Box>
-                            <Badge variant="light" color="blue">
-                              {chapterCount > 0 ? `${chapterCount} 章` : '待补齐'}
-                            </Badge>
-                          </Group>
-                          <Group gap="xs">
-                            <InlinePanel className="tc-pm__project-overview-chip">
-                              <Group gap={6}>
-                                <IconBooks size={14} />
-                                <Text size="xs">{chapterCount > 0 ? `章节 ${chapterCount}` : '章节准备中'}</Text>
-                              </Group>
-                            </InlinePanel>
-                            <InlinePanel className="tc-pm__project-overview-chip">
-                              <Group gap={6}>
-                                <IconLayoutKanban size={14} />
-                                <Text size="xs">{recentChapter ? '可继续生产' : '等待入口'}</Text>
-                              </Group>
-                            </InlinePanel>
-                          </Group>
-                          <Group gap="xs">
-                            <Button
-                              size="xs"
-                              rightSection={<IconArrowRight size={14} />}
-                              onClick={() => {
-                                spaNavigate(buildProjectUrl(project.id))
-                              }}
-                            >
-                              {recentChapter ? '继续最近章节' : '进入项目'}
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="light"
-                              onClick={() => spaNavigate(buildProjectDirectoryUrl(project.id))}
-                            >
-                              项目目录
-                            </Button>
-                          </Group>
-                        </Stack>
-                      </PanelCard>
-                    ))}
-                  </SimpleGrid>
-                </PanelCard>
-              ) : null}
               </div>
 
-              <Divider className="tc-pm__divider" />
+              <button type="button" className="tc-pm__hero-start-card" onClick={() => openCreate('project')}>
+                <span className="tc-pm__hero-start-plus">+</span>
+                <span className="tc-pm__hero-start-label">开始创作</span>
+              </button>
+            </div>
 
-              <div className="tc-pm__grid" data-tour="project-manager-grid">
-                {filtered.map((n) => (
+            <section className="tc-pm__hero-projects" data-tour="project-manager-grid">
+              <div className="tc-pm__hero-projects-head">
+                <div className="tc-pm__hero-projects-heading">
+                  <Title className="tc-pm__hero-projects-title" order={3}>所有项目</Title>
+                  <Text className="tc-pm__hero-projects-caption">最近使用的项目会优先靠前，继续创作时直接进入最近章节。</Text>
+                </div>
+                <div className="tc-pm__hero-projects-head-right">
+                  <TextInput
+                    className="tc-pm__hero-search"
+                    value={query}
+                    onChange={(e) => setQuery(e.currentTarget.value)}
+                    leftSection={<IconSearch className="tc-pm__search-icon" size={14} />}
+                    placeholder="搜索项目"
+                    size="sm"
+                  />
+                  <Text className="tc-pm__hero-projects-meta" size="sm" c="dimmed">{loading ? '同步中…' : `${filtered.length} 个结果`}</Text>
+                </div>
+              </div>
+              {featuredProjectCards.length > 0 ? (
+                <div className="tc-pm__hero-featured-row">
+                  {featuredProjectCards.map((item) => {
+                    const projectNode = filtered.find((node) => node.kind === 'project' && node.projectId === item.project.id)
+                    if (!projectNode || projectNode.kind !== 'project') return null
+                    return (
+                      <button
+                        type="button"
+                        key={item.project.id}
+                        className={[
+                          'tc-pm__hero-featured-card',
+                          focusedProjectId === item.project.id ? 'is-focused' : '',
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => handleOpenNode(projectNode)}
+                      >
+                        <span className="tc-pm__hero-featured-eyebrow">{item.chapterCount > 0 ? `${item.chapterCount} 个章节` : '新项目'}</span>
+                        <span className="tc-pm__hero-featured-title">{item.project.name}</span>
+                        <span className="tc-pm__hero-featured-sub">
+                          {item.recentChapter?.title || '已创建项目骨架，等待进入章节工作台'}
+                        </span>
+                        <span className="tc-pm__hero-featured-link">继续创作</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+              <div className="tc-pm__hero-projects-strip">
+                {recentProjectCards.map((n) => (
                   <PanelCard
                     className={[
-                      'tc-pm__card',
+                      'tc-pm__hero-card',
                       n.kind === 'folder' && dropFolderId === n.id ? 'is-drop-target' : '',
                       n.kind === 'project' && focusedProjectId === n.projectId ? 'is-focused' : '',
                     ].filter(Boolean).join(' ')}
@@ -1095,7 +999,7 @@ export default function ProjectManagerPage(): JSX.Element {
                   </PanelCard>
                 ))}
                 {!filtered.length && (
-                  <div className="tc-pm__empty">
+                  <div className="tc-pm__empty tc-pm__empty--hero">
                     <Text className="tc-pm__empty-title">{projects.length === 0 && !query.trim() ? '先创建第一个项目' : '暂无内容'}</Text>
                     <Text className="tc-pm__empty-sub" c="dimmed" size="sm">
                       {projects.length === 0 && !query.trim()

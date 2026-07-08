@@ -37,6 +37,10 @@ import {
   IconSearch,
   IconSortDescending,
   IconCircleCheck,
+  IconArrowsDiagonal,
+  IconChevronRight,
+  IconFolder,
+  IconStar,
 } from '@tabler/icons-react'
 import { useRFStore } from '../canvas/store'
 import {
@@ -172,6 +176,16 @@ type CharacterGraphEdgeForCanvas = {
   relation: string
   weight: number
   chapterHints: number[]
+}
+
+type AssetDrawerSection = 'canvas' | 'directory' | 'assets'
+
+type AssetLibraryEntry = {
+  id: string
+  title: string
+  subtitle: string
+  previewUrl?: string
+  previewKind?: 'image'
 }
 type StyleBibleForCanvas = {
   styleName?: string
@@ -925,6 +939,10 @@ export default function AssetPanel(): JSX.Element | null {
   const [graph3DOpened, setGraph3DOpened] = React.useState(false)
   const [projectAssetsViewerOpen, setProjectAssetsViewerOpen] = React.useState(false)
   const [aiCharacterLibraryOpened, setAiCharacterLibraryOpened] = React.useState(false)
+  const [drawerSection, setDrawerSection] = React.useState<AssetDrawerSection>('canvas')
+  const [drawerSearchQuery, setDrawerSearchQuery] = React.useState('')
+  const [assetLibraryScope, setAssetLibraryScope] = React.useState<'personal' | 'team'>('personal')
+  const [expandedAssetFolders, setExpandedAssetFolders] = React.useState<Array<'favorites' | 'roles' | 'scenes' | 'props' | 'styles' | 'others'>>(['favorites'])
   const [generatedThumbs, setGeneratedThumbs] = React.useState<Record<string, string | null>>({})
   const thumbStatusRef = React.useRef<Record<string, 'pending' | 'running' | 'done'>>({})
   const activeThumbJobsRef = React.useRef(0)
@@ -961,7 +979,15 @@ export default function AssetPanel(): JSX.Element | null {
   }, [mounted, preferredMaterialCategory])
 
   React.useEffect(() => {
+    if (!mounted) return
+    setDrawerSection('canvas')
+    setDrawerSearchQuery('')
+    setExpandedAssetFolders(['favorites'])
+  }, [mounted])
+
+  React.useEffect(() => {
     if (!mounted || !assetPanelFocusRequest) return
+    setDrawerSection('assets')
     if (assetPanelFocusRequest.tab) {
       setTab(assetPanelFocusRequest.tab)
     }
@@ -1896,6 +1922,125 @@ export default function AssetPanel(): JSX.Element | null {
     () => filteredGenerationAssets.slice(0, Math.max(10, visibleGenerationCount)),
     [filteredGenerationAssets, visibleGenerationCount],
   )
+  const normalizedDrawerSearchQuery = React.useMemo(
+    () => drawerSearchQuery.trim().toLowerCase(),
+    [drawerSearchQuery],
+  )
+  const canvasNodeEntries = React.useMemo(() => {
+    const summarizePrompt = (value: unknown): string => {
+      if (typeof value !== 'string') return ''
+      const text = value.trim().replace(/\s+/g, ' ')
+      if (!text) return ''
+      return text.length > 36 ? `${text.slice(0, 36)}...` : text
+    }
+    return canvasNodes
+      .slice()
+      .reverse()
+      .map((node) => {
+        const data = node.data && typeof node.data === 'object'
+          ? node.data as Record<string, unknown>
+          : null
+        const label = data && typeof data.label === 'string' ? data.label.trim() : ''
+        const prompt = data ? summarizePrompt(data.prompt) : ''
+        const kind = data && typeof data.kind === 'string' ? data.kind.trim() : ''
+        const title = label || prompt || String(node.id || '未命名节点').trim()
+        return {
+          id: String(node.id || '').trim(),
+          title,
+          subtitle: kind || String(node.type || '').trim() || '节点',
+        }
+      })
+      .filter((item) => item.id && item.title)
+  }, [canvasNodes])
+  const filteredCanvasNodeEntries = React.useMemo(() => {
+    if (!normalizedDrawerSearchQuery) return canvasNodeEntries
+    return canvasNodeEntries.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(normalizedDrawerSearchQuery))
+  }, [canvasNodeEntries, normalizedDrawerSearchQuery])
+  const directoryEntries = React.useMemo(() => {
+    const chapters = Array.isArray(selectedBookIndex?.chapters) ? selectedBookIndex.chapters : []
+    return chapters.map((chapter) => {
+      const chapterNo = Number(chapter.chapter)
+      const normalizedNo = Number.isFinite(chapterNo) && chapterNo > 0 ? Math.trunc(chapterNo) : 0
+      const title = String(chapter.title || '').trim() || `第${normalizedNo || '?'}章`
+      const summary = String(chapter.summary || '').trim()
+      return {
+        id: String(normalizedNo || title),
+        chapterNo: normalizedNo,
+        title,
+        subtitle: summary,
+      }
+    })
+  }, [selectedBookIndex])
+  const filteredDirectoryEntries = React.useMemo(() => {
+    if (!normalizedDrawerSearchQuery) return directoryEntries
+    return directoryEntries.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(normalizedDrawerSearchQuery))
+  }, [directoryEntries, normalizedDrawerSearchQuery])
+  const assetLibraryFolders = React.useMemo(() => ([
+    { key: 'favorites', label: '收藏', kind: 'favorite' as const },
+    { key: 'roles', label: '角色', kind: 'folder' as const },
+    { key: 'scenes', label: '场景', kind: 'folder' as const },
+    { key: 'props', label: '道具', kind: 'folder' as const },
+    { key: 'styles', label: '风格', kind: 'folder' as const },
+    { key: 'others', label: 'Others 其他', kind: 'folder' as const },
+  ]), [])
+  const visualReferenceAssets = React.useMemo(() => {
+    return Array.isArray(selectedBookIndex?.assets?.visualRefs) ? selectedBookIndex.assets.visualRefs : []
+  }, [selectedBookIndex?.assets?.visualRefs])
+  const assetLibraryEntries = React.useMemo(() => {
+    const byQuery = <T extends AssetLibraryEntry>(items: T[]): T[] => {
+      if (!normalizedDrawerSearchQuery) return items
+      return items.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(normalizedDrawerSearchQuery))
+    }
+    const favoriteEntries: AssetLibraryEntry[] = []
+    const roleEntries = byQuery(roleCardDisplayAssets.map((card) => ({
+      id: String(card.cardId || card.assetId || card.roleName).trim(),
+      title: String(card.roleName || '未命名角色').trim(),
+      subtitle: String(card.stateDescription || card.prompt || '角色卡').trim() || '角色卡',
+      previewUrl: String(card.threeViewImageUrl || card.imageUrl || '').trim() || undefined,
+      previewKind: 'image' as const,
+    })))
+    const sceneEntries = byQuery(visualReferenceAssets
+      .filter((asset) => asset.category === 'scene_prop')
+      .map((asset) => ({
+        id: String(asset.refId || asset.name).trim(),
+        title: String(asset.name || '未命名场景').trim(),
+        subtitle: String(asset.stateDescription || asset.prompt || '场景参考').trim() || '场景参考',
+        previewUrl: String(asset.imageUrl || '').trim() || undefined,
+        previewKind: 'image' as const,
+      })))
+    const propEntries = byQuery([] as AssetLibraryEntry[])
+    const styleEntries = byQuery(selectedStyleReferenceImages.map((url, index) => ({
+      id: `style-${index + 1}`,
+      title: selectedStyleBible?.styleName ? `${selectedStyleBible.styleName} ${index + 1}` : `风格参考 ${index + 1}`,
+      subtitle: '风格参考图',
+      previewUrl: url,
+      previewKind: 'image' as const,
+    })))
+    const otherEntries = byQuery([
+      ...projectMaterialAssets.map((asset) => ({
+        id: String(asset.id || asset.name).trim(),
+        title: String(asset.name || '项目文本').trim(),
+        subtitle: String(getProjectMaterialData(asset).kind || '项目文档').trim(),
+      })),
+      ...visualReferenceAssets
+        .filter((asset) => asset.category !== 'scene_prop')
+        .map((asset) => ({
+          id: String(asset.refId || asset.name).trim(),
+          title: String(asset.name || '未命名素材').trim(),
+          subtitle: String(asset.category || '其他素材').trim(),
+          previewUrl: String(asset.imageUrl || '').trim() || undefined,
+          previewKind: 'image' as const,
+        })),
+    ])
+    return {
+      favorites: byQuery(favoriteEntries),
+      roles: roleEntries,
+      scenes: sceneEntries,
+      props: propEntries,
+      styles: styleEntries,
+      others: otherEntries,
+    }
+  }, [normalizedDrawerSearchQuery, projectMaterialAssets, roleCardDisplayAssets, selectedStyleBible?.styleName, selectedStyleReferenceImages, visualReferenceAssets])
 
   const MAX_THUMB_JOBS = 2
 
@@ -3550,31 +3695,22 @@ export default function AssetPanel(): JSX.Element | null {
   }, [addNode, availableCharacterPool, currentProject?.id, latestRoleCardMap, roleCardGenerating, selectedBookId, selectedBookIndex, selectedChapterMeta, selectedStyleBible, selectedStyleReferenceImages, setActivePanel, updateNodeData])
 
   return (
-    <div className="asset-panel-anchor" style={{ top: anchorY ? anchorY - 150 : 140 }} data-ux-panel>
+    <div className="asset-panel-anchor" data-ux-panel>
       <Transition className="asset-panel-transition" mounted={mounted} transition="pop" duration={140} timingFunction="ease">
         {(styles) => (
           <div className="asset-panel-transition-inner" style={styles}>
             <PanelCard
               className="glass asset-panel-shell"
-              style={{ maxHeight: `${maxHeight}px`, height: `${maxHeight}px`, display:'flex' }}
+              style={{ maxHeight: '100vh', height: '100vh', display:'flex' }}
               onWheelCapture={stopPanelWheelPropagation}
               data-ux-panel
             >
-              <div className="asset-panel-arrow panel-arrow" />
               <Group className="asset-panel-header" justify="space-between" mb={8}>
-                <Title className="asset-panel-title" order={6}>我的资产</Title>
+                <div className="asset-panel-heading">
+                  <Title className="asset-panel-title" order={4}>{currentProject?.name || '当前项目'}</Title>
+                  <Text className="asset-panel-subtitle" size="sm" c="dimmed">{currentProject?.name || currentProject?.id || '当前项目素材工作区'}</Text>
+                </div>
                 <Group className="asset-panel-header-actions" gap="xs">
-                  <Tooltip className="asset-panel-fullscreen-tooltip" label="弹窗查看当前项目素材" withArrow>
-                    <ActionIcon
-                      className="asset-panel-fullscreen-action"
-                      size="sm"
-                      variant="subtle"
-                      aria-label="弹窗查看当前项目素材"
-                      onClick={openProjectMaterialsFullscreen}
-                    >
-                      <IconPlayerPlay className="asset-panel-fullscreen-icon" size={16} />
-                    </ActionIcon>
-                  </Tooltip>
                   <Tooltip className="asset-panel-refresh-tooltip" label="刷新" withArrow>
                     <ActionIcon className="asset-panel-refresh-action" size="sm" variant="light" onClick={handleRefresh} loading={refreshing || loading}>
                       <IconRefresh className="asset-panel-refresh-icon" size={16} />
@@ -3585,6 +3721,11 @@ export default function AssetPanel(): JSX.Element | null {
                   </Button>
                 </Group>
               </Group>
+              <div className="asset-panel-drawer-tabs">
+                <button type="button" className={['asset-panel-drawer-tab', drawerSection === 'canvas' ? 'is-active' : ''].filter(Boolean).join(' ')} onClick={() => setDrawerSection('canvas')}>画布</button>
+                <button type="button" className={['asset-panel-drawer-tab', drawerSection === 'directory' ? 'is-active' : ''].filter(Boolean).join(' ')} onClick={() => setDrawerSection('directory')}>目录</button>
+                <button type="button" className={['asset-panel-drawer-tab', drawerSection === 'assets' ? 'is-active' : ''].filter(Boolean).join(' ')} onClick={() => setDrawerSection('assets')}>资产</button>
+              </div>
               <div className="asset-panel-body" ref={bodyScrollRef} onScroll={handleScroll}>
                 <input
                   className="asset-panel-upload-input asset-panel-hidden-input"
@@ -3593,7 +3734,150 @@ export default function AssetPanel(): JSX.Element | null {
                   accept=".txt,.md,.markdown,.json"
                   onChange={handleMaterialUploadInputChange}
                 />
-                <Tabs className="asset-panel-tabs" value={tab} onChange={(v) => setTab((v as any) || 'materials')}>
+                {drawerSection === 'canvas' ? (
+                  <Stack className="asset-panel-drawer-section" gap="sm">
+                    <Group className="asset-panel-drawer-filter-row" justify="space-between" align="center">
+                      <Text className="asset-panel-drawer-section-title" size="sm" fw={700}>画布元素</Text>
+                      <Text className="asset-panel-drawer-section-meta" size="sm" c="dimmed">共 {filteredCanvasNodeEntries.length} 节点</Text>
+                    </Group>
+                    <TextInput
+                      className="asset-panel-drawer-search"
+                      value={drawerSearchQuery}
+                      onChange={(event) => setDrawerSearchQuery(event.currentTarget.value)}
+                      leftSection={<IconSearch size={14} />}
+                      placeholder="搜索节点"
+                    />
+                    <Stack className="asset-panel-drawer-list" gap="xs">
+                      {filteredCanvasNodeEntries.map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          className="asset-panel-drawer-list-item"
+                          onClick={() => {
+                            const focusNode = (window as Window & { __tcFocusNode?: (nodeId: string) => void }).__tcFocusNode
+                            focusNode?.(item.id)
+                          }}
+                        >
+                          <span className="asset-panel-drawer-list-item-icon"><IconPhoto size={16} /></span>
+                          <span className="asset-panel-drawer-list-item-copy">
+                            <span className="asset-panel-drawer-list-item-title">{item.title}</span>
+                            <span className="asset-panel-drawer-list-item-subtitle">{item.subtitle}</span>
+                          </span>
+                        </button>
+                      ))}
+                      {!filteredCanvasNodeEntries.length ? <Text size="sm" c="dimmed">当前画布还没有可展示节点。</Text> : null}
+                    </Stack>
+                  </Stack>
+                ) : null}
+                {drawerSection === 'directory' ? (
+                  <Stack className="asset-panel-drawer-section" gap="sm">
+                    <Group className="asset-panel-drawer-filter-row" justify="space-between" align="center">
+                      <Text className="asset-panel-drawer-section-title" size="sm" fw={700}>章节目录</Text>
+                      <Text className="asset-panel-drawer-section-meta" size="sm" c="dimmed">共 {filteredDirectoryEntries.length} 章</Text>
+                    </Group>
+                    <TextInput
+                      className="asset-panel-drawer-search"
+                      value={drawerSearchQuery}
+                      onChange={(event) => setDrawerSearchQuery(event.currentTarget.value)}
+                      leftSection={<IconSearch size={14} />}
+                      placeholder="搜索章节"
+                    />
+                    <Stack className="asset-panel-drawer-list" gap="xs">
+                      {filteredDirectoryEntries.map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          className="asset-panel-drawer-list-item"
+                          onClick={() => {
+                            if (item.chapterNo > 0) setSelectedBookChapter(String(item.chapterNo))
+                          }}
+                        >
+                          <span className="asset-panel-drawer-list-item-copy">
+                            <span className="asset-panel-drawer-list-item-title">{item.title}</span>
+                            <span className="asset-panel-drawer-list-item-subtitle">{item.subtitle || '未生成章节摘要'}</span>
+                          </span>
+                        </button>
+                      ))}
+                      {!filteredDirectoryEntries.length ? <Text size="sm" c="dimmed">当前项目还没有可展示目录。</Text> : null}
+                    </Stack>
+                  </Stack>
+                ) : null}
+                {drawerSection === 'assets' ? (
+                  <Stack className="asset-panel-library-shell" gap="md">
+                    <Group className="asset-panel-library-head" justify="space-between" align="center">
+                      <Text className="asset-panel-library-title" size="xl" fw={800}>素材库</Text>
+                      <Group className="asset-panel-library-head-actions" gap="xs">
+                        <ActionIcon className="asset-panel-library-head-action" size="sm" variant="subtle" aria-label="全屏素材库" onClick={openProjectMaterialsFullscreen}>
+                          <IconArrowsDiagonal size={16} />
+                        </ActionIcon>
+                        <ActionIcon className="asset-panel-library-head-action" size="sm" variant="subtle" aria-label="上传素材" onClick={() => openMaterialUpload()}>
+                          <IconUpload size={16} />
+                        </ActionIcon>
+                      </Group>
+                    </Group>
+                    <div className="asset-panel-library-scope-switch">
+                      <button type="button" className={['asset-panel-library-scope-button', assetLibraryScope === 'personal' ? 'is-active' : ''].filter(Boolean).join(' ')} onClick={() => setAssetLibraryScope('personal')}>个人</button>
+                      <button type="button" className={['asset-panel-library-scope-button', assetLibraryScope === 'team' ? 'is-active' : ''].filter(Boolean).join(' ')} onClick={() => setAssetLibraryScope('team')}>团队</button>
+                    </div>
+                    <TextInput
+                      className="asset-panel-library-search"
+                      value={drawerSearchQuery}
+                      onChange={(event) => setDrawerSearchQuery(event.currentTarget.value)}
+                      leftSection={<IconSearch size={14} />}
+                      placeholder="搜索"
+                    />
+                    <Stack className="asset-panel-library-folder-list" gap="xs">
+                      {assetLibraryFolders.map((folder) => {
+                        const expanded = expandedAssetFolders.includes(folder.key)
+                        const entries = assetLibraryEntries[folder.key]
+                        return (
+                          <div key={folder.key} className="asset-panel-library-folder-group">
+                            <button
+                              type="button"
+                              className={['asset-panel-library-folder-item', expanded ? 'is-active' : ''].filter(Boolean).join(' ')}
+                              onClick={() => setExpandedAssetFolders((prev) => prev.includes(folder.key) ? prev.filter((item) => item !== folder.key) : [...prev, folder.key])}
+                            >
+                              {folder.kind === 'favorite' ? (
+                                <span className="asset-panel-library-folder-icon asset-panel-library-folder-icon--star"><IconStar size={18} /></span>
+                              ) : (
+                                <span className="asset-panel-library-folder-leading">
+                                  <span className={['asset-panel-library-folder-chevron', expanded ? 'is-open' : ''].filter(Boolean).join(' ')}><IconChevronRight size={15} /></span>
+                                  <IconFolder size={20} />
+                                </span>
+                              )}
+                              <span className="asset-panel-library-folder-label">{folder.label}</span>
+                            </button>
+                            {expanded ? (
+                              <div className="asset-panel-library-folder-children">
+                                {entries.length > 0 ? entries.map((entry) => (
+                                  <button
+                                    type="button"
+                                    key={entry.id}
+                                    className="asset-panel-library-child-item"
+                                    onClick={() => {
+                                      if (entry.previewUrl && entry.previewKind === 'image') {
+                                        openPreview({ url: entry.previewUrl, kind: 'image', name: entry.title })
+                                      }
+                                    }}
+                                  >
+                                    <span className="asset-panel-library-child-title">{entry.title}</span>
+                                    <span className="asset-panel-library-child-subtitle">{entry.subtitle}</span>
+                                  </button>
+                                )) : (
+                                  <div className="asset-panel-library-child-empty">暂无素材</div>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </Stack>
+                    <div className="asset-panel-library-footer">
+                      <Text className="asset-panel-library-footer-text" size="xs" c="dimmed">
+                        {assetLibraryScope === 'personal' ? '当前展示个人素材分组入口。' : '当前展示团队素材分组入口。'}
+                      </Text>
+                    </div>
+                    <Tabs className="asset-panel-tabs asset-panel-tabs--library" value={tab} onChange={(v) => setTab((v as 'generated' | 'workflow' | 'materials') || 'materials')}>
                   <Tabs.List className="asset-panel-tab-list">
                     <Tabs.Tab className="asset-panel-tab" value="materials">项目素材</Tabs.Tab>
                     {showExtraAssetTabs ? <Tabs.Tab className="asset-panel-tab" value="generated">生成内容</Tabs.Tab> : null}
@@ -4086,7 +4370,9 @@ export default function AssetPanel(): JSX.Element | null {
                     </Stack>
                   </Tabs.Panel>
                   ) : null}
-                </Tabs>
+                    </Tabs>
+                  </Stack>
+                ) : null}
               </div>
             </PanelCard>
           </div>

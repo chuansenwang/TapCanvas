@@ -1,6 +1,6 @@
 import React from 'react'
-import { Title, Stack, Button, Transition } from '@mantine/core'
-import { IconLayoutGrid, IconPhoto, IconTypography, IconVideo } from '@tabler/icons-react'
+import { Title, Stack, Button, Transition, Text } from '@mantine/core'
+import { IconLayoutGrid, IconPhoto, IconTypography, IconVideo, IconMusic, IconScissors, IconDeviceTvOld } from '@tabler/icons-react'
 import { useUIStore } from './uiStore'
 import { useRFStore } from '../canvas/store'
 import { $ } from '../canvas/i18n'
@@ -13,6 +13,9 @@ const ADDABLE_NODE_OPTIONS = [
   { kind: 'image', label: '图像', Icon: IconPhoto },
   { kind: 'storyboard', label: '分镜编辑', Icon: IconLayoutGrid },
   { kind: 'video', label: '视频', Icon: IconVideo },
+  { kind: 'audio-beta', label: '音频', Icon: IconMusic, badge: 'BETA', disabled: true },
+  { kind: 'compose-video-beta', label: '视频合成', Icon: IconScissors, badge: 'BETA', disabled: true },
+  { kind: 'director-beta', label: '导演台', Icon: IconDeviceTvOld, badge: 'BETA', disabled: true },
 ] as const
 
 export default function AddNodePanel({ className }: { className?: string }): JSX.Element | null {
@@ -30,35 +33,37 @@ export default function AddNodePanel({ className }: { className?: string }): JSX
   }, [addNode, setActivePanel])
 
   return (
-    <div className={panelClassName} style={{ position: 'fixed', left: 82, top: (anchorY ? anchorY - 120 : 64), zIndex: 200 }} data-ux-panel>
+    <div className={panelClassName} style={{ position: 'fixed', inset: 0, zIndex: 340, pointerEvents: mounted ? 'auto' : 'none' }} data-ux-panel>
       <Transition className="add-node-panel-transition" mounted={mounted} transition="pop" duration={140} timingFunction="ease">
         {(styles) => (
-          <div className="add-node-panel-transition-inner" style={styles}>
+          <div className="add-node-panel-transition-inner" style={{ ...styles, position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 132 }}>
             <PanelCard
-              className="glass"
+              className="add-node-panel-shell"
               style={{
-                width: 320,
-                maxHeight: `${maxHeight}px`,
+                width: 480,
+                maxWidth: 'calc(100vw - 32px)',
+                maxHeight: `${Math.max(320, maxHeight)}px`,
                 minHeight: 0,
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
-                transformOrigin: 'left center',
+                transformOrigin: 'center bottom',
               }}
               onWheelCapture={stopPanelWheelPropagation}
               data-ux-panel
             >
-              <div className="add-node-panel-arrow panel-arrow" />
-              <div className="add-node-panel-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
-                <Title className="add-node-panel-title" order={6} mb={8}>{$('添加节点')}</Title>
-                <Stack className="add-node-panel-actions" gap={8}>
-                  {ADDABLE_NODE_OPTIONS.map(({ kind, label, Icon }) => (
+              <div className="add-node-panel-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                <Title className="add-node-panel-title" order={3} mb={14}>{$('添加节点')}</Title>
+                <Stack className="add-node-panel-actions" gap={12}>
+                  {ADDABLE_NODE_OPTIONS.map(({ kind, label, Icon, badge, disabled }) => (
                     <Button
                       key={kind}
                       className="add-node-panel-button"
-                      variant="light"
+                      variant="subtle"
                       leftSection={<Icon className="add-node-panel-icon" size={16} />}
-                      onClick={() => addTaskNode(kind)}
+                      rightSection={badge ? <Text className="add-node-panel-badge">{badge}</Text> : null}
+                      onClick={() => { if (!disabled) addTaskNode(kind) }}
+                      disabled={disabled}
                     >
                       {$(label)}
                     </Button>
