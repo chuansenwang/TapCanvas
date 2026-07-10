@@ -1,6 +1,6 @@
 import React from 'react'
-import { ActionIcon, Badge, Button, Group, Menu, Modal, Paper, ScrollArea, Stack, Text, Textarea, Tooltip } from '@mantine/core'
-import { IconArrowsMaximize, IconArrowsMinimize, IconBook2, IconChevronDown, IconChevronUp, IconMessageCircle, IconMessagePlus, IconPaperclip, IconPhoto, IconSend2, IconSparkles, IconTrash, IconUpload, IconX } from '@tabler/icons-react'
+import { ActionIcon, Badge, Button, Group, Menu, Modal, Paper, ScrollArea, Select, Stack, Text, Textarea, Tooltip } from '@mantine/core'
+import { IconArrowsMaximize, IconArrowsMinimize, IconBook2, IconChevronDown, IconChevronUp, IconMessageCircle, IconMessagePlus, IconPaperclip, IconPhoto, IconSend2, IconSparkles, IconTrash, IconUpload, IconUsersGroup, IconX } from '@tabler/icons-react'
 import ReactMarkdown from 'react-markdown'
 import {
   normalizeStoryboardSelectionContext,
@@ -12,8 +12,10 @@ import {
   agentsChatStream,
   getServerFlow,
   getMemoryContext,
+  listNewApiModels,
   listProjectMaterials,
   listPublicAgentSkills,
+  type NewApiModelDto,
   type AgentsChatRequestDto,
   type AgentsChatToolStreamPayload,
   uploadServerAssetFile,
@@ -58,6 +60,7 @@ import {
   getNodeProductionMeta,
   resolveChapterGroundedProductionMetadataForNode,
 } from '../../canvas/productionMeta'
+import { getModelOptionRequestAlias, useModelOptions } from '../../config/useModelOptions'
 import {
   normalizePublicFlowAnchorBindings,
   type PublicFlowAnchorBinding,
@@ -75,6 +78,8 @@ type ChatMessage = {
   role: ChatRole
   content: string
   ts: string
+  workerLabel?: string
+  workerStatusLabel?: string
   phase?: 'thinking' | 'final'
   kind?: 'progress' | 'result' | 'error'
   assets?: Array<{ title: string; url: string; thumbnailUrl?: string }>
@@ -104,6 +109,18 @@ type SendOptions = {
   attachCanvasContext?: boolean
 }
 
+type AiChatTeamRoleId = 'auto' | 'director' | 'storyboard' | 'generator' | 'editor' | 'post'
+
+type AiChatTeamRolePreset = {
+  id: AiChatTeamRoleId
+  name: string
+  summary: string
+  detail: string
+  accent: 'blue' | 'gray'
+  badge: string
+  enforceTeamExecution: boolean
+}
+
 type UploadedReferenceAssetMeta = {
   assetId?: string
   name?: string
@@ -119,9 +136,78 @@ type InspirationQuickAction = ChatQuickActionPreset & {
   skill: AgentSkillDto | null
 }
 
+type ExternalNodeGenerationDetail = {
+  nodeId?: string
+  nodeLabel?: string
+  generationKind?: 'character' | 'scene'
+  imageModel?: string
+  imageSize?: string
+  extraPrompt?: string
+  rebuildReference?: boolean
+}
+
 const CHAT_SESSION_STORAGE_KEY = 'tapcanvas.aiChat.sessionBaseKey.v1'
 const AI_CHAT_LAYOUT_PREFERENCE_STORAGE_KEY = 'tapcanvas.aiChat.layoutPreference.v1'
+const AI_CHAT_MODEL_PREFERENCE_STORAGE_KEY = 'tapcanvas.aiChat.modelPreference.v1'
+const AI_CHAT_TEAM_ROLE_STORAGE_KEY = 'tapcanvas.aiChat.teamRolePreference.v1'
 const AI_CHAT_MODE_TRANSITION_MS = 220
+
+const AI_CHAT_TEAM_ROLE_PRESETS: AiChatTeamRolePreset[] = [
+  {
+    id: 'auto',
+    name: '自动（小T 智能委派）',
+    summary: '由小T按 SOP 自动分配最合适的角色。',
+    detail: '默认团队模式；要求本轮先产生真实 team tool 执行证据。',
+    accent: 'blue',
+    badge: 'AUTO',
+    enforceTeamExecution: true,
+  },
+  {
+    id: 'director',
+    name: '小T',
+    summary: '主演 / 编排：理解创意、规划链路、按 SOP 委派智能团并把控成片质量。',
+    detail: '适合先由总导演统筹，再决定是否继续拆给团队成员。',
+    accent: 'gray',
+    badge: '导演',
+    enforceTeamExecution: true,
+  },
+  {
+    id: 'storyboard',
+    name: '分镜师',
+    summary: '锚定卡 / 角色场景卡 / 镜头表 / 分镜设计板 / 空间 blocking / 因果自审。',
+    detail: '优先处理章节拆镜、镜头语言、镜头连续性与空间组织。',
+    accent: 'gray',
+    badge: 'S1-S5',
+    enforceTeamExecution: true,
+  },
+  {
+    id: 'generator',
+    name: '生成师',
+    summary: '逐镜 clipPrompt 三层结构创作与全部免费自检，产出可喂 orchestrator 的 StoryPlan。',
+    detail: '优先处理图像/视频生成提示词与可执行产出方案。',
+    accent: 'gray',
+    badge: 'S6',
+    enforceTeamExecution: true,
+  },
+  {
+    id: 'editor',
+    name: '剪辑师',
+    summary: '单条产物即审、单镜就近返工建议与成片节奏审，不等全片。',
+    detail: '优先处理镜头节奏、返工建议与结果验收。',
+    accent: 'gray',
+    badge: 'QA',
+    enforceTeamExecution: true,
+  },
+  {
+    id: 'post',
+    name: '后期',
+    summary: '成片 QA 报告、配音 TTS / BGM / 音乐编排、字幕题卡转场与发布准备。',
+    detail: '优先处理包装、声音、字幕与交付前检查。',
+    accent: 'gray',
+    badge: 'POST',
+    enforceTeamExecution: true,
+  },
+]
 
 type AiChatPreferenceMode = 'compact' | 'expanded'
 
@@ -156,6 +242,74 @@ function readAiChatLayoutPreference(): AiChatLayoutPreference {
   } catch {
     return DEFAULT_AI_CHAT_LAYOUT_PREFERENCE
   }
+}
+
+function readAiChatModelPreference(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    return String(window.localStorage.getItem(AI_CHAT_MODEL_PREFERENCE_STORAGE_KEY) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function writeAiChatModelPreference(value: string) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(AI_CHAT_MODEL_PREFERENCE_STORAGE_KEY, String(value || '').trim())
+  } catch {
+    // ignore
+  }
+}
+
+function normalizeAiChatTeamRoleId(value: unknown): AiChatTeamRoleId {
+  const normalized = String(value || '').trim()
+  return AI_CHAT_TEAM_ROLE_PRESETS.some((preset) => preset.id === normalized)
+    ? normalized as AiChatTeamRoleId
+    : 'auto'
+}
+
+function readAiChatTeamRolePreference(): AiChatTeamRoleId {
+  if (typeof window === 'undefined') return 'auto'
+  try {
+    return normalizeAiChatTeamRoleId(window.localStorage.getItem(AI_CHAT_TEAM_ROLE_STORAGE_KEY))
+  } catch {
+    return 'auto'
+  }
+}
+
+function writeAiChatTeamRolePreference(value: AiChatTeamRoleId) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(AI_CHAT_TEAM_ROLE_STORAGE_KEY, normalizeAiChatTeamRoleId(value))
+  } catch {
+    // ignore
+  }
+}
+
+function buildAgentsTeamExecutionInstruction(preset: AiChatTeamRolePreset | null): string {
+  if (!preset || preset.enforceTeamExecution !== true) return ''
+  if (preset.id === 'auto') {
+    return '执行要求：本轮必须以智能体团队模式执行，由小T先统筹，再根据实际任务自主委派最合适的团队成员。禁止以单代理直接结束。'
+  }
+  return `执行要求：本轮必须以智能体团队模式执行，并优先由「${preset.name}」承担主责；若需要其他成员协作，可继续在团队内委派，但不要跳过团队执行证据。`
+}
+
+function getTeamWorkerLabel(preset: AiChatTeamRolePreset | null): string {
+  if (!preset) return '智能体团队'
+  if (preset.id === 'auto') return '小T'
+  return preset.name
+}
+
+function getTeamWorkerStatusLabel(preset: AiChatTeamRolePreset | null): string {
+  if (!preset) return '正在处理'
+  if (preset.id === 'auto') return '正在统筹委派'
+  if (preset.id === 'director') return '正在统筹'
+  if (preset.id === 'storyboard') return '正在拆镜'
+  if (preset.id === 'generator') return '正在生成方案'
+  if (preset.id === 'editor') return '正在审片'
+  if (preset.id === 'post') return '正在做后期检查'
+  return '正在处理'
 }
 
 function writeAiChatLayoutPreference(next: AiChatLayoutPreference) {
@@ -1165,6 +1319,14 @@ type SelectedCanvasNodeContext = {
   hasDownstreamComposeVideo: boolean
 }
 
+type AssetPanelChapterChatContext = {
+  bookId: string
+  chapterId: string
+  label: string
+  title?: string
+  summary?: string
+}
+
 type AgentsChatSelectedReferencePayload = NonNullable<NonNullable<AgentsChatRequestDto['chatContext']>['selectedReference']>
 type AgentsChatSelectedReferenceAnchorBinding =
   NonNullable<AgentsChatSelectedReferencePayload['anchorBindings']>[number]
@@ -1447,19 +1609,22 @@ function shouldShowProjectTextMaterialHint(input: {
 
 function buildImplicitChatRequest(input: {
   selectedCanvasNodeContext: SelectedCanvasNodeContext | null
+  selectedAssetPanelChapterContext: AssetPanelChapterChatContext | null
   referenceImageCount: number
   hasTargetImage: boolean
   activeSkillName: string | null
 }): ImplicitChatRequest | null {
   const contextLabels: string[] = []
   if (input.selectedCanvasNodeContext?.nodeId) contextLabels.push('当前选中节点')
+  if (input.selectedAssetPanelChapterContext?.chapterId) contextLabels.push(`当前章节 第${input.selectedAssetPanelChapterContext.chapterId}章`)
   if (input.referenceImageCount > 0) contextLabels.push(`参考图 ${input.referenceImageCount} 张`)
   if (input.hasTargetImage) contextLabels.push('目标效果图')
   if (input.activeSkillName) contextLabels.push(`已启用能力 ${input.activeSkillName}`)
   if (contextLabels.length === 0) return null
 
-  const displayText = input.selectedCanvasNodeContext?.label
-    ? `基于「${clipChatPreview(input.selectedCanvasNodeContext.label, 24)}」继续`
+  const displayLabel = input.selectedCanvasNodeContext?.label || input.selectedAssetPanelChapterContext?.label || ''
+  const displayText = displayLabel
+    ? `基于「${clipChatPreview(displayLabel, 24)}」继续`
     : input.referenceImageCount > 0 || input.hasTargetImage
       ? '基于当前参考继续'
       : input.activeSkillName
@@ -1574,6 +1739,8 @@ function ChatBubble({ message }: { message: ChatMessage }): JSX.Element {
     'tc-ai-chat-bubble',
     isUser ? 'tc-ai-chat-bubble--user' : 'tc-ai-chat-bubble--assistant',
   ].join(' ')
+  const workerLabel = !isUser ? String(message.workerLabel || '').trim() : ''
+  const workerStatusLabel = !isUser ? String(message.workerStatusLabel || '').trim() : ''
 
   return (
     <Group className={wrapClassName} justify={isUser ? 'flex-end' : 'flex-start'} align="flex-start" gap={10} wrap="nowrap">
@@ -1583,6 +1750,11 @@ function ChatBubble({ message }: { message: ChatMessage }): JSX.Element {
             <Badge className="tc-ai-chat-bubble__role" size="xs" radius="sm" variant="light" color={isUser ? 'gray' : 'blue'}>
               {isUser ? $('你') : $('AI')}
             </Badge>
+            {!isUser && workerLabel ? (
+              <Badge className="tc-ai-chat-bubble__worker" size="xs" radius="sm" variant="outline" color="gray">
+                {workerLabel}
+              </Badge>
+            ) : null}
             {!isUser && message.turnVerdict?.status === 'partial' ? (
               <Badge className="tc-ai-chat-bubble__verdict-badge" size="xs" radius="sm" variant="light" color="yellow">
                 {$('部分完成')}
@@ -1608,7 +1780,10 @@ function ChatBubble({ message }: { message: ChatMessage }): JSX.Element {
         {message.phase === 'thinking' && !isUser ? (
           <div className="tc-ai-chat-thinking" aria-label="ai-chat-thinking">
             <div className="tc-ai-chat-thinking__header">
-              <Text className="tc-ai-chat-thinking__title">正在处理</Text>
+              <div className="tc-ai-chat-thinking__header-copy">
+                <Text className="tc-ai-chat-thinking__title">{workerStatusLabel || '正在处理'}</Text>
+                {workerLabel ? <Text className="tc-ai-chat-thinking__worker">{`${workerLabel} 正在干活`}</Text> : null}
+              </div>
             </div>
             <div className="tc-ai-chat-thinking__progress" aria-hidden="true">
               <div className="tc-ai-chat-thinking__progress-bar" />
@@ -1627,7 +1802,16 @@ function ChatBubble({ message }: { message: ChatMessage }): JSX.Element {
                 </p>
               ))}
             </div>
-            <p className="tc-ai-chat-thinking__comfort">处理细节已收起，完成后会给你最终结果。</p>
+            {Array.isArray(message.todoSnapshot) && message.todoSnapshot.length > 0 ? (
+              <div className="tc-ai-chat-thinking__details">
+                {message.todoSnapshot.map((item, index) => (
+                  <p key={`${message.id}_thinking_todo_${index}`} className="tc-ai-chat-thinking__detail-line">
+                    {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '•' : '○'} {item.content}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            <p className="tc-ai-chat-thinking__comfort">当前执行细节已实时展开，完成后会给你最终结果。</p>
           </div>
         ) : (
           <div className="tc-ai-chat-bubble__content tc-ai-chat-markdown">
@@ -1752,8 +1936,8 @@ function ChatBubble({ message }: { message: ChatMessage }): JSX.Element {
 export default function AiChatDialog({ className }: { className?: string }): JSX.Element | null {
   const cardRef = React.useRef<HTMLDivElement | null>(null)
   const initialLayoutPreference = React.useMemo(() => readAiChatLayoutPreference(), [])
-  const [mode, setMode] = React.useState<'compact' | 'expanded' | 'maximized'>(initialLayoutPreference.mode)
-  const [bubbleVisualState, setBubbleVisualState] = React.useState<'bubble' | 'panel'>(() => resolveInitialBubbleVisualState(initialLayoutPreference))
+  const [mode, setMode] = React.useState<'compact' | 'expanded' | 'maximized'>('expanded')
+  const [bubbleVisualState, setBubbleVisualState] = React.useState<'bubble' | 'panel'>('panel')
   const modeBeforeMaximizeRef = React.useRef<'compact' | 'expanded'>(initialLayoutPreference.mode)
   const previousModeRef = React.useRef<'compact' | 'expanded' | 'maximized'>(initialLayoutPreference.mode)
   const bubbleTransitionTimerRef = React.useRef<number | null>(null)
@@ -1774,6 +1958,9 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
   const [draft, setDraft] = React.useState('')
   const [messages, setMessages] = React.useState<ChatMessage[]>(() => [])
   const [sending, setSending] = React.useState(false)
+  const [selectedAgentModel, setSelectedAgentModel] = React.useState<string>(() => readAiChatModelPreference())
+  const [selectedTeamRoleId, setSelectedTeamRoleId] = React.useState<AiChatTeamRoleId>(() => readAiChatTeamRolePreference())
+  const [agentModelOptions, setAgentModelOptions] = React.useState<Array<{ value: string; label: string }>>([])
 
   const [agentLoading, setAgentLoading] = React.useState(false)
   const [agentSkills, setAgentSkills] = React.useState<AgentSkillDto[]>([])
@@ -1785,8 +1972,10 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
   const currentProjectId = useUIStore((s) => (s.currentProject?.id ? String(s.currentProject.id).trim() : ''))
   const currentProjectName = useUIStore((s) => (s.currentProject?.name ? String(s.currentProject.name).trim() : ''))
   const currentFlowId = useUIStore((s) => (s.currentFlow?.id ? String(s.currentFlow.id).trim() : ''))
+  const textModelOptions = useModelOptions('text')
   const aiChatWatchAssetsEnabled = useUIStore((s) => s.aiChatWatchAssetsEnabled)
   const setAiChatWatchAssetsEnabled = useUIStore((s) => s.setAiChatWatchAssetsEnabled)
+  const selectedAssetPanelChapterContext = useUIStore((s) => s.selectedAssetPanelChapterContext)
   const clearCreationSession = useUIStore((s) => s.clearCreationSession)
   const startLiveChatRun = useLiveChatRunStore((s) => s.startRun)
   const recordLiveChatRunEvent = useLiveChatRunStore((s) => s.recordEvent)
@@ -1890,6 +2079,55 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
       skillId: activeSkill?.id ?? null,
     })
   }, [activeSkill?.id, chatSessionBaseKey, chatSessionLane, currentFlowId, currentProjectId])
+  const selectedAgentModelOption = React.useMemo(
+    () => agentModelOptions.find((option) => option.value === selectedAgentModel) || null,
+    [agentModelOptions, selectedAgentModel],
+  )
+  const selectedTeamRole = React.useMemo(
+    () => AI_CHAT_TEAM_ROLE_PRESETS.find((preset) => preset.id === selectedTeamRoleId) || AI_CHAT_TEAM_ROLE_PRESETS[0],
+    [selectedTeamRoleId],
+  )
+
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = await listNewApiModels({ kind: 'text', enabled: true, refresh: true })
+        if (cancelled) return
+        const next = (Array.isArray(rows) ? rows : [])
+          .map((row: NewApiModelDto) => {
+            const value = String(row.requestModelKey || row.modelName || '').trim()
+            const label = String(row.displayLabel || row.requestModelKey || row.modelName || '').trim()
+            return value && label ? { value, label } : null
+          })
+          .filter((item): item is { value: string; label: string } => item !== null)
+        setAgentModelOptions(next)
+      } catch {
+        if (cancelled) return
+        const fallback = textModelOptions.map((option) => ({ value: option.value, label: option.label }))
+        setAgentModelOptions(fallback)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [textModelOptions])
+
+  React.useEffect(() => {
+    if (!agentModelOptions.length) return
+    if (selectedAgentModelOption) return
+    const fallback = agentModelOptions[0]?.value || ''
+    if (!fallback) return
+    setSelectedAgentModel(fallback)
+  }, [agentModelOptions, selectedAgentModelOption])
+
+  React.useEffect(() => {
+    writeAiChatModelPreference(selectedAgentModel)
+  }, [selectedAgentModel])
+
+  React.useEffect(() => {
+    writeAiChatTeamRolePreference(selectedTeamRoleId)
+  }, [selectedTeamRoleId])
 
   React.useEffect(() => {
     if (mode === 'maximized') return
@@ -2365,6 +2603,20 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
   }, [clearCreationSession, mode])
 
   React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleFocus = () => {
+      setMode('expanded')
+      window.requestAnimationFrame(() => {
+        expandedInputRef.current?.focus({ preventScroll: true })
+      })
+    }
+    window.addEventListener('tc-ai-chat-focus', handleFocus as EventListener)
+    return () => {
+      window.removeEventListener('tc-ai-chat-focus', handleFocus as EventListener)
+    }
+  }, [])
+
+  React.useEffect(() => {
     return () => {
       typewriterRunIdRef.current += 1
       activeStreamInterruptRef.current?.()
@@ -2409,12 +2661,18 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
     if (normalizedDraft) return null
     return buildImplicitChatRequest({
       selectedCanvasNodeContext,
+      selectedAssetPanelChapterContext,
       referenceImageCount: referenceImages.length,
       hasTargetImage: hasExplicitTargetImage,
       activeSkillName: activeSkillContextName,
     })
-  }, [activeSkillContextName, hasExplicitTargetImage, normalizedDraft, referenceImages.length, selectedCanvasNodeContext])
+  }, [activeSkillContextName, hasExplicitTargetImage, normalizedDraft, referenceImages.length, selectedAssetPanelChapterContext, selectedCanvasNodeContext])
   const canSendMessage = Boolean(normalizedDraft || implicitSendRequest)
+  const shouldShowSelectedChapterContextHint = Boolean(
+    !selectedCanvasNodeContext?.nodeId
+    && selectedAssetPanelChapterContext?.bookId
+    && selectedAssetPanelChapterContext?.chapterId,
+  )
 
   const send = React.useCallback(async (options?: SendOptions) => {
     if (sending) return
@@ -2477,8 +2735,13 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
     const requestSelectedCanvasNodeContext = shouldAttachCanvasContext
       ? selectedCanvasNodeContext
       : null
+    const requestSelectedChapterContext = !requestSelectedCanvasNodeContext && shouldAttachCanvasContext
+      ? selectedAssetPanelChapterContext
+      : null
 
     let pendingId = ''
+    const workerLabel = getTeamWorkerLabel(selectedTeamRole)
+    const workerStatusLabel = getTeamWorkerStatusLabel(selectedTeamRole)
     setSending(true)
     typewriterRunIdRef.current += 1
     historyLoadVersionRef.current += 1
@@ -2586,7 +2849,9 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
         id: pendingId,
         role: 'assistant',
         ts: now,
-        content: '处理中…',
+        content: `${workerLabel}${workerStatusLabel ? ` ${workerStatusLabel}` : ' 正在处理'}…`,
+        workerLabel,
+        workerStatusLabel,
         phase: 'thinking',
         kind: 'progress',
         progressLines: [],
@@ -2598,15 +2863,60 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
       if (mode === 'compact') setMode('expanded')
 
       const promptPayload = requestText
+      const teamExecutionInstruction = buildAgentsTeamExecutionInstruction(selectedTeamRole)
       const requestExecution = resolveChatRequestExecution()
       const selectedReferenceAnchorBindings = requestSelectedCanvasNodeContext
         ? normalizeSelectedReferenceAnchorBindings(requestSelectedCanvasNodeContext.anchorBindings)
         : undefined
+      const requestSelectedReference = requestSelectedCanvasNodeContext
+        ? {
+            nodeId: requestSelectedCanvasNodeContext.nodeId,
+            label: requestSelectedCanvasNodeContext.label,
+            ...(requestSelectedCanvasNodeContext.kind ? { kind: requestSelectedCanvasNodeContext.kind } : {}),
+            ...(selectedReferenceAnchorBindings?.length
+              ? { anchorBindings: selectedReferenceAnchorBindings }
+              : {}),
+            ...(requestSelectedCanvasNodeContext.roleName ? { roleName: requestSelectedCanvasNodeContext.roleName } : {}),
+            ...(requestSelectedCanvasNodeContext.roleCardId ? { roleCardId: requestSelectedCanvasNodeContext.roleCardId } : {}),
+            ...(requestSelectedCanvasNodeContext.imageUrl ? { imageUrl: requestSelectedCanvasNodeContext.imageUrl } : {}),
+            ...(requestSelectedCanvasNodeContext.sourceUrl ? { sourceUrl: requestSelectedCanvasNodeContext.sourceUrl } : {}),
+            ...(requestSelectedCanvasNodeContext.bookId ? { bookId: requestSelectedCanvasNodeContext.bookId } : {}),
+            ...(requestSelectedCanvasNodeContext.chapterId ? { chapterId: requestSelectedCanvasNodeContext.chapterId } : {}),
+            ...(typeof requestSelectedCanvasNodeContext.shotNo === 'number' ? { shotNo: requestSelectedCanvasNodeContext.shotNo } : {}),
+            ...(requestSelectedCanvasNodeContext.productionLayer ? { productionLayer: requestSelectedCanvasNodeContext.productionLayer } : {}),
+            ...(requestSelectedCanvasNodeContext.creationStage ? { creationStage: requestSelectedCanvasNodeContext.creationStage } : {}),
+            ...(requestSelectedCanvasNodeContext.approvalStatus ? { approvalStatus: requestSelectedCanvasNodeContext.approvalStatus } : {}),
+            ...(requestSelectedCanvasNodeContext.authorityBaseFrameNodeId
+              ? { authorityBaseFrameNodeId: requestSelectedCanvasNodeContext.authorityBaseFrameNodeId }
+              : {}),
+            ...(requestSelectedCanvasNodeContext.authorityBaseFrameStatus
+              ? { authorityBaseFrameStatus: requestSelectedCanvasNodeContext.authorityBaseFrameStatus }
+              : {}),
+            ...(requestSelectedCanvasNodeContext.hasUpstreamTextEvidence ? { hasUpstreamTextEvidence: true } : {}),
+            ...(requestSelectedCanvasNodeContext.hasDownstreamComposeVideo ? { hasDownstreamComposeVideo: true } : {}),
+            ...(requestSelectedCanvasNodeContext.storyboardSelectionContext
+              ? { storyboardSelectionContext: requestSelectedCanvasNodeContext.storyboardSelectionContext }
+              : {}),
+          }
+        : requestSelectedChapterContext
+          ? {
+              label: requestSelectedChapterContext.label,
+              kind: 'chapter',
+              ...(requestSelectedChapterContext.title ? { title: requestSelectedChapterContext.title } : {}),
+              ...(requestSelectedChapterContext.summary ? { summary: requestSelectedChapterContext.summary } : {}),
+              bookId: requestSelectedChapterContext.bookId,
+              chapterId: requestSelectedChapterContext.chapterId,
+            }
+          : null
       const requestPayload: AgentsChatRequestDto = {
         vendor: 'agents',
-        prompt: promptPayload,
+        prompt: teamExecutionInstruction ? `${teamExecutionInstruction}\n\n${promptPayload}` : promptPayload,
+        ...(selectedAgentModel ? { modelAlias: selectedAgentModel } : {}),
+        ...(selectedTeamRole.enforceTeamExecution ? { requireAgentsTeamExecution: true } : {}),
         ...(displayText && displayText !== requestText ? { displayPrompt: displayText } : {}),
         ...(requestSessionKey ? { sessionKey: requestSessionKey } : {}),
+        ...(requestSelectedChapterContext?.bookId ? { bookId: requestSelectedChapterContext.bookId } : {}),
+        ...(requestSelectedChapterContext?.chapterId ? { chapterId: requestSelectedChapterContext.chapterId } : {}),
         ...(currentProjectId ? { canvasProjectId: currentProjectId } : {}),
         ...(currentFlowId ? { canvasFlowId: currentFlowId } : {}),
         ...(requestSelectedCanvasNodeContext?.nodeId ? { canvasNodeId: requestSelectedCanvasNodeContext.nodeId } : {}),
@@ -2619,38 +2929,14 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
                 },
               }
             : {}),
-          ...(requestSelectedCanvasNodeContext?.kind ? { selectedNodeKind: requestSelectedCanvasNodeContext.kind } : {}),
-          ...(requestSelectedCanvasNodeContext
+          ...(requestSelectedCanvasNodeContext?.kind
+            ? { selectedNodeKind: requestSelectedCanvasNodeContext.kind }
+            : requestSelectedChapterContext
+              ? { selectedNodeKind: 'chapter' }
+              : {}),
+          ...(requestSelectedReference
             ? {
-                selectedReference: {
-                  nodeId: requestSelectedCanvasNodeContext.nodeId,
-                  label: requestSelectedCanvasNodeContext.label,
-                  ...(requestSelectedCanvasNodeContext.kind ? { kind: requestSelectedCanvasNodeContext.kind } : {}),
-                  ...(selectedReferenceAnchorBindings?.length
-                    ? { anchorBindings: selectedReferenceAnchorBindings }
-                    : {}),
-                  ...(requestSelectedCanvasNodeContext.roleName ? { roleName: requestSelectedCanvasNodeContext.roleName } : {}),
-                  ...(requestSelectedCanvasNodeContext.roleCardId ? { roleCardId: requestSelectedCanvasNodeContext.roleCardId } : {}),
-                  ...(requestSelectedCanvasNodeContext.imageUrl ? { imageUrl: requestSelectedCanvasNodeContext.imageUrl } : {}),
-                  ...(requestSelectedCanvasNodeContext.sourceUrl ? { sourceUrl: requestSelectedCanvasNodeContext.sourceUrl } : {}),
-                  ...(requestSelectedCanvasNodeContext.bookId ? { bookId: requestSelectedCanvasNodeContext.bookId } : {}),
-                  ...(requestSelectedCanvasNodeContext.chapterId ? { chapterId: requestSelectedCanvasNodeContext.chapterId } : {}),
-                  ...(typeof requestSelectedCanvasNodeContext.shotNo === 'number' ? { shotNo: requestSelectedCanvasNodeContext.shotNo } : {}),
-                  ...(requestSelectedCanvasNodeContext.productionLayer ? { productionLayer: requestSelectedCanvasNodeContext.productionLayer } : {}),
-                  ...(requestSelectedCanvasNodeContext.creationStage ? { creationStage: requestSelectedCanvasNodeContext.creationStage } : {}),
-                  ...(requestSelectedCanvasNodeContext.approvalStatus ? { approvalStatus: requestSelectedCanvasNodeContext.approvalStatus } : {}),
-                  ...(requestSelectedCanvasNodeContext.authorityBaseFrameNodeId
-                    ? { authorityBaseFrameNodeId: requestSelectedCanvasNodeContext.authorityBaseFrameNodeId }
-                    : {}),
-                  ...(requestSelectedCanvasNodeContext.authorityBaseFrameStatus
-                    ? { authorityBaseFrameStatus: requestSelectedCanvasNodeContext.authorityBaseFrameStatus }
-                    : {}),
-                  ...(requestSelectedCanvasNodeContext.hasUpstreamTextEvidence ? { hasUpstreamTextEvidence: true } : {}),
-                  ...(requestSelectedCanvasNodeContext.hasDownstreamComposeVideo ? { hasDownstreamComposeVideo: true } : {}),
-                  ...(requestSelectedCanvasNodeContext.storyboardSelectionContext
-                    ? { storyboardSelectionContext: requestSelectedCanvasNodeContext.storyboardSelectionContext }
-                    : {}),
-                },
+                selectedReference: requestSelectedReference,
               }
             : {}),
         },
@@ -2692,6 +2978,7 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
             patchChatMessageById(prev, pendingId, (message) => ({
               ...message,
               content: nextSummary,
+              workerStatusLabel,
             })),
           )
         }
@@ -2812,6 +3099,7 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
           patchChatMessageById(prev, pendingId, (message) => ({
             ...message,
             content: '正在应用节点方案',
+            workerStatusLabel: '正在应用结果',
           })),
         )
         try {
@@ -2871,6 +3159,7 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
           patchChatMessageById(prev, pendingId, (message) => ({
             ...message,
             content: '正在整理最终结果',
+            workerStatusLabel: '正在整理结果',
           })),
         )
         addAssistantAssetsToCanvas(assistantAssets)
@@ -2882,6 +3171,8 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
         patchChatMessageById(prev, pendingId, (message) => ({
           ...message,
           content: reply || '（空响应）',
+          workerLabel,
+          workerStatusLabel: '已完成本轮处理',
           assets: assistantAssets,
           ts: formatNowTime(),
           phase: 'final',
@@ -2903,6 +3194,8 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
           patchChatMessageById(prev, pendingId, (message) => ({
             ...message,
             content: CHAT_ABORTED_MESSAGE,
+            workerLabel,
+            workerStatusLabel: '已中断',
             phase: 'final',
             kind: 'error',
           })),
@@ -2915,6 +3208,8 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
           patchChatMessageById(prev, pendingId, (message) => ({
             ...message,
             content: `（错误）${msg}`,
+            workerLabel,
+            workerStatusLabel: '执行失败',
             ts: formatNowTime(),
             phase: 'final',
             kind: 'error',
@@ -2925,7 +3220,48 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
       activeStreamInterruptRef.current = null
       setSending(false)
     }
-  }, [activeSkill, aiChatWatchAssetsEnabled, animateAssistantReply, chatSessionBaseKey, chatSessionLane, completeLiveChatRun, currentFlowId, currentProjectId, currentProjectName, draft, failLiveChatRun, implicitSendRequest, messages, mode, recordLiveChatRunEvent, referenceImages, replicateTargetImage, selectedCanvasNodeContext, sending, startLiveChatRun])
+  }, [activeSkill, aiChatWatchAssetsEnabled, animateAssistantReply, chatSessionBaseKey, chatSessionLane, completeLiveChatRun, currentFlowId, currentProjectId, currentProjectName, draft, failLiveChatRun, implicitSendRequest, messages, mode, recordLiveChatRunEvent, referenceImages, replicateTargetImage, selectedAgentModel, selectedCanvasNodeContext, selectedTeamRole, sending, startLiveChatRun, textModelOptions])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleNodeGenerationRequest = (event: Event) => {
+      const detail = (event as CustomEvent<ExternalNodeGenerationDetail | undefined>).detail
+      if (!detail?.nodeId) return
+      const normalizedNodeId = String(detail.nodeId || '').trim()
+      if (!normalizedNodeId) return
+      const normalizedKind = detail.generationKind === 'character' ? 'character' : 'scene'
+      const normalizedLabel = String(detail.nodeLabel || '').trim() || '当前节点'
+      const normalizedModel = String(detail.imageModel || '').trim()
+      const normalizedSize = String(detail.imageSize || '').trim()
+      const normalizedExtraPrompt = String(detail.extraPrompt || '').trim()
+      const shouldRebuildReference = detail.rebuildReference === true
+      const focusNode = (window as Window & { __tcFocusNode?: (id: string) => void }).__tcFocusNode
+      focusNode?.(normalizedNodeId)
+      setMode('expanded')
+      const lines = [
+        `目标：基于当前选中章节节点「${normalizedLabel}」，提取本章实际出现的核心角色与关键场景，并生成可复用的章节资产图。`,
+        '必须先读取当前章节文本、节点上下文与已存在的章节元数据，只能基于真实读到的内容做判断，禁止臆造未出现的人物或场景。',
+        '优先识别：1）本章出场且值得沉淀为资产的角色；2）本章反复出现或对后续分镜有价值的关键场景。',
+        `本轮重点偏向生成${normalizedKind === 'scene' ? '场景参考资产图' : '角色参考资产图'}，但如果章节里同时存在高价值角色与场景，可以按最小必要方案补齐对应资产节点。`,
+        '生成结果必须适合作为后续分镜、镜头和一致性锚点使用：角色图突出外观、服装、神态与身份识别；场景图突出空间结构、光线、氛围与关键道具位置。',
+        '结果必须真实写入当前画布为可执行图片节点，并继续完成图片生成；不要只返回分析说明，不要只创建空节点或 metadata。',
+      ]
+      if (normalizedModel) lines.push(`图片模型：${normalizedModel}`)
+      if (normalizedSize) lines.push(`分辨率：${normalizedSize}`)
+      if (shouldRebuildReference) lines.push('要求：重建参考图，忽略书籍元数据里的已有参考图 URL，重新创建生成节点。')
+      if (normalizedExtraPrompt) lines.push(`附加提示词：${normalizedExtraPrompt}`)
+      window.requestAnimationFrame(() => {
+        void send({
+          text: lines.join('\n'),
+          attachCanvasContext: true,
+        })
+      })
+    }
+    window.addEventListener('tc-ai-chat-node-generate', handleNodeGenerationRequest as EventListener)
+    return () => {
+      window.removeEventListener('tc-ai-chat-node-generate', handleNodeGenerationRequest as EventListener)
+    }
+  }, [send])
 
   const resetConversationState = React.useCallback((nextSkill: AgentSkillDto | null) => {
     historyLoadVersionRef.current += 1
@@ -3025,10 +3361,10 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
     if (activeSkill) return $('Agent')
     return $('AUTO')
   }, [activeSkill])
-  const headerTitle = isEmptyConversation ? $('新对话') : $('AI 对话')
+  const headerTitle = currentProjectName || 'AI 工位'
   const headerSubtitle = React.useMemo(() => {
     if (sending) return $('正在处理当前请求')
-    if (isEmptyConversation) return $('从一句创意开始，先整理思路，再决定执行方式')
+    if (isEmptyConversation) return $('输入故事设定或直接选择一个起步任务')
     return $('继续基于当前画布与项目上下文协作')
   }, [isEmptyConversation, sending])
   const taskEntryLabel = React.useMemo(() => {
@@ -3224,9 +3560,85 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
     </Menu>
   )
 
-  if (activePanel === 'nanoComic') {
-    return null
-  }
+  const autoTeamPreset = AI_CHAT_TEAM_ROLE_PRESETS.find((preset) => preset.id === 'auto') || AI_CHAT_TEAM_ROLE_PRESETS[0]
+  const manualTeamPresets = AI_CHAT_TEAM_ROLE_PRESETS.filter((preset) => preset.id !== 'auto')
+
+  const agentsTeamMenuButton = (
+    <Menu className="tc-ai-chat__team-menu" withinPortal position="top-start" shadow="md" zIndex={10050}>
+      <Menu.Target>
+        <Tooltip className="tc-ai-chat__tooltip" label={$('智能体团队')} withArrow>
+          <ActionIcon className="tc-ai-chat__team-toggle" variant="subtle" aria-label="智能体团队" disabled={sending}>
+            <span className="tc-ai-chat__team-toggle-badge" aria-hidden="true" />
+            <IconUsersGroup className="tc-ai-chat__team-toggle-icon" size={17} />
+          </ActionIcon>
+        </Tooltip>
+      </Menu.Target>
+      <Menu.Dropdown className="tc-ai-chat__team-dropdown">
+        <div className="tc-ai-chat__team-director">
+          <div className="tc-ai-chat__team-avatar" aria-hidden="true">T</div>
+          <div className="tc-ai-chat__team-director-copy">
+            <div className="tc-ai-chat__team-director-name">{$('小T')}</div>
+            <div className="tc-ai-chat__team-director-summary">
+              {$('主演 / 编排：理解创意、规划链路、按 SOP 委派智能团并把控成片质量')}
+            </div>
+          </div>
+          <Button className="tc-ai-chat__team-director-action" size="xs" variant="subtle" onClick={() => setSelectedTeamRoleId('auto')}>
+            {$('体验一下')}
+          </Button>
+        </div>
+        <div className="tc-ai-chat__team-section-title">{$('本轮由谁干活')}</div>
+        <button
+          type="button"
+          className={[
+            'tc-ai-chat__team-item',
+            'tc-ai-chat__team-item--featured',
+            selectedTeamRole.id === autoTeamPreset.id ? 'tc-ai-chat__team-item--selected' : '',
+          ].filter(Boolean).join(' ')}
+          onClick={() => setSelectedTeamRoleId(autoTeamPreset.id)}
+        >
+          <span className={[
+            'tc-ai-chat__team-item-avatar',
+            'tc-ai-chat__team-item-avatar--featured',
+            selectedTeamRole.id === autoTeamPreset.id ? 'tc-ai-chat__team-item-avatar--selected' : '',
+          ].filter(Boolean).join(' ')} aria-hidden="true">
+            <IconSparkles size={16} stroke={1.9} />
+          </span>
+          <span className="tc-ai-chat__team-item-copy">
+            <span className="tc-ai-chat__team-item-name">{autoTeamPreset.name}</span>
+            <span className="tc-ai-chat__team-item-summary">{autoTeamPreset.summary}</span>
+          </span>
+        </button>
+        <div className="tc-ai-chat__team-list">
+          {manualTeamPresets.map((preset) => {
+            const selected = preset.id === selectedTeamRole.id
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                className={[
+                  'tc-ai-chat__team-item',
+                  selected ? 'tc-ai-chat__team-item--selected' : '',
+                ].filter(Boolean).join(' ')}
+                onClick={() => setSelectedTeamRoleId(preset.id)}
+              >
+                <span className={[
+                  'tc-ai-chat__team-item-avatar',
+                  `tc-ai-chat__team-item-avatar--${preset.id}`,
+                  selected ? 'tc-ai-chat__team-item-avatar--selected' : '',
+                ].filter(Boolean).join(' ')} aria-hidden="true">
+                  {preset.badge}
+                </span>
+                <span className="tc-ai-chat__team-item-copy">
+                  <span className="tc-ai-chat__team-item-name">{preset.name}</span>
+                  <span className="tc-ai-chat__team-item-summary">{preset.summary}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </Menu.Dropdown>
+    </Menu>
+  )
 
   return (
     <div className={rootClassName} data-ux-floating onKeyDownCapture={onRootKeyDownCapture} onKeyDown={onRootKeyDown}>
@@ -3470,6 +3882,7 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
                       <Group className="tc-ai-chat__composer-row" gap={10} align="center" wrap="nowrap">
                         <div className="tc-ai-chat__composer-tools">
                           {attachMenu}
+                          {agentsTeamMenuButton}
                           {taskEntryMenuButton}
                         </div>
 
@@ -3602,40 +4015,63 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
             </Group>
 
             <div className={['tc-ai-chat__body', isEmptyConversation ? 'tc-ai-chat__body--empty' : ''].filter(Boolean).join(' ')}>
-              {canShowHistory && (
-                isEmptyConversation ? (
-                  <div className="tc-ai-chat__empty-state">
-                    <div className="tc-ai-chat__empty-state-orb" aria-hidden="true">
-                      <IconSparkles className="tc-ai-chat__empty-state-orb-icon" size={26} />
+              <div className="tc-ai-chat__workspace-rail">
+                <div className="tc-ai-chat__workspace-rail-header">
+                  <Text className="tc-ai-chat__workspace-rail-title" size="lg" fw={800}>SBA_START</Text>
+                  <Text className="tc-ai-chat__workspace-rail-subtitle" size="sm" c="dimmed">
+                    {headerSubtitle}
+                  </Text>
+                </div>
+                <Stack className="tc-ai-chat__workspace-groups" gap="sm">
+                  {starterQuickActions.slice(0, 4).map((action) => (
+                    <button
+                      key={`starter-${action.key}`}
+                      type="button"
+                      className="tc-ai-chat__workspace-preset tc-ai-chat__workspace-preset--rail"
+                      onClick={() => { void runQuickPreset(action) }}
+                    >
+                      <span className="tc-ai-chat__workspace-preset-title">{action.label}</span>
+                      <span className="tc-ai-chat__workspace-preset-desc">{action.description}</span>
+                    </button>
+                  ))}
+                  {projectQuickActions.slice(0, 2).map((action) => (
+                    <button
+                      key={`project-${action.key}`}
+                      type="button"
+                      className="tc-ai-chat__workspace-preset tc-ai-chat__workspace-preset--compact"
+                      onClick={() => { void runQuickPreset(action) }}
+                    >
+                      <span className="tc-ai-chat__workspace-preset-title">{action.label}</span>
+                      <span className="tc-ai-chat__workspace-preset-desc">{action.description}</span>
+                    </button>
+                  ))}
+                </Stack>
+              </div>
+              <div className="tc-ai-chat__conversation-shell">
+                {canShowHistory && (
+                  isEmptyConversation ? (
+                    <div className="tc-ai-chat__empty-state tc-ai-chat__empty-state--workspace">
+                      <Text className="tc-ai-chat__conversation-placeholder" size="sm" c="dimmed">
+                        选择一个上方起步任务，或者直接输入你的故事走向。
+                      </Text>
                     </div>
-                    <Stack className="tc-ai-chat__empty-state-copy" gap={8} align="center">
-                      <Badge className="tc-ai-chat__empty-state-badge" size="sm" radius="sm" variant="light" color="gray">
-                        {headerStatusLabel}
-                      </Badge>
-                      <Text className="tc-ai-chat__empty-state-title" size="lg" fw={700}>
-                        {$('开始创作')}
-                      </Text>
-                      <Text className="tc-ai-chat__empty-state-description" size="sm" c="dimmed">
-                        {$('我可以帮你设计、优化和执行创意工作流')}
-                      </Text>
-                    </Stack>
-                  </div>
-                ) : useScrollableHistory ? (
-                  <ScrollArea className="tc-ai-chat__messages-scroll" viewportRef={viewportRef} type="auto" scrollbarSize={8}>
-                    <Stack ref={messagesContentRef} className="tc-ai-chat__messages" gap={10}>
+                  ) : useScrollableHistory ? (
+                    <ScrollArea className="tc-ai-chat__messages-scroll" viewportRef={viewportRef} type="auto" scrollbarSize={8}>
+                      <Stack ref={messagesContentRef} className="tc-ai-chat__messages" gap={10}>
+                        {messages.map((message) => (
+                          <ChatBubble key={message.id} message={message} />
+                        ))}
+                      </Stack>
+                    </ScrollArea>
+                  ) : (
+                    <Stack ref={messagesContentRef} className="tc-ai-chat__messages tc-ai-chat__messages--expanded" gap={10}>
                       {messages.map((message) => (
                         <ChatBubble key={message.id} message={message} />
                       ))}
                     </Stack>
-                  </ScrollArea>
-                ) : (
-                  <Stack ref={messagesContentRef} className="tc-ai-chat__messages tc-ai-chat__messages--expanded" gap={10}>
-                    {messages.map((message) => (
-                      <ChatBubble key={message.id} message={message} />
-                    ))}
-                  </Stack>
-                )
-              )}
+                  )
+                )}
+              </div>
 
             </div>
 
@@ -3711,9 +4147,36 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
                     </Text>
                   </div>
                 ) : null}
+                {shouldShowSelectedChapterContextHint ? (
+                  <div className="tc-ai-chat__selected-chapter-context" role="status" aria-live="polite">
+                    <Group className="tc-ai-chat__selected-chapter-context-row" gap={8} align="flex-start" wrap="nowrap">
+                      <Badge className="tc-ai-chat__selected-chapter-context-badge" size="xs" radius="sm" variant="light" color="violet">
+                        当前引用章节
+                      </Badge>
+                      <div className="tc-ai-chat__selected-chapter-context-copy">
+                        <Text className="tc-ai-chat__selected-chapter-context-title" size="xs">
+                          {selectedAssetPanelChapterContext?.label || `第${selectedAssetPanelChapterContext?.chapterId || '?'}章`}
+                        </Text>
+                        <Text className="tc-ai-chat__selected-chapter-context-summary" size="xs" c="dimmed" lineClamp={2}>
+                          {selectedAssetPanelChapterContext?.summary || '本轮会按资产面板当前选中章节读取正文与章节元数据。'}
+                        </Text>
+                      </div>
+                    </Group>
+                  </div>
+                ) : null}
+                <div className="tc-ai-chat__team-inline-summary">
+                  <Badge className="tc-ai-chat__team-inline-badge" size="xs" radius="sm" variant={selectedTeamRole.accent === 'blue' ? 'light' : 'outline'} color={selectedTeamRole.accent}>
+                    {$('智能体团队')}
+                  </Badge>
+                  <Text className="tc-ai-chat__team-inline-text" size="xs" c="dimmed" lineClamp={1}>
+                    {selectedTeamRole.name}
+                    {selectedTeamRole.enforceTeamExecution ? $(' · 强制真实 team 执行') : ''}
+                  </Text>
+                </div>
                 <Group className="tc-ai-chat__composer-row" gap={10} align="flex-end" wrap="nowrap">
                   <div className="tc-ai-chat__composer-tools">
                     {attachMenu}
+                    {agentsTeamMenuButton}
                     {taskEntryMenuButton}
                   </div>
 
@@ -3751,9 +4214,34 @@ export default function AiChatDialog({ className }: { className?: string }): JSX
                   <Text className="tc-ai-chat__hint-text" size="xs" c="dimmed" lineClamp={1}>
                     {sending ? $('对话中…点击右侧可中断') : $('仅支持点击发送，Enter 可换行')}
                   </Text>
-                  <Badge className="tc-ai-chat__hint-badge" size="xs" radius="sm" variant="outline" color="gray">
-                    {activeSkill ? $('Agent') : $('Chat')}
-                  </Badge>
+                  <Group gap={8} wrap="nowrap">
+                    <Select
+                      className="tc-ai-chat__model-select"
+                      size="xs"
+                      value={selectedAgentModel}
+                      onChange={(value) => setSelectedAgentModel(String(value || '').trim())}
+                      data={agentModelOptions}
+                      allowDeselect={false}
+                      searchable
+                      nothingFoundMessage="没有可用文本模型"
+                      placeholder="选择文本模型"
+                      comboboxProps={{
+                        withinPortal: true,
+                        position: 'top-start',
+                        middlewares: { flip: true, shift: true },
+                        zIndex: 10020,
+                      }}
+                    />
+                    <Badge className="tc-ai-chat__hint-badge" size="xs" radius="sm" variant="outline" color="gray">
+                      {activeSkill ? (activeSkill.name || activeSkill.key || $('Agent')) : $('任务')}
+                    </Badge>
+                    <Badge className="tc-ai-chat__hint-badge" size="xs" radius="sm" variant={selectedTeamRole.accent === 'blue' ? 'light' : 'outline'} color={selectedTeamRole.accent}>
+                      {selectedTeamRole.badge}
+                    </Badge>
+                    <Badge className="tc-ai-chat__hint-badge tc-ai-chat__hint-badge--strong" size="xs" radius="sm" variant="light" color="gray">
+                      AGENTS
+                    </Badge>
+                  </Group>
                 </Group>
               </PanelCard>
             </div>

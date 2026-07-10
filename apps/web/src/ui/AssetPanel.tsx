@@ -180,6 +180,8 @@ type CharacterGraphEdgeForCanvas = {
 
 type AssetDrawerSection = 'canvas' | 'directory' | 'assets'
 
+type AssetLibraryFolderKey = 'favorites' | 'roles' | 'scenes' | 'props' | 'styles' | 'others'
+
 type AssetLibraryEntry = {
   id: string
   title: string
@@ -889,6 +891,7 @@ export default function AssetPanel(): JSX.Element | null {
   const setPreferredMaterialCategory = useUIStore((s) => s.setAssetPanelMaterialCategory)
   const assetPanelFocusRequest = useUIStore((s) => s.assetPanelFocusRequest)
   const clearAssetPanelFocusRequest = useUIStore((s) => s.clearAssetPanelFocusRequest)
+  const setSelectedAssetPanelChapterContext = useUIStore((s) => s.setSelectedAssetPanelChapterContext)
   const { colorScheme } = useMantineColorScheme()
   const isDark = colorScheme === 'dark'
   const addNode = useRFStore((s) => s.addNode)
@@ -942,7 +945,7 @@ export default function AssetPanel(): JSX.Element | null {
   const [drawerSection, setDrawerSection] = React.useState<AssetDrawerSection>('canvas')
   const [drawerSearchQuery, setDrawerSearchQuery] = React.useState('')
   const [assetLibraryScope, setAssetLibraryScope] = React.useState<'personal' | 'team'>('personal')
-  const [expandedAssetFolders, setExpandedAssetFolders] = React.useState<Array<'favorites' | 'roles' | 'scenes' | 'props' | 'styles' | 'others'>>(['favorites'])
+  const [expandedAssetFolders, setExpandedAssetFolders] = React.useState<AssetLibraryFolderKey[]>(['favorites'])
   const [generatedThumbs, setGeneratedThumbs] = React.useState<Record<string, string | null>>({})
   const thumbStatusRef = React.useRef<Record<string, 'pending' | 'running' | 'done'>>({})
   const activeThumbJobsRef = React.useRef(0)
@@ -1479,6 +1482,24 @@ export default function AssetPanel(): JSX.Element | null {
     if (!selectedBookIndex || !Number.isFinite(chapter) || chapter <= 0) return null
     return (selectedBookIndex.chapters || []).find((it) => it.chapter === Math.trunc(chapter)) || null
   }, [selectedBookChapter, selectedBookIndex])
+  React.useEffect(() => {
+    const bookId = String(selectedBookId || '').trim()
+    const chapter = Number(selectedBookChapter)
+    if (!bookId || !Number.isFinite(chapter) || chapter <= 0 || !selectedChapterMeta) {
+      setSelectedAssetPanelChapterContext(null)
+      return
+    }
+    const chapterId = String(Math.trunc(chapter))
+    const title = String(selectedChapterMeta.title || '').trim()
+    const summary = String(selectedChapterMeta.summary || '').trim()
+    setSelectedAssetPanelChapterContext({
+      bookId,
+      chapterId,
+      label: `第${chapterId}章 · ${title || '未命名章节'}`,
+      ...(title ? { title } : {}),
+      ...(summary ? { summary } : {}),
+    })
+  }, [selectedBookChapter, selectedBookId, selectedChapterMeta, setSelectedAssetPanelChapterContext])
   const availableCharacterPool = React.useMemo(
     () => buildAvailableCharacterPool({ selectedBookIndex, selectedChapterMeta }),
     [selectedBookIndex, selectedChapterMeta],
@@ -1975,7 +1996,7 @@ export default function AssetPanel(): JSX.Element | null {
     if (!normalizedDrawerSearchQuery) return directoryEntries
     return directoryEntries.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(normalizedDrawerSearchQuery))
   }, [directoryEntries, normalizedDrawerSearchQuery])
-  const assetLibraryFolders = React.useMemo(() => ([
+  const assetLibraryFolders = React.useMemo<Array<{ key: AssetLibraryFolderKey; label: string; kind: 'favorite' | 'folder' }>>(() => ([
     { key: 'favorites', label: '收藏', kind: 'favorite' as const },
     { key: 'roles', label: '角色', kind: 'folder' as const },
     { key: 'scenes', label: '场景', kind: 'folder' as const },
@@ -1992,16 +2013,16 @@ export default function AssetPanel(): JSX.Element | null {
       return items.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(normalizedDrawerSearchQuery))
     }
     const favoriteEntries: AssetLibraryEntry[] = []
-    const roleEntries = byQuery(roleCardDisplayAssets.map((card) => ({
+    const roleEntries: AssetLibraryEntry[] = byQuery(roleCardDisplayAssets.map((card): AssetLibraryEntry => ({
       id: String(card.cardId || card.assetId || card.roleName).trim(),
       title: String(card.roleName || '未命名角色').trim(),
       subtitle: String(card.stateDescription || card.prompt || '角色卡').trim() || '角色卡',
       previewUrl: String(card.threeViewImageUrl || card.imageUrl || '').trim() || undefined,
       previewKind: 'image' as const,
     })))
-    const sceneEntries = byQuery(visualReferenceAssets
+    const sceneEntries: AssetLibraryEntry[] = byQuery(visualReferenceAssets
       .filter((asset) => asset.category === 'scene_prop')
-      .map((asset) => ({
+      .map((asset): AssetLibraryEntry => ({
         id: String(asset.refId || asset.name).trim(),
         title: String(asset.name || '未命名场景').trim(),
         subtitle: String(asset.stateDescription || asset.prompt || '场景参考').trim() || '场景参考',
@@ -2009,22 +2030,22 @@ export default function AssetPanel(): JSX.Element | null {
         previewKind: 'image' as const,
       })))
     const propEntries = byQuery([] as AssetLibraryEntry[])
-    const styleEntries = byQuery(selectedStyleReferenceImages.map((url, index) => ({
+    const styleEntries: AssetLibraryEntry[] = byQuery(selectedStyleReferenceImages.map((url, index): AssetLibraryEntry => ({
       id: `style-${index + 1}`,
       title: selectedStyleBible?.styleName ? `${selectedStyleBible.styleName} ${index + 1}` : `风格参考 ${index + 1}`,
       subtitle: '风格参考图',
       previewUrl: url,
       previewKind: 'image' as const,
     })))
-    const otherEntries = byQuery([
-      ...projectMaterialAssets.map((asset) => ({
+    const otherEntries: AssetLibraryEntry[] = byQuery([
+      ...projectMaterialAssets.map((asset): AssetLibraryEntry => ({
         id: String(asset.id || asset.name).trim(),
         title: String(asset.name || '项目文本').trim(),
         subtitle: String(getProjectMaterialData(asset).kind || '项目文档').trim(),
       })),
       ...visualReferenceAssets
         .filter((asset) => asset.category !== 'scene_prop')
-        .map((asset) => ({
+        .map((asset): AssetLibraryEntry => ({
           id: String(asset.refId || asset.name).trim(),
           title: String(asset.name || '未命名素材').trim(),
           subtitle: String(asset.category || '其他素材').trim(),
@@ -2039,7 +2060,7 @@ export default function AssetPanel(): JSX.Element | null {
       props: propEntries,
       styles: styleEntries,
       others: otherEntries,
-    }
+    } satisfies Record<AssetLibraryFolderKey, AssetLibraryEntry[]>
   }, [normalizedDrawerSearchQuery, projectMaterialAssets, roleCardDisplayAssets, selectedStyleBible?.styleName, selectedStyleReferenceImages, visualReferenceAssets])
 
   const MAX_THUMB_JOBS = 2
@@ -3027,6 +3048,44 @@ export default function AssetPanel(): JSX.Element | null {
     }
   }, [addNode, currentProject?.id, selectedBookChapter, selectedBookId, selectedChapterMeta, setActivePanel])
 
+  const handleOpenDirectoryChapterOnCanvas = React.useCallback(async (chapterNo: number) => {
+    if (!currentProject?.id || !selectedBookId) {
+      toast(PROJECT_TEXT_REQUIRED_MESSAGE, 'warning')
+      return
+    }
+    const normalizedChapterNo = Math.trunc(Number(chapterNo || 0))
+    if (!Number.isFinite(normalizedChapterNo) || normalizedChapterNo <= 0) {
+      toast('请选择有效章节', 'warning')
+      return
+    }
+    setSelectedBookChapter(String(normalizedChapterNo))
+    try {
+      const payload = await getProjectBookChapter(currentProject.id, selectedBookId, normalizedChapterNo)
+      const chapterTitle = payload?.title || `第${normalizedChapterNo}章`
+      addNode('taskNode', chapterTitle, {
+        kind: 'novelDoc',
+        autoLabel: false,
+        prompt: payload?.content || '',
+        textResults: payload?.content ? [{ text: payload.content }] : undefined,
+        chapter: normalizedChapterNo,
+        materialChapter: normalizedChapterNo,
+        sourceBookId: selectedBookId,
+        chapterSummary: payload?.summary || '',
+        chapterKeywords: Array.isArray(payload?.keywords) ? payload.keywords : [],
+        chapterAssets: {
+          characters: Array.isArray(payload?.characters) ? payload.characters : [],
+          props: Array.isArray(payload?.props) ? payload.props : [],
+          scenes: Array.isArray(payload?.scenes) ? payload.scenes : [],
+          locations: Array.isArray(payload?.locations) ? payload.locations : [],
+        },
+      })
+      setActivePanel(null)
+      toast(`已将第 ${normalizedChapterNo} 章送到画布`, 'success')
+    } catch (err: any) {
+      toast(err?.message || '读取章节失败', 'error')
+    }
+  }, [addNode, currentProject?.id, selectedBookId, setActivePanel])
+
   const deriveStyleHintsFromReferenceImage = React.useCallback(async (referenceUrl: string): Promise<{
     styleName?: string
     visualDirectives?: string[]
@@ -3771,6 +3830,17 @@ export default function AssetPanel(): JSX.Element | null {
                 ) : null}
                 {drawerSection === 'directory' ? (
                   <Stack className="asset-panel-drawer-section" gap="sm">
+                    <Button
+                      className="asset-panel-directory-import"
+                      size="sm"
+                      variant="light"
+                      leftSection={<IconUpload size={16} />}
+                      loading={materialUploading}
+                      disabled={materialUploading || isBookUploadLocked}
+                      onClick={() => materialUploadInputRef.current?.click()}
+                    >
+                      导入剧本 / 小说
+                    </Button>
                     <Group className="asset-panel-drawer-filter-row" justify="space-between" align="center">
                       <Text className="asset-panel-drawer-section-title" size="sm" fw={700}>章节目录</Text>
                       <Text className="asset-panel-drawer-section-meta" size="sm" c="dimmed">共 {filteredDirectoryEntries.length} 章</Text>
@@ -3787,11 +3857,22 @@ export default function AssetPanel(): JSX.Element | null {
                         <button
                           type="button"
                           key={item.id}
-                          className="asset-panel-drawer-list-item"
+                          className={[
+                            'asset-panel-drawer-list-item',
+                            'asset-panel-drawer-list-item--chapter',
+                            String(item.chapterNo) === String(selectedBookChapter) ? 'is-active' : '',
+                          ].filter(Boolean).join(' ')}
                           onClick={() => {
-                            if (item.chapterNo > 0) setSelectedBookChapter(String(item.chapterNo))
+                            if (item.chapterNo > 0) {
+                              void handleOpenDirectoryChapterOnCanvas(item.chapterNo)
+                            }
                           }}
                         >
+                          <span className="asset-panel-drawer-list-item-icon asset-panel-drawer-list-item-icon--chapter">
+                            <span className="asset-panel-drawer-list-item-icon-label">
+                              {item.chapterNo > 0 ? item.chapterNo : '章'}
+                            </span>
+                          </span>
                           <span className="asset-panel-drawer-list-item-copy">
                             <span className="asset-panel-drawer-list-item-title">{item.title}</span>
                             <span className="asset-panel-drawer-list-item-subtitle">{item.subtitle || '未生成章节摘要'}</span>
@@ -3800,6 +3881,7 @@ export default function AssetPanel(): JSX.Element | null {
                       ))}
                       {!filteredDirectoryEntries.length ? <Text size="sm" c="dimmed">当前项目还没有可展示目录。</Text> : null}
                     </Stack>
+                    <Text className="asset-panel-directory-footer" size="sm" c="dimmed">共 {filteredDirectoryEntries.length} 章节</Text>
                   </Stack>
                 ) : null}
                 {drawerSection === 'assets' ? (
@@ -4167,35 +4249,51 @@ export default function AssetPanel(): JSX.Element | null {
                         </Stack>
                       )}
                       {!!selectedChapterMeta && (
-                        <Stack className="asset-panel-book-meta" gap={4}>
-                          <Text className="asset-panel-book-meta-title" size="xs" fw={600}>
-                            第{selectedChapterMeta.chapter}章 · {selectedChapterMeta.title}
-                          </Text>
+                        <Stack className="asset-panel-book-meta" gap="sm">
+                          <Group className="asset-panel-book-meta-header" justify="space-between" align="flex-start" gap="sm" wrap="nowrap">
+                            <Stack className="asset-panel-book-meta-heading" gap={2}>
+                              <Text className="asset-panel-book-meta-label" size="xs" c="dimmed">
+                                当前章节
+                              </Text>
+                              <Text className="asset-panel-book-meta-title" size="sm" fw={700}>
+                                第{selectedChapterMeta.chapter}章 · {selectedChapterMeta.title}
+                              </Text>
+                            </Stack>
+                            <Badge className="asset-panel-book-meta-badge" size="sm" variant="light" color="violet">
+                              Chapter {selectedChapterMeta.chapter}
+                            </Badge>
+                          </Group>
                           {!!selectedChapterMeta.summary && (
-                            <Text className="asset-panel-book-meta-summary" size="xs" c="dimmed" lineClamp={3}>
+                            <Text className="asset-panel-book-meta-summary" size="sm">
                               {selectedChapterMeta.summary}
                             </Text>
                           )}
-                          {!!selectedChapterMeta.keywords?.length && (
-                            <Text className="asset-panel-book-meta-keywords" size="xs" c="dimmed" lineClamp={2}>
-                              关键词：{selectedChapterMeta.keywords.join('、')}
-                            </Text>
-                          )}
-                          {!!selectedChapterMeta.characters?.length && (
-                            <Text className="asset-panel-book-meta-characters" size="xs" c="dimmed" lineClamp={2}>
-                              角色：{selectedChapterMeta.characters.map((x) => x.name).join('、')}
-                            </Text>
-                          )}
-                          {!!selectedChapterMeta.props?.length && (
-                            <Text className="asset-panel-book-meta-props" size="xs" c="dimmed" lineClamp={2}>
-                              道具：{selectedChapterMeta.props.map((x) => x.name).join('、')}
-                            </Text>
-                          )}
-                          {!!selectedChapterMeta.scenes?.length && (
-                            <Text className="asset-panel-book-meta-scenes" size="xs" c="dimmed" lineClamp={2}>
-                              场景：{selectedChapterMeta.scenes.map((x) => x.name).join('、')}
-                            </Text>
-                          )}
+                          <div className="asset-panel-book-meta-facts">
+                            {!!selectedChapterMeta.keywords?.length && (
+                              <Text className="asset-panel-book-meta-fact" size="xs" c="dimmed">
+                                <span className="asset-panel-book-meta-fact-label">关键词</span>
+                                <span className="asset-panel-book-meta-fact-value">{selectedChapterMeta.keywords.join('、')}</span>
+                              </Text>
+                            )}
+                            {!!selectedChapterMeta.characters?.length && (
+                              <Text className="asset-panel-book-meta-fact" size="xs" c="dimmed">
+                                <span className="asset-panel-book-meta-fact-label">角色</span>
+                                <span className="asset-panel-book-meta-fact-value">{selectedChapterMeta.characters.map((x) => x.name).join('、')}</span>
+                              </Text>
+                            )}
+                            {!!selectedChapterMeta.props?.length && (
+                              <Text className="asset-panel-book-meta-fact" size="xs" c="dimmed">
+                                <span className="asset-panel-book-meta-fact-label">道具</span>
+                                <span className="asset-panel-book-meta-fact-value">{selectedChapterMeta.props.map((x) => x.name).join('、')}</span>
+                              </Text>
+                            )}
+                            {!!selectedChapterMeta.scenes?.length && (
+                              <Text className="asset-panel-book-meta-fact" size="xs" c="dimmed">
+                                <span className="asset-panel-book-meta-fact-label">场景</span>
+                                <span className="asset-panel-book-meta-fact-value">{selectedChapterMeta.scenes.map((x) => x.name).join('、')}</span>
+                              </Text>
+                            )}
+                          </div>
                         </Stack>
                       )}
                       {loading ? (

@@ -224,6 +224,14 @@ export type AssetPanelStoryboardRunRequest = {
   forceWholeChapterRegenerate?: boolean
 }
 
+export type AssetPanelSelectedChapterContext = {
+  bookId: string
+  chapterId: string
+  label: string
+  title?: string
+  summary?: string
+}
+
 export type CanvasReferencePickerState = {
   targetNodeId: string
   blockedSourceNodeIds: string[]
@@ -302,6 +310,8 @@ type UIState = {
   assetPanelStoryboardRunRequest: AssetPanelStoryboardRunRequest | null
   requestAssetPanelStoryboardRun: (request: Omit<AssetPanelStoryboardRunRequest, 'requestKey'>) => void
   clearAssetPanelStoryboardRunRequest: () => void
+  selectedAssetPanelChapterContext: AssetPanelSelectedChapterContext | null
+  setSelectedAssetPanelChapterContext: (context: AssetPanelSelectedChapterContext | null) => void
   canvasReferencePicker: CanvasReferencePickerState | null
   openCanvasReferencePicker: (payload: { targetNodeId: string; blockedSourceNodeIds?: string[] }) => void
   closeCanvasReferencePicker: () => void
@@ -500,6 +510,30 @@ export const useUIStore = create<UIState>((set, get) => ({
       },
     }),
   clearAssetPanelStoryboardRunRequest: () => set({ assetPanelStoryboardRunRequest: null }),
+  selectedAssetPanelChapterContext: null,
+  setSelectedAssetPanelChapterContext: (context) =>
+    set((state) => {
+      const next = context && context.bookId && context.chapterId
+        ? {
+            bookId: context.bookId,
+            chapterId: context.chapterId,
+            label: context.label,
+            ...(context.title ? { title: context.title } : {}),
+            ...(context.summary ? { summary: context.summary } : {}),
+          }
+        : null
+      const prev = state.selectedAssetPanelChapterContext
+      if (
+        prev?.bookId === next?.bookId
+        && prev?.chapterId === next?.chapterId
+        && prev?.label === next?.label
+        && prev?.title === next?.title
+        && prev?.summary === next?.summary
+      ) {
+        return state
+      }
+      return { selectedAssetPanelChapterContext: next }
+    }),
   canvasReferencePicker: null,
   openCanvasReferencePicker: (payload) => {
     const targetNodeId = String(payload.targetNodeId || '').trim()
