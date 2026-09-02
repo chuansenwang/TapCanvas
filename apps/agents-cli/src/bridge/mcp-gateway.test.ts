@@ -61,9 +61,14 @@ test("requires schema disclosure before a deferred tool can execute", async (con
   });
   const wireNames: string[] = [];
   globalThis.fetch = async (_input, init) => {
-    const body = JSON.parse(String(init?.body)) as { toolName?: unknown };
+    const body = JSON.parse(String(init?.body)) as { toolName?: unknown; args?: Record<string, unknown> };
     wireNames.push(String(body.toolName ?? ""));
-    return new Response(JSON.stringify({ content: "ok" }), { status: 200 });
+    return body.toolName === "tapcanvas_tool_schema_get"
+      ? new Response(JSON.stringify({
+          content: "schema",
+          data: { selectorRequired: false, validationParameters: { type: "object" } },
+        }), { status: 200 })
+      : new Response(JSON.stringify({ content: "ok" }), { status: 200 });
   };
 
   const gateway = new RequestMcpGateway();
@@ -83,6 +88,48 @@ test("requires schema disclosure before a deferred tool can execute", async (con
 
   assert.doesNotMatch(JSON.stringify(executed.body), /schema 尚未加载/u);
   assert.deepEqual(wireNames, ["tapcanvas_tool_schema_get", deferredTool.name]);
+});
+
+test("normalizes a premature selector into an explicit first schema index lookup", async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  let receivedArgs: Record<string, unknown> | undefined;
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as { args?: Record<string, unknown> };
+    receivedArgs = body.args;
+    return new Response(JSON.stringify({
+      content: "schema index",
+      data: {
+        selectorRequired: true,
+        operationIndex: { field: "mode", values: ["read", "write"] },
+      },
+    }), { status: 200 });
+  };
+
+  const gateway = new RequestMcpGateway();
+  const token = gateway.register([], [deferredTool], {
+    endpoint: "https://api.example/agents/tools/execute",
+  });
+  const result = await gateway.handle(token, `Bearer ${token}`, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: {
+      name: "tapcanvas_get_tool_schema",
+      arguments: {
+        name: deferredTool.name,
+        selector: { field: "mode", value: "read" },
+      },
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(receivedArgs, { name: deferredTool.name });
+  const body = result.body as { result?: { structuredContent?: Record<string, unknown> } };
+  assert.equal(body.result?.structuredContent?.ignoredPrematureSelector, true);
+  assert.equal(gateway.executions(token)[0]?.status, "succeeded");
 });
 
 test("records transport failures instead of silently returning an untraced MCP error", async (context) => {
@@ -109,7 +156,7 @@ test("records transport failures instead of silently returning an untraced MCP e
   assert.match(gateway.executions(token)[0]?.outputText ?? "", /connection refused/u);
 });
 
-test("freezes the root agent's response delivery report without calling Hono", async (context) => {
+test("freezes the root agent's response delivery report with the requested output in delivery", async (context) => {
   const originalFetch = globalThis.fetch;
   context.after(() => {
     globalThis.fetch = originalFetch;
@@ -127,13 +174,13 @@ test("freezes the root agent's response delivery report without calling Hono", a
       name: "report_delivery",
       arguments: {
         taskGoal: "介绍助手身份",
-        requestedOutput: "直接回答用户",
         taskKind: "identity_answer",
         delivery: {
           mode: "response",
           mediaType: null,
           kind: "answer",
           output: "助手身份说明",
+          requestedOutput: "直接回答用户",
         },
         requirements: [{ id: "must:identity", statement: "说明助手身份" }],
         rationale: "计划中的最终回答直接说明身份。",

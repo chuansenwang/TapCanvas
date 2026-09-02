@@ -31,6 +31,7 @@ type McpRuntime = {
   config: RemoteToolConfig | null;
   executions: RemoteToolExecution[];
   loadedDeferredSchemas: Set<string>;
+  schemaIndexesLoaded: Set<string>;
   deliveryReport: HarnessDeliveryReport | null;
 };
 
@@ -43,7 +44,6 @@ const DELIVERY_REPORT_TOOL: RemoteToolDefinition = {
     additionalProperties: false,
     properties: {
       taskGoal: { type: "string", minLength: 1, maxLength: 2_000 },
-      requestedOutput: { type: "string", minLength: 1, maxLength: 2_000 },
       taskKind: { type: "string", minLength: 1, maxLength: 160 },
       delivery: {
         type: "object",
@@ -53,8 +53,9 @@ const DELIVERY_REPORT_TOOL: RemoteToolDefinition = {
           mediaType: { type: "null" },
           kind: { type: "string", minLength: 1, maxLength: 160 },
           output: { type: "string", minLength: 1, maxLength: 2_000 },
+          requestedOutput: { type: "string", minLength: 1, maxLength: 2_000 },
         },
-        required: ["mode", "mediaType", "kind", "output"],
+        required: ["mode", "mediaType", "kind", "output", "requestedOutput"],
       },
       requirements: {
         type: "array",
@@ -74,7 +75,6 @@ const DELIVERY_REPORT_TOOL: RemoteToolDefinition = {
     },
     required: [
       "taskGoal",
-      "requestedOutput",
       "taskKind",
       "delivery",
       "requirements",
@@ -135,6 +135,12 @@ function textFromPayload(payload: unknown, rawText: string): string {
   if (typeof payload.content === "string" && payload.content.trim()) return payload.content;
   if (typeof payload.text === "string" && payload.text.trim()) return payload.text;
   return rawText;
+}
+
+function isExactSchemaPayload(payload: unknown): boolean {
+  if (!isJsonObject(payload)) return false;
+  const schema = isJsonObject(payload.data) ? payload.data : payload;
+  return schema.selectorRequired !== true && Object.prototype.hasOwnProperty.call(schema, "validationParameters");
 }
 
 function buildToolRequestBody(
@@ -232,13 +238,27 @@ async function executeRemoteTool(
   }
   if (runtime.config.apiKey) headers["x-api-key"] = runtime.config.apiKey;
 
+  let wireArgs = args;
+  let ignoredPrematureSelector = false;
+  if (
+    name === SCHEMA_LOADER_TOOL.name
+    && typeof args.name === "string"
+    && args.name.trim()
+    && Object.prototype.hasOwnProperty.call(args, "selector")
+    && !runtime.schemaIndexesLoaded.has(args.name.trim())
+  ) {
+    const { selector: _prematureSelector, ...indexArgs } = args;
+    wireArgs = indexArgs;
+    ignoredPrematureSelector = true;
+  }
+
   const wireName = definition.wireName ?? name;
   let response: Response;
   try {
     response = await fetch(runtime.config.endpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify(buildToolRequestBody(wireName, args, runtime.config)),
+      body: JSON.stringify(buildToolRequestBody(wireName, wireArgs, runtime.config)),
     });
   } catch (error: unknown) {
     const outputText = `远程工具 ${name} 传输失败：${error instanceof Error ? error.message : String(error)}`;
@@ -277,9 +297,22 @@ async function executeRemoteTool(
       isError: true,
     };
   }
+  let structuredOutput: JsonObject | undefined;
+  if (isJsonObject(payload)) {
+    structuredOutput = ignoredPrematureSelector
+      ? { ...payload, ignoredPrematureSelector: true }
+      : payload;
+  }
   if (name === SCHEMA_LOADER_TOOL.name) {
     const deferredName = typeof args.name === "string" ? args.name.trim() : "";
-    if (deferredName) runtime.loadedDeferredSchemas.add(deferredName);
+    if (deferredName) {
+      if (ignoredPrematureSelector || args.selector === undefined) {
+        runtime.schemaIndexesLoaded.add(deferredName);
+      }
+      if (isExactSchemaPayload(payload)) {
+        runtime.loadedDeferredSchemas.add(deferredName);
+      }
+    }
   }
   appendExecution(runtime, {
     name,
@@ -288,11 +321,11 @@ async function executeRemoteTool(
     startedAtMs,
     status: "succeeded",
     outputText: text,
-    ...(isJsonObject(payload) ? { structuredOutput: payload } : {}),
+    ...(structuredOutput ? { structuredOutput } : {}),
   });
   return {
     content: [{ type: "text", text }],
-    ...(isJsonObject(payload) ? { structuredContent: payload } : {}),
+    ...(structuredOutput ? { structuredContent: structuredOutput } : {}),
   };
 }
 
@@ -308,12 +341,12 @@ function executeDeliveryReport(
   startedAtMs: number,
 ): JsonObject {
   const taskGoal = requiredText(args.taskGoal, 2_000);
-  const requestedOutput = requiredText(args.requestedOutput, 2_000);
   const taskKind = requiredText(args.taskKind, 160);
   const rationale = requiredText(args.rationale, 1_000);
   const delivery = isJsonObject(args.delivery) ? args.delivery : null;
   const deliveryKind = requiredText(delivery?.kind, 160);
   const deliveryOutput = requiredText(delivery?.output, 2_000);
+  const requestedOutput = requiredText(delivery?.requestedOutput, 2_000);
   const rawRequirements = Array.isArray(args.requirements) ? args.requirements : [];
   const requirements: Array<{ id: string; statement: string }> = [];
   const seenIds = new Set<string>();
@@ -425,6 +458,7 @@ export class RequestMcpGateway {
       config,
       executions: [],
       loadedDeferredSchemas: new Set<string>(),
+      schemaIndexesLoaded: new Set<string>(),
       deliveryReport: null,
     });
     return token;

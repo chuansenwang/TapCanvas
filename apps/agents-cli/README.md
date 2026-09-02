@@ -94,7 +94,7 @@ Bridge 在 Hono 事实型 prompt 之外固定注入唯一产品身份：面向�
 
 `report_delivery` 是 Bridge 内部的 response-mode 最终自检工具，不会转发给 Hono，
 也不在公共画布工具目录中。主代理必须在纯文本最终回答前调用它，结构化声明任务目标、
-交付类型和逐项成功标准；Bridge 冻结合同哈希，并在 Harness 真正结束后把精确最终正文
+交付类型（`delivery` 对象内同时声明 `requestedOutput`）和逐项成功标准；Bridge 冻结合同哈希，并在 Harness 真正结束后把精确最终正文
 绑定为 SHA-256 `final_response` evidence，构造
 `expectedDelivery -> deliveryEvidence -> deliveryVerification -> PhysicalRunExitV1`。
 缺少报告、正文为空、Harness 未正常结束或合同结构无效时显式失败。该工具只接受
