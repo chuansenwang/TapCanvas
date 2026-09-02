@@ -96,6 +96,19 @@ case "$cmd" in
       pnpm -w install
     fi
 
+    # new-api embeds its web console into the Go binary. Build the console once
+    # when a fresh checkout does not contain the required embed entry point.
+    if [ ! -f "apps/new-api/web/dist/index.html" ]; then
+      echo "[dev.sh] new-api web build is missing; building the embedded console..." >&2
+      (
+        cd apps/new-api/web
+        npm run build
+      ) || {
+        echo "[dev.sh] Failed to build apps/new-api/web; new-api cannot start." >&2
+        exit 1
+      }
+    fi
+
     inferred_web_github_client_id=""
     if [ -z "${VITE_GITHUB_CLIENT_ID:-}" ]; then
       if ! has_env_key "apps/web/.env" "VITE_GITHUB_CLIENT_ID" \
@@ -123,8 +136,15 @@ case "$cmd" in
     }
     trap cleanup EXIT INT TERM
 
-    (cd apps/hono-api && pnpm dev) &
+    (
+      cd apps/hono-api
+      NODE_PATH="$PWD/node_modules${NODE_PATH:+:$NODE_PATH}" pnpm dev
+    ) &
     pids+=("$!")
+
+    (cd apps/new-api && go run main.go) &
+    pids+=("$!")
+    echo "[dev.sh] new-api on http://localhost:4455" >&2
 
     if [ "$start_webcut" = "1" ]; then
       if [ -f "apps/webcut-main/package.json" ]; then
