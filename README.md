@@ -61,11 +61,11 @@ cp apps/web/.env.example apps/web/.env
 # 按模板注释补齐必填密钥后，启动后端、数据库、网关、Agents 与 Workers
 docker compose up -d --build
 
-# 另开终端启动 Web
-pnpm dev:web
+# 启动主页面、API、Agent 与模型网关
+pnpm dev
 ```
 
-打开 Web [http://localhost:5175](http://localhost:5175)，API 位于 [http://localhost:8788](http://localhost:8788)，鲁班 API 管理台位于 [http://localhost:4455](http://localhost:4455)。全新数据库的 Canvas 管理员默认为 `admin / 123456`，仅用于本机首次启动；暴露到局域网或公网前必须修改。
+打开 TapCanvas 主页面 [http://localhost:5175](http://localhost:5175)，点击页面右下角小 T 进入 Agent 页面。API 位于 [http://localhost:8788](http://localhost:8788)，鲁班 API 管理台位于 [http://localhost:4455](http://localhost:4455)。全新数据库的 Canvas 管理员默认为 `admin / 123456`，仅用于本机首次启动；暴露到局域网或公网前必须修改。
 
 ### 环境变量
 

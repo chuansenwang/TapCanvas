@@ -1,0 +1,12 @@
+import{R as s,j as o}from"./vendor-react-DwcYshSI.js";import{bT as x}from"./IconVideoPlus-CeCMtgN_.js";import{f as k,G as b,B as y,b as J,e as v}from"./vendor-mantine-CIl75aQ_.js";import"./index-CnAjEJhN.js";import"./IconChartBar-BvS3znlm.js";import"./TapCanvasMark-DmpTeNqz.js";import"./vendor-framer-DdKzjCyK.js";import"./IconCheck-C0uN7rbH.js";import"./useSkillLibraryData-Jq5jfEp_.js";import"./IconChevronRight-BS3GqzIr.js";import"./IconFolder-Cj-y5lJC.js";import"./IconPhoto-BdrouY9Z.js";import"./IconUpload-f9xjMdfo.js";import"./toast-fXX2_aen.js";import"./vendor-xyflow-DComDkyV.js";import"./generationHistory-BbFBUo9Z.js";import"./IconLayoutGrid-BW3Tafyc.js";import"./IconEye-Dapod13k.js";function h(t){if(!t||typeof t!="object"||Array.isArray(t))return"";try{return JSON.stringify(t,null,2)}catch{return""}}function C({structuredValue:t,loading:u=!1,readOnly:i=!1,externalError:j,onCommit:l,onRefine:d}){const[c,m]=s.useState(()=>h(t)),[f,r]=s.useState("");s.useEffect(()=>{m(h(t)),r("")},[t]);const N=s.useCallback(()=>{const a=c.trim();if(!a){r("structuredPrompt 不能为空。");return}let g;try{g=JSON.parse(a)}catch(n){const _=n instanceof Error?n.message:"未知 JSON 解析错误";r(`JSON 解析失败：${_}`);return}const e=x.parseImagePromptSpecV2(g);if(!e.ok||!e.value){const n=e.ok?"缺少有效结构化内容":e.error;r(n);return}const p=e.value,P=x.compileImagePromptSpecV2(p).trim();l({structuredPrompt:p,prompt:P}),m(JSON.stringify(p,null,2)),r("")},[c,l]),S=f||j||"";return o.jsxs(k,{className:"task-node-structured-prompt__root",gap:6,children:[d&&!i?o.jsx(b,{className:"task-node-structured-prompt__header",justify:"flex-end",gap:8,children:o.jsx(y,{className:"task-node-structured-prompt__refine-button",size:"compact-xs",variant:"light",loading:u,onClick:d,children:"AI 润色"})}):null,o.jsx(J,{className:"task-node-structured-prompt__textarea","aria-label":"结构化提示词 JSON",autosize:!0,minRows:8,maxRows:14,value:c,disabled:u||i,onChange:a=>{m(a.currentTarget.value),f&&r("")},onBlur:()=>{i||N()},placeholder:`{
+  "version": "v2",
+  "shotIntent": "...",
+  "spatialLayout": ["..."],
+  "subjectRelations": [],
+  "environmentObjects": [],
+  "cameraPlan": ["..."],
+  "lightingPlan": ["..."],
+  "styleConstraints": [],
+  "continuityConstraints": [],
+  "negativeConstraints": []
+}`}),S?o.jsx(v,{className:"task-node-structured-prompt__error",size:"xs",c:"red",children:S}):null]})}const K=s.memo(C);export{K as StructuredPromptSection};

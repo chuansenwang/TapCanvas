@@ -262,7 +262,9 @@ function stopStaleWebDevServers() {
 
 function isHarnessWebProcess(commandLine) {
   const normalizedCommandLine = commandLine.toLowerCase().replaceAll('/', '\\')
-  return normalizedCommandLine.includes('apps\\agents\\apps\\cli\\src\\bin.ts')
+  const usesHarnessCli = normalizedCommandLine.includes('apps\\agents\\apps\\cli\\src\\bin.ts')
+    || normalizedCommandLine.includes('apps\\cli\\src\\bin.ts')
+  return usesHarnessCli
     && normalizedCommandLine.includes('"web"')
     && normalizedCommandLine.includes('"--port" "3080"')
 }
@@ -430,16 +432,20 @@ if (options.has('--webcut')) {
 
 const webEnvironment = {
   ...process.env,
-  // 开发期仍由构建监听产出静态文件；该本地入口明确允许 localhost
-  // 回调地址，生产构建继续保持 Vite 配置中的默认拒绝策略。
-  ALLOW_LOCALHOST_IN_PROD_BUILD: process.env.ALLOW_LOCALHOST_IN_PROD_BUILD || '1',
-  // The unified Harness Web reserves /api for its own RPC route. Its dedicated
-  // /tapcanvas-api proxy keeps business requests same-origin without colliding
-  // with Harness RPC, which also avoids browser cross-port request blocking.
-  VITE_API_BASE: process.env.VITE_API_BASE || '/tapcanvas-api',
+  // 主页面由 TapCanvas 自己的 Vite 开发服务提供，使用同源 /api 代理访问 API。
+  VITE_API_BASE: process.env.VITE_API_BASE || '/api',
   VITE_HARNESS_WEB_URL: harnessLaunchUrl,
 }
 startService('web-build-watch', pnpmCommand, ['pnpm', 'run', 'dev:web'], rootDirectory, webEnvironment)
+startService(
+  'tapcanvas-web',
+  pnpmCommand,
+  ['pnpm', '--filter', '@tapcanvas/web', 'dev', '--host', '127.0.0.1', '--port', '5175'],
+  rootDirectory,
+  webEnvironment,
+)
+console.log('[dev] TapCanvas 主页面: http://127.0.0.1:5175')
+console.log('[dev] 点击主页面右下角小 T 进入 Agent 页面')
 
 process.once('SIGINT', stopServices)
 process.once('SIGTERM', stopServices)
