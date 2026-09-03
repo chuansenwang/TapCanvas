@@ -43,7 +43,10 @@ function hasSameRequestHost(origin: string, currentRequestOrigin: string | null)
 }
 
 function isApprovedLocalDevelopmentOrigin(origin: string): boolean {
-	return origin === "http://localhost:5175" || origin === "http://127.0.0.1:5175";
+	return origin === "http://localhost:5175"
+		|| origin === "http://127.0.0.1:5175"
+		|| origin === "http://localhost:3080"
+		|| origin === "http://127.0.0.1:3080";
 }
 
 function isLocalRequestOrigin(origin: string | null): boolean {

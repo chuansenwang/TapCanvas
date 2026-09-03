@@ -199,7 +199,7 @@ export async function startHarnessHttpServer(
           ok: true,
           runtime: "deepseek-harness",
           profile: "sdk",
-          upstreamVersion: "0.1.2-alpha.2",
+          upstreamVersion: "0.1.2-alpha.4",
         });
         return;
       }

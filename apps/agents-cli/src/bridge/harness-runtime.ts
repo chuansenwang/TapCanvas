@@ -368,7 +368,7 @@ function buildResponse(input: {
       runtime: {
         engine: "deepseek-harness",
         profile: "sdk",
-        upstreamVersion: "0.1.2-alpha.2",
+        upstreamVersion: "0.1.2-alpha.4",
         provider: "tapcanvas",
         model: input.request.model,
         sessionId: input.result.sessionId,

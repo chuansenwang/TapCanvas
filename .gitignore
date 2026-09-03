@@ -48,6 +48,16 @@ __pycache__/
 helloagents
 
 project-data
+.runtime/
 
 cert
 /apps/new-api/web/dist/
+
+# Vendored DeepSeek Harness generated artifacts
+third-party/deepseek-harness/**/lib/
+third-party/deepseek-harness/**/dist/
+third-party/deepseek-harness/**/build/
+third-party/deepseek-harness/**/coverage/
+third-party/deepseek-harness/**/node_modules/
+!third-party/deepseek-harness/.agents/
+!third-party/deepseek-harness/.agents/**

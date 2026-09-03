@@ -5,9 +5,9 @@ const require = createRequire(import.meta.url);
 const manifestPath = require.resolve("@deepseek-ai/dsh/package.json");
 const manifest = require(manifestPath);
 
-if (manifest.version !== "0.1.2-alpha.2") {
+if (manifest.version !== "0.1.2-alpha.4") {
   throw new Error(
-    `DeepSeek Harness version mismatch: expected 0.1.2-alpha.2, received ${String(manifest.version)}`,
+    `DeepSeek Harness version mismatch: expected 0.1.2-alpha.4, received ${String(manifest.version)}`,
   );
 }
 

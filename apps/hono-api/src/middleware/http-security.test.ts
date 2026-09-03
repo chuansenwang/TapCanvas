@@ -42,11 +42,14 @@ describe("browserOriginGuard", () => {
 	});
 
 	it("allows the fixed Web development port only when the API request is local", async () => {
-		const local = await app().request("http://127.0.0.1:8788/write", {
-			method: "POST",
-			headers: { origin: "http://127.0.0.1:5175", cookie: "tap_token=secret" },
-		}, env);
-		expect(local.status).toBe(200);
+		const localOrigins = ["http://127.0.0.1:5175", "http://127.0.0.1:3080"];
+		for (const origin of localOrigins) {
+			const local = await app().request("http://127.0.0.1:8788/write", {
+				method: "POST",
+				headers: { origin, cookie: "tap_token=secret" },
+			}, env);
+			expect(local.status).toBe(200);
+		}
 
 		const production = await app().request("https://api.tapcanvas.com/write", {
 			method: "POST",

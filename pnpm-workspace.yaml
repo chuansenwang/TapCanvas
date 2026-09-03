@@ -1,4 +1,6 @@
 packages:
   - apps/*
+  # apps/agents is an independent pnpm workspace and must not be merged here.
+  - '!apps/agents'
   - packages/*
   - packages/*/*

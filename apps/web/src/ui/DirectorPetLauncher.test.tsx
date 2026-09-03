@@ -5,7 +5,7 @@ import { useChatActivityStore } from './chat/chatActivityStore'
 import { useChatCommandStore } from './chat/chatCommandStore'
 import { resetVideoRuns, upsertVideoRun } from '../runner/videoRunStore'
 import { VIDEO_RUN_STATUS_PROTOCOL_VERSION } from '@tapcanvas/video-orchestrator-protocol'
-import DirectorPetLauncher from './DirectorPetLauncher'
+import DirectorPetLauncher, { resolveAuthenticatedHarnessWebUrl } from './DirectorPetLauncher'
 import { useUIStore } from './uiStore'
 
 const canonicalStatusFields = {
@@ -52,6 +52,7 @@ describe('DirectorPetLauncher', () => {
 
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     const chatWindow = window as unknown as {
       __tcExpandChat?: () => void
       __tcToggleChat?: () => void
@@ -60,21 +61,42 @@ describe('DirectorPetLauncher', () => {
     delete chatWindow.__tcToggleChat
   })
 
-  it('opens the AI dialog immediately without a click reaction', async () => {
+  it('does not open the unauthenticated Harness root or fall back to the legacy chat', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window)
     const expandChat = vi.fn(() => useUIStore.setState({ aiChatOpen: true }))
     ;(window as unknown as { __tcExpandChat?: () => void }).__tcExpandChat = expandChat
 
     render(<DirectorPetLauncher />)
 
-    const launcher = screen.getByRole('button', { name: '打开导演小T对话' })
+    const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
     expect(launcher.hasAttribute('data-click-reaction')).toBe(false)
     fireEvent.click(launcher)
 
-    expect(expandChat).toHaveBeenCalledTimes(1)
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: '打开导演小T对话' })).toBeNull()
-      expect(screen.getByRole('button', { name: '收起AI对话' })).toBeTruthy()
-    })
+    expect(open).not.toHaveBeenCalled()
+    expect(expandChat).not.toHaveBeenCalled()
+    expect(screen.getByText('原生 Agent 启动地址不可用')).toBeTruthy()
+  })
+
+  it('accepts only a loopback Harness URL carrying a launch token', () => {
+    expect(resolveAuthenticatedHarnessWebUrl('http://127.0.0.1:3080/?token=launch-token'))
+      .toBe('http://127.0.0.1:3080/?token=launch-token')
+    expect(resolveAuthenticatedHarnessWebUrl('http://127.0.0.1:3080/')).toBeNull()
+    expect(resolveAuthenticatedHarnessWebUrl('https://127.0.0.1:3080/?token=launch-token')).toBeNull()
+    expect(resolveAuthenticatedHarnessWebUrl('http://example.com/?token=launch-token')).toBeNull()
+    expect(resolveAuthenticatedHarnessWebUrl('http://user:pass@127.0.0.1:3080/?token=launch-token')).toBeNull()
+    expect(resolveAuthenticatedHarnessWebUrl('http://127.0.0.1:3080/?token=one&token=two')).toBeNull()
+  })
+
+  it('does not fall back to the embedded chat while the native launch URL is unavailable', () => {
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    const expandChat = vi.fn()
+    ;(window as unknown as { __tcExpandChat?: () => void }).__tcExpandChat = expandChat
+
+    render(<DirectorPetLauncher />)
+    fireEvent.click(screen.getByRole('button', { name: '打开原生 Agent 对话' }))
+
+    expect(expandChat).not.toHaveBeenCalled()
+    expect(screen.getByText('原生 Agent 启动地址不可用')).toBeTruthy()
   })
 
   it('collapses the dialog from the peek state and docks at the right wall', async () => {
@@ -92,7 +114,7 @@ describe('DirectorPetLauncher', () => {
 
     expect(toggleChat).toHaveBeenCalledTimes(1)
     await waitFor(() => {
-      const launcher = screen.getByRole('button', { name: '打开导演小T对话' })
+      const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
       expect(launcher.getAttribute('data-wall-side')).toBe('right')
     })
 
@@ -117,7 +139,7 @@ describe('DirectorPetLauncher', () => {
 
     render(<DirectorPetLauncher />)
 
-    const launcher = screen.getByRole('button', { name: '打开导演小T对话' })
+    const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
     expect(launcher.getAttribute('data-production-phase')).toBe('rendering')
     expect(launcher.querySelector('.director-pet-test-sprite')?.getAttribute('data-animation-state')).toBe('working')
     expect(screen.getByText('正在出片 · 7/12 段')).toBeTruthy()
@@ -137,7 +159,7 @@ describe('DirectorPetLauncher', () => {
 
     render(<DirectorPetLauncher />)
 
-    const launcher = screen.getByRole('button', { name: '打开导演小T对话' })
+    const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
     expect(launcher.getAttribute('data-production-phase')).toBe('planning')
     expect(launcher.querySelector('.director-pet-test-sprite')?.getAttribute('data-animation-state')).toBe('idea')
     expect(screen.getByText('正在拆解镜头')).toBeTruthy()

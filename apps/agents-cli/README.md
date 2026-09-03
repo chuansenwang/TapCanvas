@@ -1,8 +1,8 @@
-# TapCanvas DeepSeek Harness Bridge
+# TapCanvas Legacy Agents Bridge
 
-`apps/agents-cli` 已硬切换为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 TapCanvas 集成层。主代理循环、会话、Skills、Todo、子代理与基础工具由官方 Harness `sdk` profile 提供；本目录只保留 TapCanvas 的模型网关配置、HTTP/SSE 协议投影和按请求授权的 MCP 工具桥。
+`apps/agents-cli` 是迁移期间保留的旧 Agents Bridge，不是默认智能体运行时。默认运行时是 `apps/agents` 中的 `@tapcanvas/agents`；它独立管理原生 Web、会话、Agent Loop 和工具宿主。
 
-不再维护旧 `agents-cli` 自研 agent loop，也没有旧运行时兼容分支。
+本目录只用于显式诊断、历史链路验证和迁移回归。Hono 默认不会自动启动它；需要旧链路时，必须显式设置 `AGENTS_BRIDGE_AUTOSTART=1`，或执行根目录的 `pnpm run dev:agents-legacy`。新功能不得接入本目录。
 
 ## 安装
 
@@ -10,23 +10,25 @@
 
 ```bash
 pnpm -w install
-pnpm --filter agents build
+pnpm --dir apps/agents install
+pnpm --dir apps/agents run build:lib:host
+pnpm --filter @tapcanvas/agents-legacy build
 ```
 
-安装会下载官方 npm 发行包，核心版本固定为 `@deepseek-ai/dsh@0.1.2-alpha.2`，所有 DeepSeek Harness 接口包与插件保持同一版本线。当前版本要求 Node.js `^22.19.0` 或 `>=24.0.0`。
+安装会使用仓库内迁入的 DeepSeek Harness 源码工作区，核心版本为 `0.1.2-alpha.4`，所有 DeepSeek Harness 接口包与插件保持同一版本线。当前版本要求 Node.js `^22.19.0` 或 `>=24.0.0`。
 
-这里不会额外 clone 或 vendor GitHub 源码。GitHub 仓库是上游开发源，TapCanvas 运行时消费其带版本的官方 npm 产物。
+当前原生 Harness 源码位于 `apps/agents`；`third-party/deepseek-harness` 仅保留为迁移验收前的来源副本。运行时不从该来源目录启动；`node_modules`、`dist`、`lib`、`build` 和 `coverage` 等生成目录不纳入版本控制。
 
 ## 启动
 
 ```bash
-pnpm --filter agents start serve --host 127.0.0.1 --port 8789
+pnpm --filter @tapcanvas/agents-legacy start serve --host 127.0.0.1 --port 8789
 ```
 
 开发模式：
 
 ```bash
-pnpm --filter agents dev serve --host 127.0.0.1 --port 8789
+pnpm --filter @tapcanvas/agents-legacy dev serve --host 127.0.0.1 --port 8789
 ```
 
 可选参数：

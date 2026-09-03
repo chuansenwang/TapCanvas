@@ -9,19 +9,13 @@ function isTruthyEnv(value: unknown): boolean {
 	return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
-function isProductionEnv(): boolean {
-	const raw = String(process.env.NODE_ENV || "")
-		.trim()
-		.toLowerCase();
-	return raw === "production";
-}
-
-function shouldAutostartAgentsBridge(): boolean {
+export function shouldAutostartAgentsBridge(): boolean {
 	const raw = typeof process.env.AGENTS_BRIDGE_AUTOSTART === "string" ? process.env.AGENTS_BRIDGE_AUTOSTART : "";
 	const trimmed = raw.trim();
 	if (trimmed) return isTruthyEnv(trimmed);
-	// Default behavior: in non-production, autostart the bridge unless explicitly disabled.
-	return !isProductionEnv();
+	// apps/agents is the default runtime. The legacy bridge can only be started
+	// through an explicit environment opt-in during the migration period.
+	return false;
 }
 
 function findRepoRoot(startDir: string): string | null {
@@ -54,7 +48,7 @@ function normalizeBaseUrl(raw: string): string {
 
 const DEEPSEEK_HARNESS_RUNTIME = "deepseek-harness";
 const DEEPSEEK_HARNESS_PROFILE = "sdk";
-const DEEPSEEK_HARNESS_UPSTREAM_VERSION = "0.1.2-alpha.2";
+const DEEPSEEK_HARNESS_UPSTREAM_VERSION = "0.1.2-alpha.4";
 
 export function isDeepSeekHarnessHealthPayload(value: unknown): boolean {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;

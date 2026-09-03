@@ -1,5 +1,5 @@
 {
-  "name": "agents",
+  "name": "@tapcanvas/agents-legacy",
   "version": "1.0.0",
   "private": true,
   "type": "module",

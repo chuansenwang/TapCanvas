@@ -2,9 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
 	isDeepSeekHarnessHealthPayload,
 	parseLocalAgentsBridgeEndpoint,
+	shouldAutostartAgentsBridge,
 } from "./agents-bridge-autostart";
 
 describe("agents bridge autostart endpoint", () => {
+	it("requires an explicit opt-in before starting the legacy bridge", () => {
+		const original = process.env.AGENTS_BRIDGE_AUTOSTART;
+		try {
+			delete process.env.AGENTS_BRIDGE_AUTOSTART;
+			expect(shouldAutostartAgentsBridge()).toBe(false);
+			process.env.AGENTS_BRIDGE_AUTOSTART = "1";
+			expect(shouldAutostartAgentsBridge()).toBe(true);
+		} finally {
+			if (original === undefined) delete process.env.AGENTS_BRIDGE_AUTOSTART;
+			else process.env.AGENTS_BRIDGE_AUTOSTART = original;
+		}
+	});
+
 	it("preserves the exact configured loopback port for local recovery", () => {
 		expect(parseLocalAgentsBridgeEndpoint("http://127.0.0.1:8800/")).toEqual({
 			host: "127.0.0.1",
@@ -32,14 +46,14 @@ describe("agents bridge runtime identity", () => {
 			ok: true,
 			runtime: "deepseek-harness",
 			profile: "sdk",
-			upstreamVersion: "0.1.2-alpha.2",
+			upstreamVersion: "0.1.2-alpha.4",
 		})).toBe(true);
 		expect(isDeepSeekHarnessHealthPayload({ ok: true })).toBe(false);
 		expect(isDeepSeekHarnessHealthPayload({
 			ok: true,
 			runtime: "agents-cli",
 			profile: "code",
-			upstreamVersion: "0.1.2-alpha.2",
+			upstreamVersion: "0.1.2-alpha.4",
 		})).toBe(false);
 		expect(isDeepSeekHarnessHealthPayload({
 			ok: true,
