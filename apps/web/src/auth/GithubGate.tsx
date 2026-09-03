@@ -73,7 +73,6 @@ export default function GithubGate({ children, className }: { children: React.Re
   const token = useAuth((s) => s.token)
   const user = useAuth((s) => s.user)
   const loading = useAuth((s) => s.loading)
-  const hydrate = useAuth((s) => s.hydrate)
   const setAuth = useAuth((s) => s.setAuth)
   const githubEnabled = Boolean(String(CLIENT_ID || '').trim() && String(REDIRECT_URI || '').trim())
   const redirectingRef = React.useRef(false)
@@ -90,11 +89,6 @@ export default function GithubGate({ children, className }: { children: React.Re
     clearStoredRedirect()
     window.location.href = next
   }, [setAuth])
-
-  React.useEffect(() => {
-    if (hasGithubCallbackCode()) return
-    void hydrate()
-  }, [hydrate])
 
   React.useEffect(() => {
     const stored = captureRedirectFromLocation()

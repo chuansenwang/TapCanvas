@@ -2091,6 +2091,9 @@ export default function App(): JSX.Element {
   if (isGithubOauthCallbackRoute()) {
     return <CanvasApp routeKey={routeKey} studioRouteScope={EMPTY_STUDIO_ROUTE_SCOPE} />
   }
+  if (auth.loading) {
+    return <CanvasLoadingScreen fixed />
+  }
   if (!auth.user) {
     return <RedirectToRoot />
   }

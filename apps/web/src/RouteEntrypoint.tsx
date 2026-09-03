@@ -3,6 +3,7 @@ import { PortalRouter, resolvePortalPageRoute } from './portal/PortalRouter'
 import { CanvasLoadingScreen } from './ui/CanvasLoadingScreen'
 import { installPageMediaLifecycle } from './utils/mediaPlayback'
 import { resolveCodexPreviewId } from './utils/appRoutes'
+import { useAuth } from './auth/store'
 
 const PortalRuntimeLazy = React.lazy(() => import('./runtime/PortalRuntime'))
 const WorkspaceRuntimeLazy = React.lazy(() => import('./runtime/WorkspaceRuntime'))
@@ -10,11 +11,19 @@ const CodexPreviewPageLazy = React.lazy(() => import('./preview/CodexPreviewPage
 
 export default function RouteEntrypoint(): JSX.Element {
   const [, refreshRoute] = React.useReducer((value: number) => value + 1, 0)
+  const hydrateAuth = useAuth((state) => state.hydrate)
+  const authHydrationStartedRef = React.useRef(false)
 
   React.useEffect(() => {
     const handleRouteChange = () => refreshRoute()
     return installPageMediaLifecycle(handleRouteChange)
   }, [])
+
+  React.useEffect(() => {
+    if (authHydrationStartedRef.current) return
+    authHydrationStartedRef.current = true
+    void hydrateAuth()
+  }, [hydrateAuth])
 
   const pathname = typeof window === 'undefined' ? '/' : window.location.pathname
   const previewId = resolveCodexPreviewId(pathname)
