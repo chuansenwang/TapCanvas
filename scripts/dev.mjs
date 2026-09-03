@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const rootDirectory = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 const harnessDirectory = resolve(rootDirectory, 'apps/agents')
-const tapCanvasWebDistIndex = resolve(rootDirectory, 'apps/web/dist/index.html')
+const harnessWebDistIndex = resolve(harnessDirectory, 'apps/web/dist/index.html')
 // 新 Harness 运行时不能复用迁移前 Bridge 的持久化目录：两者的会话 schema
 // 和身份边界不同，混用时必须显式失败，而不是在启动时迁移或覆盖旧记录。
 const harnessHomeDirectory = resolve(rootDirectory, '.runtime/tapcanvas-agents-web')
@@ -289,14 +289,11 @@ async function isHarnessWebHealthy() {
 }
 
 async function prepareHarnessWeb() {
-  const distEntry = tapCanvasWebDistIndex
+  const distEntry = harnessWebDistIndex
   const cliSourceEntry = resolve(harnessDirectory, 'apps/cli/src/bin.ts')
   if (!existsSync(distEntry)) {
-    console.log('[dev] TapCanvas Web 构建产物缺失，先构建 apps/web...')
-    runBlocking(pnpmCommand, ['pnpm', 'run', 'build:web'], rootDirectory, {
-      ...process.env,
-      ALLOW_LOCALHOST_IN_PROD_BUILD: process.env.ALLOW_LOCALHOST_IN_PROD_BUILD || '1',
-    })
+    console.log('[dev] Harness Agent 前端构建产物缺失，先构建 apps/agents/apps/web...')
+    runBlocking(pnpmCommand, ['pnpm', '--dir', harnessDirectory, 'run', 'build:web'], rootDirectory)
   }
   if (!existsSync(cliSourceEntry)) {
     throw new Error('[dev] apps/agents/apps/cli/src/bin.ts 缺失，无法启动统一 Harness Web。')
@@ -413,7 +410,6 @@ if (shouldStartHarnessWeb) {
   const harnessWebEnvironment = {
     ...process.env,
     DSH_HOME: harnessHomeDirectory,
-    TAPCANVAS_WEB_DIST_INDEX: tapCanvasWebDistIndex,
     // Browsers or extensions can block loopback cross-port XHR. Keep the
     // business API behind the authenticated Harness origin in this local mode.
     TAPCANVAS_API_PROXY_TARGET: process.env.TAPCANVAS_API_PROXY_TARGET || 'http://127.0.0.1:8788',
