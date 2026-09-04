@@ -82,6 +82,10 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
   }), [canvasSource])
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null)
   const closeButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const agentSrc = React.useMemo(() => {
+    const search = window.location.search
+    return search === '' ? '/agent/' : `/agent/${search}`
+  }, [])
   const [modelCatalogMessage, setModelCatalogMessage] = React.useState<TapCanvasModelCatalogMessage>({
     type: 'tapcanvas:model-catalog',
     catalog: { groups: [], failures: [] },
@@ -107,6 +111,18 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
     frame.contentWindow.postMessage(scopeMessage, window.location.origin)
     frame.contentWindow.postMessage(modelCatalogMessage, window.location.origin)
   }, [modelCatalogMessage, scopeMessage])
+
+  React.useEffect(() => {
+    if (!opened) return
+    const onMessage = (event: MessageEvent<unknown>): void => {
+      if (event.origin !== window.location.origin) return
+      if (typeof event.data !== 'object' || event.data === null || Array.isArray(event.data)) return
+      const message = event.data as { type?: unknown }
+      if (message.type === 'tapcanvas:scope-request') publishScope()
+    }
+    window.addEventListener('message', onMessage)
+    return () => { window.removeEventListener('message', onMessage) }
+  }, [opened, publishScope])
 
   React.useEffect(() => {
     if (!opened) return
@@ -187,7 +203,7 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
         <iframe
           ref={iframeRef}
           className="native-agent-workspace-modal__frame"
-          src="/agent/"
+          src={agentSrc}
           title="导演小T原生工作区"
           onLoad={publishScope}
         />

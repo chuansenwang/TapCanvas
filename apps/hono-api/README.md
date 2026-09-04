@@ -182,7 +182,7 @@ docker-compose exec api dreamina version
 
 - `apps/agents` 中的 `@tapcanvas/agents` 是独立的 Harness Runtime 与浏览器 Origin。根 `pnpm dev` 使用 Harness Web Server 托管 `apps/web/dist`，TapCanvas 的小 T 在当前页面内嵌入同源 `/agent/` 原生 UI；不把 Harness 的文件系统 Workspace 或仓库根目录当作 TapCanvas 画布。父页面通过 `tapcanvas:scope` 结构化消息传递当前项目、Flow、章节、书籍和选中节点 ID，并通过 `tapcanvas:model-catalog` 传递已认证的 `new-api` 动态文本模型目录，Harness 原生会话界面展示该作用域与模型来源。
 - `apps/agents-cli`、`/public/chat` 与 Hono Agents Bridge 仍保留为迁移期的 legacy 源码和诊断接口，但不再自动启动。小 T 入口不回退到旧聊天链路；原生 Harness Web 通过自身 `/tapcanvas/scope` RPC 接收当前页面的结构化画布作用域，系统提示上下文和 `tapcanvas_get_current_canvas` 原生工具直接消费该事实。
-- 当前原生 Agent 入口以右侧固定栏承载，模型选择器同时显示 Harness 自身配置目录与 TapCanvas `new-api` 目录，两个来源均保持结构化来源标识。父页面在当前 Harness 会话建立后同步 `sessionId、projectId、flowId、chapterId、selectedNodeIds` 以及节点/边快照；Host 仅按会话内存保存，不把画布数据写入用户 prompt，也不依赖浏览器 Cookie 或旧 bridge。缺少作用域时原生工具显式失败，不猜测项目或 Flow。
+- 当前原生 Agent 入口以右侧固定栏承载，模型选择器同时显示 Harness 自身配置目录与 TapCanvas `new-api` 目录，两个来源均保持结构化来源标识。父页面同步 `sessionId、projectId、flowId、chapterId、selectedNodeIds` 以及节点/边快照；Host 为每个 `projectId + flowId + chapterId` 生成稳定的隔离画布会话目录，客户端在作用域同步开始时清除恢复/自动选中的旧会话，再自动复用或创建对应 Harness 会话并将其设为当前会话，文件沙箱与会话历史不再落到启动目录，也不会加载启动目录中的 `AGENTS.md/CLAUDE.md`。嵌入式 Agent iframe 同时隐藏 Harness 原生目录 Workspace 浏览器和选择器，避免用户误把本地目录当成画布工作区；TapCanvas 画布作用域是用户可见的唯一工作区身份。Host 仅按会话内存保存作用域，不把画布数据写入用户 prompt，也不依赖浏览器 Cookie 或旧 bridge。缺少作用域时原生工具显式失败，不猜测项目或 Flow。
 
 以下内容记录 legacy Bridge 的既有协议与迁移背景，仅供显式诊断和后续迁移对照；它不是 `apps/agents` 的运行时架构说明。
 

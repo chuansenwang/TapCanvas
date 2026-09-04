@@ -54,6 +54,8 @@ export interface TapCanvasModelCatalogMessage {
   }
 }
 
+const TAPCANVAS_SCOPE_REQUEST = 'tapcanvas:scope-request'
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -168,6 +170,10 @@ export function useTapCanvasScope(): TapCanvasScope | null {
       if (message !== null) setScope(message.scope)
     }
     window.addEventListener('message', onMessage)
+    // The parent can finish mounting before this listener exists. Request the
+    // authoritative scope after registration so the embedded Agent never
+    // falls back to the Harness directory picker because of load ordering.
+    window.parent.postMessage({ type: TAPCANVAS_SCOPE_REQUEST }, window.location.origin)
     return () => { window.removeEventListener('message', onMessage) }
   }, [])
 

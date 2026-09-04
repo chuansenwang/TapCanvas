@@ -824,6 +824,7 @@ export function WorkspaceBrowser({
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
+  const tapCanvasEmbedded = window.parent !== window
   const home = useHostInfo(info => info.home)
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
@@ -1066,6 +1067,12 @@ export function WorkspaceBrowser({
       setDeleteError(reason instanceof Error ? reason.message : String(reason))
     })
   }
+
+  // TapCanvas owns the semantic project scope and the visible canvas. The
+  // Harness directory browser is an independent filesystem surface, so it is
+  // omitted from the embedded Agent iframe. Keep this after every Hook so the
+  // component preserves React's Hook ordering contract.
+  if (tapCanvasEmbedded) return null
 
   return (
     <div className={clsx(css.root, !wide && css.rail)}>

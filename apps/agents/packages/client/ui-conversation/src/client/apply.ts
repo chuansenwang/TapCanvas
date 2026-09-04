@@ -74,6 +74,30 @@ interface WorkspaceNavigation {
   ): Promise<SessionId>
 }
 
+export interface TapCanvasSessionBinding {
+  readonly workspaceKey: string
+  readonly workspacePath: string
+}
+
+/** Resolve the current Agent session for one authoritative TapCanvas scope. */
+export async function syncTapCanvasSession(
+  sessions: Pick<ISessions, 'list' | 'clear' | 'create' | 'open'>,
+  sessionId: SessionId,
+  resolveBinding: () => Promise<TapCanvasSessionBinding>,
+): Promise<void> {
+  // A Canvas scope owns the Agent session identity. Clear a restored or
+  // auto-selected Host session before awaiting the binding so the repository
+  // cwd cannot remain current while the Canvas session is being resolved.
+  if (sessions.list.getSnapshot().current === sessionId) sessions.clear()
+  const binding = await resolveBinding()
+  const current = sessions.list.getSnapshot()
+  const existing = current.ids
+    .map(id => current.byId[id])
+    .find(summary => summary?.cwd === binding.workspacePath)
+  const target = existing?.id ?? await sessions.create({ cwd: binding.workspacePath })
+  if (sessions.list.getSnapshot().current !== target) sessions.open(target)
+}
+
 /** Resolve the session-scoped Conversation action face, failing loud. */
 function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   const scoped = sessions.scope(id)
@@ -100,16 +124,31 @@ export function apply(ctx: Context): void {
   const sessions = ctx.sessions
   const slots = ctx.slots
   const workspaceNavigation = ctx.get('uiWorkspace') as unknown as WorkspaceNavigation
+  const canvasSessionSwitches = new Map<string, Promise<void>>()
   ctx.inject(['connection'], (connectionCtx) => {
     const connection = connectionCtx.get('connection')
     if (connection === undefined) throw new Error('ui-conversation: native connection unavailable')
     ctx.slots.provideRoot({
       props: {
-        tapCanvasScopeSync: async (sessionId: SessionId, scope: TapCanvasScope): Promise<void> => {
-          const result = await connection.rpc.call('/tapcanvas', 'scope', {
-            args: { sessionId, scope },
-          })
-          if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+        tapCanvasScopeSync: (sessionId: SessionId, scope: TapCanvasScope): Promise<void> => {
+          const scopeKey = [scope.projectId, scope.flowId, scope.chapterId, scope.bookId]
+            .map(value => value ?? '').join('\u0000')
+          const inflight = canvasSessionSwitches.get(scopeKey)
+          if (inflight !== undefined) return inflight
+          const attempt = (async (): Promise<void> => {
+            await syncTapCanvasSession(sessions, sessionId, async () => {
+              const result = await connection.rpc.call('/tapcanvas', 'scope', {
+                args: { sessionId, scope },
+              })
+              if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+              if (!isCanvasScopeBinding(result.value)) {
+                throw new Error('TapCanvas 画布会话绑定失败：Harness 未返回隔离工作区')
+              }
+              return result.value
+            })
+          })().finally(() => { canvasSessionSwitches.delete(scopeKey) })
+          canvasSessionSwitches.set(scopeKey, attempt)
+          return attempt
         },
       },
     })
@@ -382,4 +421,13 @@ export function apply(ctx: Context): void {
   ctx.plugin(ConversationController, { input: inputHub, blocks: composerBlocks })
   ctx.plugin(todoDockEntry)
   ctx.plugin(queueDockEntry)
+}
+
+function isCanvasScopeBinding(value: unknown): value is { readonly workspacePath: string } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const candidate = value as { workspacePath?: unknown; workspaceKey?: unknown }
+  return typeof candidate.workspacePath === 'string'
+    && candidate.workspacePath.trim() !== ''
+    && typeof candidate.workspaceKey === 'string'
+    && candidate.workspaceKey.trim() !== ''
 }

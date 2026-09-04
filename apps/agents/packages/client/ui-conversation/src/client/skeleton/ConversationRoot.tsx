@@ -148,18 +148,16 @@ export function ConversationRoot({
   const workspaces = useWorkspaces(s => s)
   const tapCanvasScope = useTapCanvasScope()
   const tapCanvasBound = tapCanvasScope !== null
+  const tapCanvasEmbedded = window.parent !== window
   useEffect(() => {
     if (sessionId === undefined || tapCanvasScope === null) return
-    const timer = window.setTimeout(() => {
-      if (tapCanvasScopeSync === undefined) {
-        console.error('[tapcanvas] 原生 Harness 作用域同步失败：连接能力未注入')
-        return
-      }
-      void tapCanvasScopeSync(sessionId, tapCanvasScope).catch((error: unknown) => {
-        console.error('[tapcanvas] 原生 Harness 作用域同步失败:', error)
-      })
-    }, 100)
-    return () => { window.clearTimeout(timer) }
+    if (tapCanvasScopeSync === undefined) {
+      console.error('[tapcanvas] 原生 Harness 作用域同步失败：连接能力未注入')
+      return
+    }
+    void tapCanvasScopeSync(sessionId, tapCanvasScope).catch((error: unknown) => {
+      console.error('[tapcanvas] 原生 Harness 作用域同步失败:', error)
+    })
   }, [sessionId, tapCanvasScope, tapCanvasScopeSync])
   // A plugin this package cannot import (ui-model-selection) says this session cannot
   // send; its reason is already localized by whoever raised it.
@@ -367,7 +365,7 @@ export function ConversationRoot({
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroShell t={t} renderSlot={renderSlot} />}
-      {hero && !tapCanvasBound && heroWorkspaceRow}
+      {hero && !tapCanvasBound && !tapCanvasEmbedded && heroWorkspaceRow}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>

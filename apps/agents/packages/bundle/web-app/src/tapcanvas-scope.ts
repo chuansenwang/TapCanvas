@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -38,7 +41,14 @@ interface ScopeRecord {
   readonly scope: TapCanvasScope
 }
 
+export interface TapCanvasScopeBinding {
+  readonly workspaceKey: string
+  readonly workspacePath: string
+}
+
 const scopes = new Map<string, TapCanvasScope>()
+const bindings = new Map<string, TapCanvasScopeBinding>()
+const scopesByWorkspacePath = new Map<string, TapCanvasScope>()
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -50,16 +60,42 @@ function parseScope(value: unknown): ScopeRecord | null {
   const rawScope = value.args.scope
   if (!sessionId || !isRecord(rawScope)) return null
   const projectId = typeof rawScope.projectId === 'string' ? rawScope.projectId.trim() : ''
-  if (!projectId && typeof rawScope.flowId !== 'string' && !isRecord(rawScope.canvas)) return null
+  if (!projectId) return null
   return {
     sessionId,
     scope: rawScope as unknown as TapCanvasScope,
   }
 }
 
+/** Derive the stable storage identity for one TapCanvas scope. */
+export function tapCanvasWorkspaceKey(scope: TapCanvasScope): string {
+  const identity = [scope.projectId, scope.flowId, scope.chapterId, scope.bookId]
+    .map(value => value ?? '')
+    .join('\u0000')
+  return createHash('sha256').update(identity, 'utf8').digest('hex').slice(0, 32)
+}
+
+async function ensureWorkspace(scope: TapCanvasScope): Promise<TapCanvasScopeBinding> {
+  const existing = bindings.get(tapCanvasWorkspaceKey(scope))
+  if (existing !== undefined) return existing
+  const dshHome = typeof process.env.DSH_HOME === 'string' ? process.env.DSH_HOME.trim() : ''
+  if (dshHome === '') throw new Error('TapCanvas 画布会话无法绑定：DSH_HOME 未配置')
+  const key = tapCanvasWorkspaceKey(scope)
+  const workspacePath = join(dshHome, 'tapcanvas-workspaces', key)
+  await mkdir(workspacePath, { recursive: true })
+  const binding = { workspaceKey: key, workspacePath }
+  bindings.set(key, binding)
+  return binding
+}
+
 function scopeForAgent(agent: unknown): TapCanvasScope | null {
   if (!isRecord(agent) || typeof agent.id !== 'string') return null
-  return scopes.get(agent.id) ?? null
+  const direct = scopes.get(agent.id)
+  if (direct !== undefined) return direct
+  const session = isRecord(agent.session) ? agent.session : null
+  const header = session !== null && isRecord(session.header) ? session.header : null
+  const cwd = header === null || typeof header.cwd !== 'string' ? '' : header.cwd.trim()
+  return cwd === '' ? null : scopesByWorkspacePath.get(cwd) ?? null
 }
 
 function success(value: unknown): ConnectionRpcResult<unknown> { return { ok: true, value } }
@@ -76,8 +112,10 @@ export function registerTapCanvasRuntime(ctx: Context): void {
     if (parsed === null) {
       return failure('tapcanvas/invalid-scope', 'TapCanvas 作用域消息缺少有效的 sessionId 或画布标识')
     }
+    const binding = await ensureWorkspace(parsed.scope)
     scopes.set(parsed.sessionId, parsed.scope)
-    return success({ accepted: true })
+    scopesByWorkspacePath.set(binding.workspacePath, parsed.scope)
+    return success({ accepted: true, ...binding })
   })
 
   ctx.systemPrompt.context({

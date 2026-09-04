@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { delimiter, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -167,6 +167,45 @@ function readHarnessAuthenticatedUrl() {
   }
 }
 
+function getProcessStartTime(processId) {
+  if (isWindows) {
+    const result = spawnSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-CimInstance Win32_Process -Filter \"ProcessId = ${processId}\").CreationDate.ToFileTimeUtc()`,
+      ],
+      { encoding: 'utf8', windowsHide: true },
+    )
+    const fileTime = Number(result.stdout?.trim())
+    if (result.status === 0 && Number.isFinite(fileTime) && fileTime > 0) {
+      return fileTime / 10_000 - 11644473600000
+    }
+    return null
+  }
+
+  const result = spawnSync('ps', ['-p', String(processId), '-o', 'lstart='], {
+    encoding: 'utf8',
+  })
+  const timestamp = Date.parse(result.stdout?.trim() || '')
+  return result.status === 0 && Number.isFinite(timestamp) ? timestamp : null
+}
+
+function isHarnessAuthenticatedUrlFresh(processId) {
+  try {
+    const processStartTime = getProcessStartTime(processId)
+    if (processStartTime === null) return false
+    // The URL file is written immediately after the Harness prints its token.
+    // A file older than the listening process therefore belongs to a previous
+    // activation. This check never sends the one-time token over HTTP.
+    return statSync(harnessAuthenticatedUrlFile).mtimeMs >= processStartTime - 2_000
+  } catch {
+    return false
+  }
+}
+
 function isTcpPortOpen(host, port) {
   return new Promise((resolveResult) => {
     const socket = createConnection({ host, port })
@@ -317,8 +356,26 @@ async function prepareHarnessWeb() {
   )
 
   if (await isHarnessWebHealthy()) {
-    console.log(`[dev] 检测到已运行的 Harness Web，复用：${harnessWebUrl}`)
-    return false
+    const authenticatedUrl = readHarnessAuthenticatedUrl()
+    const harnessProcessId = getListeningProcessIds(3080).find((processId) =>
+      isHarnessWebProcess(getProcessCommandLine(processId)),
+    )
+    if (authenticatedUrl !== null && harnessProcessId !== undefined
+      && isHarnessAuthenticatedUrlFresh(harnessProcessId)) {
+      console.log(`[dev] 检测到已运行的 Harness Web，复用：${harnessWebUrl}`)
+      return false
+    }
+
+    // The port is owned by our Harness process, but the persisted launch URL
+    // is stale (usually after parallel `pnpm dev` runs). Restart only the
+    // recognized Harness owner so a fresh process token can be issued.
+    for (const processId of getListeningProcessIds(3080)) {
+      if (!isHarnessWebProcess(getProcessCommandLine(processId))) continue
+      if (!stopProcessTree(processId)) {
+        throw new Error('[dev] Harness Web 认证 URL 已失效，且无法重启占用 3080 的 Harness 进程。')
+      }
+      console.log(`[dev] 已重启认证失效的 Harness Web：PID ${processId}`)
+    }
   }
 
   if (await isTcpPortOpen('127.0.0.1', 3080)) {
@@ -425,6 +482,9 @@ if (shouldStartHarnessWeb) {
   const harnessWebEnvironment = {
     ...process.env,
     DSH_HOME: harnessHomeDirectory,
+    // TapCanvas 的 Agent 作用域以 project/flow/chapter 为唯一工作区；
+    // 不加载 Harness 运行目录中的本地指令文件或文件系统工具。
+    TAPCANVAS_CANVAS_MODE: '1',
     // Harness 是唯一浏览器入口：根路径托管 TapCanvas，/agent/ 承载原生 Agent UI。
     TAPCANVAS_WEB_DIST_INDEX: tapCanvasWebDistIndex,
     // Browsers or extensions can block loopback cross-port XHR. Keep the

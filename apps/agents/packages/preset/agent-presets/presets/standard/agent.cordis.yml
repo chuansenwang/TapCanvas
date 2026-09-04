@@ -31,6 +31,7 @@
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
+  disabled: !!js process.env.TAPCANVAS_CANVAS_MODE === '1'
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
@@ -55,11 +56,13 @@
 # they need no realm. The `fs` service and its policy stay in the host.
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+  disabled: !!js process.env.TAPCANVAS_CANVAS_MODE === '1'
 
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
   config:
     sampleOverCapGlobResults: false
+  disabled: !!js process.env.TAPCANVAS_CANVAS_MODE === '1'
 
 # ── background jobs ────────────────────────────────────────────────────────
 
