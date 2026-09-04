@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const rootDirectory = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 const harnessDirectory = resolve(rootDirectory, 'apps/agents')
 const harnessWebDistIndex = resolve(harnessDirectory, 'apps/web/dist/index.html')
+const tapCanvasWebDistIndex = resolve(rootDirectory, 'apps/web/dist/index.html')
 // 新 Harness 运行时不能复用迁移前 Bridge 的持久化目录：两者的会话 schema
 // 和身份边界不同，混用时必须显式失败，而不是在启动时迁移或覆盖旧记录。
 const harnessHomeDirectory = resolve(rootDirectory, '.runtime/tapcanvas-agents-web')
@@ -300,6 +301,17 @@ async function prepareHarnessWeb() {
   if (!existsSync(cliSourceEntry)) {
     throw new Error('[dev] apps/agents/apps/cli/src/bin.ts 缺失，无法启动统一 Harness Web。')
   }
+  if (!existsSync(tapCanvasWebDistIndex)) {
+    console.log('[dev] TapCanvas 前端构建产物缺失，先构建 apps/web...')
+    runBlocking(
+      pnpmCommand,
+      ['pnpm', 'run', 'build:web'],
+      rootDirectory,
+      // Harness 的同源 TapCanvas 业务 API 代理挂在 /tapcanvas-api；/api
+      // 由 Harness 自身占用，不能写入 TapCanvas 前端产物。
+      { ...process.env, VITE_API_BASE: process.env.VITE_API_BASE || '/tapcanvas-api' },
+    )
+  }
 
   if (await isHarnessWebHealthy()) {
     console.log(`[dev] 检测到已运行的 Harness Web，复用：${harnessWebUrl}`)
@@ -371,10 +383,8 @@ if (!existsSync(newApiDistEntry)) {
 const shouldStartHonoApi = await prepareHonoApi()
 const shouldStartNewApi = await prepareNewApi()
 const shouldStartHarnessWeb = await prepareHarnessWeb()
-let harnessLaunchUrl = shouldStartHarnessWeb ? harnessWebUrl : readHarnessAuthenticatedUrl()
-if (!shouldStartHarnessWeb && harnessLaunchUrl === null) {
-  console.warn('[dev] 已复用运行中的 Harness Web，但没有找到认证 URL；请重启 Harness Web 后再从小 T 打开原生 Agent。')
-  harnessLaunchUrl = ''
+if (!shouldStartHarnessWeb && readHarnessAuthenticatedUrl() === null) {
+  console.warn('[dev] 已复用运行中的 Harness Web，但没有找到认证 URL；无法自动完成本地登录交换。')
 }
 stopStaleWebDevServers()
 
@@ -412,13 +422,15 @@ if (shouldStartHarnessWeb) {
   const harnessWebEnvironment = {
     ...process.env,
     DSH_HOME: harnessHomeDirectory,
+    // Harness 是唯一浏览器入口：根路径托管 TapCanvas，/agent/ 承载原生 Agent UI。
+    TAPCANVAS_WEB_DIST_INDEX: tapCanvasWebDistIndex,
     // Browsers or extensions can block loopback cross-port XHR. Keep the
     // business API behind the authenticated Harness origin in this local mode.
     TAPCANVAS_API_PROXY_TARGET: process.env.TAPCANVAS_API_PROXY_TARGET || 'http://127.0.0.1:8788',
   }
   const harnessService = startHarnessWebService(harnessWebEnvironment)
-  harnessLaunchUrl = await harnessService.authenticatedUrl
-  console.log(`[dev] Harness Web: ${harnessLaunchUrl}`)
+  await harnessService.authenticatedUrl
+  console.log('[dev] TapCanvas 统一入口由 Harness 自动打开，认证完成后停留在 http://127.0.0.1:3080/')
 }
 
 if (options.has('--webcut')) {
@@ -432,20 +444,13 @@ if (options.has('--webcut')) {
 
 const webEnvironment = {
   ...process.env,
-  // 主页面由 TapCanvas 自己的 Vite 开发服务提供，使用同源 /api 代理访问 API。
-  VITE_API_BASE: process.env.VITE_API_BASE || '/api',
-  VITE_HARNESS_WEB_URL: harnessLaunchUrl,
+  // 构建产物由 Harness Web 托管；TapCanvas 通过 Harness 同源代理访问业务后端。
+  VITE_API_BASE: process.env.VITE_API_BASE || '/tapcanvas-api',
+  // 本地统一入口使用 production build；允许开发环境的本地 OAuth 回调地址。
+  ALLOW_LOCALHOST_IN_PROD_BUILD: process.env.ALLOW_LOCALHOST_IN_PROD_BUILD || '1',
 }
 startService('web-build-watch', pnpmCommand, ['pnpm', 'run', 'dev:web'], rootDirectory, webEnvironment)
-startService(
-  'tapcanvas-web',
-  pnpmCommand,
-  ['pnpm', '--filter', '@tapcanvas/web', 'dev', '--host', '127.0.0.1', '--port', '5175'],
-  rootDirectory,
-  webEnvironment,
-)
-console.log('[dev] TapCanvas 主页面: http://127.0.0.1:5175')
-console.log('[dev] 点击主页面右下角小 T 进入 Agent 页面')
+console.log('[dev] TapCanvas 主页面由 Harness Web 同源提供；小 T 在当前页面内打开。')
 
 process.once('SIGINT', stopServices)
 process.once('SIGTERM', stopServices)

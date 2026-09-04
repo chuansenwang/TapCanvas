@@ -135,6 +135,7 @@ import { useReferralCampaign } from './promo/useReferralCampaign'
 import ReferralInfoModal from './promo/ReferralInfoModal'
 import CanvasPerformanceHarness from './canvas/performance/CanvasPerformanceHarness'
 import DirectorPetLauncher from './ui/DirectorPetLauncher'
+import { NativeAgentWorkspaceModal } from './ui/NativeAgentWorkspaceModal'
 import { CanvasShareTransferMenu } from './ui/CanvasShareTransferMenu'
 
 const WorkflowDevelopmentHarnessLazy = import.meta.env.DEV
@@ -305,6 +306,7 @@ function CanvasApp({
   const restoreCreationSession = useUIStore(s => s.restoreCreationSession)
   const creationSession = useUIStore(s => s.creationSession)
   const auth = useAuth()
+  const directorChatScopeNodeId = useUIStore((s) => s.directorChatScopeNodeId)
   const isAdmin = useIsAdmin()
   const isProjectOwner = Boolean(currentProject?.owner && auth.user?.login && currentProject.owner === auth.user.login)
   const [saving, setSaving] = React.useState(false)
@@ -1843,6 +1845,7 @@ function CanvasApp({
         {auth.user && (
           <>
             <DirectorPetLauncher />
+            <NativeAgentWorkspaceModal />
             <PendingSkillLaunchConsumer
               currentProjectId={currentProject?.id || null}
               projectReady={Boolean(
@@ -1854,7 +1857,7 @@ function CanvasApp({
                 currentFlow.ownerId === currentProject.id
               )}
             />
-            <AiChatDialog className="app-ai-chat-dialog" />
+            {directorChatScopeNodeId ? <AiChatDialog className="app-ai-chat-dialog" /> : null}
           </>
         )}
       </BodyPortal>

@@ -291,6 +291,10 @@ type UIState = {
   // AI 对话开合状态（由 AiChatDialog 同步，供底部工具栏入口高亮 + toggle）。
   aiChatOpen: boolean
   setAiChatOpen: (v: boolean) => void
+  // 原生 Harness 工作区仅由小 T 打开，嵌入当前 TapCanvas 页面，不创建新窗口。
+  nativeAgentWorkspaceOpen: boolean
+  openNativeAgentWorkspace: () => void
+  closeNativeAgentWorkspace: () => void
   // 导演台内会话作用域：打开导演台时由 Modal 写入其 nodeId，AiChatDialog 据此切到 director lane
   // （会话与项目主对话隔离，按节点独立线程）；关闭导演台清空 → 回到 general。
   directorChatScopeNodeId: string | null
@@ -498,6 +502,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   setActivePanel: (p) => set((state) => (state.activePanel === p ? state : { activePanel: p })),
   aiChatOpen: false,
   setAiChatOpen: (v) => set((s) => (s.aiChatOpen === v ? s : { aiChatOpen: v })),
+  nativeAgentWorkspaceOpen: false,
+  openNativeAgentWorkspace: () => set((s) => (s.nativeAgentWorkspaceOpen ? s : { nativeAgentWorkspaceOpen: true })),
+  closeNativeAgentWorkspace: () => set((s) => (!s.nativeAgentWorkspaceOpen ? s : { nativeAgentWorkspaceOpen: false })),
   directorChatScopeNodeId: null,
   setDirectorChatScopeNodeId: (id) => set((s) => (s.directorChatScopeNodeId === id ? s : { directorChatScopeNodeId: id })),
   assetManagerOpen: false,

@@ -27,6 +27,7 @@ import { ProjectLookBibleChip } from '../ui/projectLookBible/ProjectLookBibleChi
 import { RoleSkillConfigLauncher } from '../ui/chat/RoleSkillConfigModal'
 import { ChapterCreativeSettingsPopover } from '../ui/chapter/ChapterCreativeSettingsPopover'
 import DirectorPetLauncher from '../ui/DirectorPetLauncher'
+import { NativeAgentWorkspaceModal } from '../ui/NativeAgentWorkspaceModal'
 import PreviewModal from '../ui/PreviewModal'
 import { PublishModal } from '../ui/PublishModal'
 import { ToastHost } from '../ui/toast'
@@ -73,6 +74,7 @@ export default function ChapterCanvasFullPage({
   chapterId,
 }: ChapterCanvasFullPageProps): JSX.Element {
   const auth = useAuth()
+  const directorChatScopeNodeId = useUIStore((s) => s.directorChatScopeNodeId)
   const isAdmin = useIsAdmin()
   const setCurrentChapterCreativeOverride = useUIStore((s) => s.setCurrentChapterCreativeOverride)
   const setActivePanel = useUIStore((s) => s.setActivePanel)
@@ -337,7 +339,8 @@ export default function ChapterCanvasFullPage({
         {auth.user ? (
           <>
             <DirectorPetLauncher />
-            <AiChatDialog className="app-ai-chat-dialog" />
+            <NativeAgentWorkspaceModal />
+            {directorChatScopeNodeId ? <AiChatDialog className="app-ai-chat-dialog" /> : null}
           </>
         ) : null}
         <AddNodePanel className="app-add-node-panel" />

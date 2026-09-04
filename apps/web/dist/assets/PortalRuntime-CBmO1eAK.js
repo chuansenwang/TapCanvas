@@ -1,1 +1,0 @@
-import{j as r}from"./vendor-react-DwcYshSI.js";import{P as o}from"./RouteEntrypoint-C4AQnDQp.js";import{M as i}from"./MantineRuntimeProvider-DRZOMxHo.js";import"./index-CnAjEJhN.js";import"./vendor-mantine-CIl75aQ_.js";function p({route:t}){return r.jsx(i,{children:r.jsx(o,{route:t})})}export{p as default};

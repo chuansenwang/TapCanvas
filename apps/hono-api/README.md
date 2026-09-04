@@ -180,8 +180,8 @@ docker-compose exec api dreamina version
 
 ### 迁移状态
 
-- `apps/agents` 中的 `@tapcanvas/agents` 是新的唯一原生 Agent Runtime 与浏览器 Origin。根 `pnpm dev` 使用 Harness Web Server 托管 `apps/web/dist`，开发期只启动 Vite 构建监听，不将 Vite Dev Server 作为浏览器入口。Harness 根路径保持 BrowserAuth 令牌保护；无令牌请求返回真实的 `401`。
-- `apps/agents-cli`、`/public/chat` 与 Hono Agents Bridge 仍保留为迁移期的 legacy 源码和诊断接口，但不再自动启动。只有显式设置 `AGENTS_BRIDGE_AUTOSTART=1` 或手动执行 `pnpm run dev:agents-legacy` 时才允许启动旧 Bridge；新小T入口不会回退到旧聊天链路。
+- `apps/agents` 中的 `@tapcanvas/agents` 是新的唯一原生 Agent Runtime 与浏览器 Origin。根 `pnpm dev` 使用 Harness Web Server 托管 `apps/web/dist`，开发期只启动 Vite 构建监听，不将 Vite Dev Server 作为浏览器入口。Harness 根路径保持 BrowserAuth 令牌保护；无令牌请求返回真实的 `401`。当设置 `TAPCANVAS_WEB_DIST_INDEX` 时，Harness 自己的原生工作区固定挂载为同 Origin 的 `/agent/`；TapCanvas 的小 T 在当前页面内以该路径为嵌入式工作区打开，不新开窗口、不跳转到其他端口。
+- `apps/agents-cli`、`/public/chat` 与 Hono Agents Bridge 仍保留为迁移期的 legacy 源码和诊断接口，但不再自动启动。只有显式设置 `AGENTS_BRIDGE_AUTOSTART=1` 或手动执行 `pnpm run dev:agents-legacy` 时才允许启动旧 Bridge；新小T入口不会回退到旧聊天链路。普通 Studio/章节页不再挂载旧 `AiChatDialog`，避免在新入口下轮询 legacy `/public/agents/chat/status`；导演台仅在建立明确的 `directorChatScopeNodeId` 后按需挂载该旧面板，供导演台专属会话过渡使用。
 - 本阶段只完成运行时迁入、独立工作区、统一静态托管与旧 Bridge 默认隔离。TapCanvas 用户/项目身份映射、工作区会话索引、左侧原生工作区和 `tapcanvas_*` 原生工具注册尚未落地；因此不得把下文的 legacy Bridge 描述误认为新运行时的当前实现。
 
 以下内容记录 legacy Bridge 的既有协议与迁移背景，仅供显式诊断和后续迁移对照；它不是 `apps/agents` 的运行时架构说明。

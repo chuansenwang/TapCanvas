@@ -14,6 +14,7 @@ import { setCommunityFavorite, type AgentSkillDto, type HomepageSkillCard, type 
 import { LoginModal } from '../auth/LoginModal'
 import { useAuth } from '../auth/store'
 import DirectorPetLauncher from '../ui/DirectorPetLauncher'
+import { NativeAgentWorkspaceModal } from '../ui/NativeAgentWorkspaceModal'
 import { ManagedImage } from '../domain/resource-runtime/components/ManagedImage'
 import { SkillPickerPopover } from '../ui/chat/SkillPickerPopover'
 import { useVoiceInput } from '../ui/chat/useVoiceInput'
@@ -612,7 +613,8 @@ export default function NeoTvPage(): JSX.Element {
         </main>
         <PortalFooter />
       </div>
-      <DirectorPetLauncher onActivate={() => promptInputRef.current?.focus()} />
+      <DirectorPetLauncher />
+      <NativeAgentWorkspaceModal />
 
       {showBackToTop ? (
         <button

@@ -153,6 +153,7 @@ function TaskInboxListThumbnail({
 export default function TaskInboxPanel(): JSX.Element | null {
   const activePanel = useUIStore((state) => state.activePanel)
   const setActivePanel = useUIStore((state) => state.setActivePanel)
+  const openNativeAgentWorkspace = useUIStore((state) => state.openNativeAgentWorkspace)
   const anchorX = useUIStore((state) => state.panelAnchorX)
   const userId = useAuth((state) => state.user?.sub == null ? null : String(state.user.sub))
   const currentProjectId = useUIStore((state) => state.currentProject?.id?.trim() || '')
@@ -242,10 +243,9 @@ export default function TaskInboxPanel(): JSX.Element | null {
   }, [inbox, previewAsset])
 
   const openAgentChat = React.useCallback((): void => {
-    const chatWindow = window as Window & { __tcExpandChat?: () => void }
-    chatWindow.__tcExpandChat?.()
+    openNativeAgentWorkspace()
     setActivePanel(null)
-  }, [setActivePanel])
+  }, [openNativeAgentWorkspace, setActivePanel])
 
   if (!mounted) return null
 

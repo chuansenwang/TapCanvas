@@ -86,7 +86,7 @@ describe('TaskInboxPanel', () => {
       dispatchEvent: vi.fn(),
     }))
     useAuth.setState({ user: { sub: 'user-1', login: 'user-1', role: 'user' } })
-    useUIStore.setState({ activePanel: 'task-inbox', panelAnchorX: 420, preview: null, currentProject: null })
+    useUIStore.setState({ activePanel: 'task-inbox', panelAnchorX: 420, preview: null, currentProject: null, nativeAgentWorkspaceOpen: false })
     useLiveChatRunStore.setState({ activeRun: null })
     focusNode = vi.fn()
     Object.defineProperty(window, '__tcFocusNode', { value: focusNode, configurable: true })
@@ -95,11 +95,10 @@ describe('TaskInboxPanel', () => {
   afterEach(() => {
     cleanup()
     hookMocks.markRead.mockClear()
-    useUIStore.setState({ activePanel: null, panelAnchorX: null, preview: null })
+    useUIStore.setState({ activePanel: null, panelAnchorX: null, preview: null, nativeAgentWorkspaceOpen: false })
     useAuth.setState({ user: null })
     useLiveChatRunStore.setState({ activeRun: null })
     delete (window as Window & { __tcFocusNode?: (nodeId: string) => void }).__tcFocusNode
-    delete (window as Window & { __tcExpandChat?: () => void }).__tcExpandChat
     vi.unstubAllGlobals()
   })
 
@@ -165,9 +164,7 @@ describe('TaskInboxPanel', () => {
     })
   })
 
-  it('projects the current agents-cli run into the same activity list and opens the existing chat', () => {
-    const expandChat = vi.fn()
-    Object.defineProperty(window, '__tcExpandChat', { value: expandChat, configurable: true })
+  it('projects the current agents-cli run into the same activity list and opens the native workspace', () => {
     useUIStore.setState({ currentProject: { id: 'project-1', name: '测试项目' } })
     useLiveChatRunStore.getState().startRun({
       runId: 'run-agent-1',
@@ -185,7 +182,7 @@ describe('TaskInboxPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '为第一章生成完整故事板，AI 编排中，打开小 T 对话' }))
-    expect(expandChat).toHaveBeenCalledTimes(1)
+    expect(useUIStore.getState().nativeAgentWorkspaceOpen).toBe(true)
     expect(useUIStore.getState().activePanel).toBeNull()
   })
 })

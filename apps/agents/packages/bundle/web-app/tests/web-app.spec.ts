@@ -68,19 +68,37 @@ function stageDist(): string {
   return index
 }
 
-/** A fake webServer capturing the fallback seat and index taps. */
-function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: WebServer; seat: () => unknown } {
+type RegisteredRoute = {
+  kind: 'exact' | 'prefix'
+  path: string
+  handler: (req: never, res: never) => void | Promise<void>
+}
+
+/** A fake webServer capturing the fallback seat, named routes, and index taps. */
+function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): {
+  server: WebServer
+  seat: () => unknown
+  routes: () => RegisteredRoute[]
+} {
   let fallback: unknown
+  const registeredRoutes: RegisteredRoute[] = []
   const server = {
     host,
     port: 4567,
+    register: (route: RegisteredRoute) => {
+      registeredRoutes.push(route)
+      return () => {
+        const index = registeredRoutes.indexOf(route)
+        if (index >= 0) registeredRoutes.splice(index, 1)
+      }
+    },
     registerFallback: (handler: unknown) => {
       fallback = handler
       return () => { fallback = undefined }
     },
     renderIndex: (html: string) => html,
   } as unknown as WebServer
-  return { server, seat: () => fallback }
+  return { server, seat: () => fallback, routes: () => registeredRoutes }
 }
 
 /** Deterministic Host Connection face for URL publication and frontend injection. */
@@ -179,6 +197,61 @@ describe('web-app runtime glue', () => {
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.find(entry => entry.name === 'app:web-surface')?.text)
       .toContain('rebuilding the affected Web artifacts')
+    await ctx.fiber.dispose()
+  })
+
+  it('在 TapCanvas 构建产物作为根页面时，将原生 Harness 工作区挂载在同一 Origin 的 /agent/ 下', async () => {
+    const tapCanvasIndex = stageDist()
+    vi.stubEnv('TAPCANVAS_WEB_DIST_INDEX', tapCanvasIndex)
+    const ctx = new Context()
+    const http = fakeHttpServer()
+    ctx.provide('webServer', http.server)
+    provideConnection(ctx)
+    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false, trustedHosts: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(http.routes().map(route => [route.kind, route.path])).toEqual([
+      ['exact', '/agent'],
+      ['prefix', '/agent'],
+    ])
+    await ctx.fiber.dispose()
+  })
+
+  it('为嵌入式工作区保留原始请求以完成浏览器认证', async () => {
+    const tapCanvasIndex = stageDist()
+    vi.stubEnv('TAPCANVAS_WEB_DIST_INDEX', tapCanvasIndex)
+    const ctx = new Context()
+    const http = fakeHttpServer()
+    let authorizedRequest: { method?: string; url?: string; headers?: unknown } | undefined
+    http.server.renderIndex = (html: string) => html
+    ctx.provide('webServer', http.server)
+    ctx.provide('connection', {
+      authorizeIndex: (request: { method?: string; url?: string; headers?: unknown }) => {
+        authorizedRequest = request
+        return true
+      },
+    } as never)
+    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false, trustedHosts: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const route = http.routes().find(candidate => candidate.kind === 'prefix' && candidate.path === '/agent')
+    expect(route).toBeDefined()
+    const response = {
+      writeHead: vi.fn(),
+      end: vi.fn(),
+    }
+    await route!.handler({
+      method: 'GET',
+      url: '/agent/',
+      headers: { host: '127.0.0.1:4567' },
+    } as never, response as never)
+
+    expect(authorizedRequest).toEqual({
+      method: 'GET',
+      url: '/agent/',
+      headers: { host: '127.0.0.1:4567' },
+    })
+    expect(response.writeHead).toHaveBeenCalledWith(200, { 'content-type': 'text/html; charset=utf-8' })
     await ctx.fiber.dispose()
   })
 

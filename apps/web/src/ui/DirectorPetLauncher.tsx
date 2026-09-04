@@ -22,28 +22,6 @@ import {
 import './DirectorPetLauncher.css'
 
 const POSITION_STORAGE_KEY = 'tapcanvas.director-pet.position.v1'
-const configuredHarnessWebUrl = import.meta.env.VITE_HARNESS_WEB_URL
-export function resolveAuthenticatedHarnessWebUrl(raw: unknown): string | null {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return null
-  try {
-    const url = new URL(raw.trim())
-    if (url.protocol !== 'http:'
-      || (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost')
-      || url.username
-      || url.password
-      || url.pathname !== '/'
-      || url.hash
-      || url.searchParams.getAll('token').length !== 1
-      || !url.searchParams.get('token')) {
-      return null
-    }
-    return url.href
-  } catch {
-    return null
-  }
-}
-const HARNESS_WEB_URL = resolveAuthenticatedHarnessWebUrl(configuredHarnessWebUrl)
-const HARNESS_WINDOW_NAME = 'tapcanvas-native-agent'
 const ACTIVITY_INITIAL_DELAY_MS = 8_000
 const ACTIVITY_REPEAT_DELAY_MS = 22_000
 const DIRECTOR_PET_ACTIVITY_STATES = ['playful', 'idea', 'gacha', 'gaming'] as const satisfies readonly DirectorPetAnimationState[]
@@ -81,15 +59,13 @@ function persistPosition(position: DirectorPetPosition): void {
   }
 }
 
-type DirectorPetLauncherProps = {
-  onActivate?: () => void
-}
-
-export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherProps = {}): JSX.Element {
+export default function DirectorPetLauncher(): JSX.Element {
   const suppressNextClickRef = React.useRef(false)
   const activityTimerRef = React.useRef<number | null>(null)
   const activityResetTimerRef = React.useRef<number | null>(null)
-  const aiChatOpen = useUIStore((state) => state.aiChatOpen)
+  const nativeAgentWorkspaceOpen = useUIStore((state) => state.nativeAgentWorkspaceOpen)
+  const openNativeAgentWorkspace = useUIStore((state) => state.openNativeAgentWorkspace)
+  const closeNativeAgentWorkspace = useUIStore((state) => state.closeNativeAgentWorkspace)
   const chatBusy = useChatCommandStore((state) => state.busy)
   const backgroundActive = useChatActivityStore((state) => state.active)
   const videoRunsById = useVideoRunStore((state) => state.runsById)
@@ -106,7 +82,6 @@ export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherP
   const [bubbleSide, setBubbleSide] = React.useState<'left' | 'right'>(() => initialPosition.x < 230 ? 'right' : 'left')
   const [wallSide, setWallSide] = React.useState<DirectorPetWallSide | null>(initialWallSide)
   const [activityState, setActivityState] = React.useState<DirectorPetAnimationState | null>(null)
-  const [nativeAgentLaunchIssue, setNativeAgentLaunchIssue] = React.useState<string | null>(null)
   const productionActivity = React.useMemo(
     () => resolveDirectorPetProductionActivity(
       Object.values(videoRunsById).filter(
@@ -116,7 +91,7 @@ export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherP
     [videoRunsById],
   )
   const working = chatBusy || backgroundActive || productionActivity !== null
-  const chatDialogOpen = onActivate ? false : aiChatOpen
+  const chatDialogOpen = nativeAgentWorkspaceOpen
 
   const updatePosition = React.useCallback((
     next: DirectorPetPosition,
@@ -204,22 +179,8 @@ export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherP
   }, [chatDialogOpen, prefersReducedMotion, wallSide, working])
 
   const openChat = React.useCallback(() => {
-    if (onActivate) {
-      onActivate()
-      return
-    }
-    if (HARNESS_WEB_URL !== null) {
-      const nativeAgentWindow = window.open(
-        HARNESS_WEB_URL,
-        HARNESS_WINDOW_NAME,
-        'popup=yes,width=1180,height=820,resizable=yes,scrollbars=yes',
-      )
-      if (nativeAgentWindow !== null) return
-      setNativeAgentLaunchIssue('原生 Agent 窗口被浏览器拦截')
-      return
-    }
-    setNativeAgentLaunchIssue('原生 Agent 启动地址不可用')
-  }, [onActivate])
+    openNativeAgentWorkspace()
+  }, [openNativeAgentWorkspace])
 
   const handleClick = React.useCallback(() => {
     if (suppressNextClickRef.current) return
@@ -262,16 +223,11 @@ export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherP
 
   const collapseChatFromPeek = React.useCallback(() => {
     if (suppressNextClickRef.current) return
-    const toggleChat = (window as unknown as { __tcToggleChat?: () => void }).__tcToggleChat
-    if (!toggleChat) {
-      console.error('[director-pet] AI dialog toggle is unavailable while the dialog is open')
-      return
-    }
     updatePosition(placeDirectorPetAtWall('right', y.get(), currentViewport()), true)
-    toggleChat()
-  }, [updatePosition, y])
+    closeNativeAgentWorkspace()
+  }, [closeNativeAgentWorkspace, updatePosition, y])
 
-  const bubbleText = nativeAgentLaunchIssue ?? productionActivity?.bubbleText ?? (working ? '小T 正在片场' : '今天拍什么？')
+  const bubbleText = productionActivity?.bubbleText ?? (working ? '小T 正在片场' : '今天拍什么？')
   const bodyAnimation = wallSide || prefersReducedMotion
     ? { y: 0, rotate: 0, scale: 1 }
     : working
@@ -305,8 +261,8 @@ export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherP
             exit={{ opacity: 0, x: 12 }}
             whileDrag={{ scale: 1.04, cursor: 'ns-resize' }}
             transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
-            aria-label="收起AI对话"
-            title="上下拖动调整位置，点击收起AI对话"
+            aria-label="收起导演小T工作区"
+            title="上下拖动调整位置，点击收起导演小T工作区"
             data-wall-side="chat-left"
             onDragStart={handleChatPeekDragStart}
             onDrag={() => {
@@ -339,8 +295,8 @@ export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherP
             animate={{ opacity: 1, scale: 1 }}
             whileDrag={{ scale: 1.05, cursor: 'grabbing' }}
             transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
-            aria-label={onActivate ? '打开导演小T对话' : '打开原生 Agent 对话'}
-            title={onActivate ? '导演小T' : '打开原生 Agent 对话'}
+            aria-label="打开导演小T工作区"
+            title="打开导演小T工作区"
             data-wall-side={wallSide ?? 'none'}
             data-activity-state={activityState ?? 'none'}
             data-production-phase={productionActivity?.phase ?? 'none'}
@@ -360,7 +316,7 @@ export default function DirectorPetLauncher({ onActivate }: DirectorPetLauncherP
             onClick={handleClick}
           >
             <AnimatePresence>
-              {(bubbleVisible || working || nativeAgentLaunchIssue !== null) ? (
+              {(bubbleVisible || working) ? (
                 <motion.span
                   key={bubbleText}
                   className={`director-pet__bubble director-pet__bubble--${bubbleSide}`}

@@ -14,6 +14,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -21,6 +23,7 @@ import z from '@deepseek-ai/schemastery'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
+import { serveStatic } from '@deepseek-ai/dsh-host-frontend-static'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -169,6 +172,15 @@ function localWebUrl(ctx: Context): string {
  * whose page never reaches the fallback seat (the static worker preview
  * ships its own page and carries no dist) boots without one.
  */
+function resolveHarnessDistIndex(): string {
+  const require = createRequire(import.meta.url)
+  try {
+    return join(dirname(require.resolve('@deepseek-ai/dsh-web-frontend/package.json')), 'dist', 'index.html')
+  } catch {
+    throw new Error('web-app: @deepseek-ai/dsh-web-frontend is not resolvable from this composition')
+  }
+}
+
 function resolveDistIndex(): string {
   const tapCanvasDistIndex = process.env.TAPCANVAS_WEB_DIST_INDEX
   if (tapCanvasDistIndex !== undefined && tapCanvasDistIndex !== '') {
@@ -178,13 +190,65 @@ function resolveDistIndex(): string {
     }
     return tapCanvasDistIndex
   }
-  const require = createRequire(import.meta.url)
-  try {
-    return join(dirname(require.resolve('@deepseek-ai/dsh-web-frontend/package.json')), 'dist', 'index.html')
-  } catch {
-    /* v8 ignore next 2 -- reachable only when the frontend package is absent from the checkout */
-    throw new Error('web-app: @deepseek-ai/dsh-web-frontend is not resolvable from this composition')
-  }
+  return resolveHarnessDistIndex()
+}
+
+/** Mount the native Harness UI under the TapCanvas page without opening another Origin. */
+function mountHarnessWorkspace(ctx: Context): void {
+  const distIndex = resolveHarnessDistIndex()
+  const distRoot = dirname(distIndex)
+  ctx.inject(['connection'], (workspaceCtx) => {
+    const renderIndex = async (): Promise<string> => {
+      const html = workspaceCtx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
+      return html.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="/agent/">`)
+    }
+    workspaceCtx.effect(() => {
+      const redirect = workspaceCtx.webServer.register({
+        kind: 'exact',
+        path: '/agent',
+        handler: (req, res) => {
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            res.writeHead(405)
+            res.end()
+            return
+          }
+          res.writeHead(302, { location: '/agent/' })
+          res.end()
+        },
+      })
+      const workspace = workspaceCtx.webServer.register({
+        kind: 'prefix',
+        path: '/agent',
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            res.writeHead(405)
+            res.end()
+            return
+          }
+          const pathname = new URL(req.url ?? '/agent/', 'http://x').pathname
+          const relativePath = pathname === '/agent' ? '/' : pathname.slice('/agent'.length)
+          try {
+            await serveStatic(
+              decodeURIComponent(relativePath),
+              res,
+              distRoot,
+              distIndex,
+              () => workspaceCtx.connection.authorizeIndex(req, res),
+              renderIndex,
+            )
+          } catch (error) {
+            const reason = error instanceof Error ? error.stack ?? error.message : String(error)
+            console.error(`[web-app] 嵌入式 Harness 工作区索引渲染失败: ${reason}`)
+            throw error
+          }
+        },
+      })
+      return () => {
+        workspace()
+        redirect()
+      }
+    }, 'web-app: native agent workspace')
+  })
 }
 
 /** Start the maintained platform opener without forwarding Harness credentials. */
@@ -249,6 +313,9 @@ export function apply(ctx: Context, config: Config): void {
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   mountTapCanvasApiProxy(ctx, ctx.webServer, process.env.TAPCANVAS_API_PROXY_TARGET)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
+  if (process.env.TAPCANVAS_WEB_DIST_INDEX !== undefined && process.env.TAPCANVAS_WEB_DIST_INDEX !== '') {
+    mountHarnessWorkspace(ctx)
+  }
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
       addHarnessSourceSection(promptCtx, SOURCE_ROOT)

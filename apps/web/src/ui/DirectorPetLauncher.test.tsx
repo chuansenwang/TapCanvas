@@ -5,7 +5,7 @@ import { useChatActivityStore } from './chat/chatActivityStore'
 import { useChatCommandStore } from './chat/chatCommandStore'
 import { resetVideoRuns, upsertVideoRun } from '../runner/videoRunStore'
 import { VIDEO_RUN_STATUS_PROTOCOL_VERSION } from '@tapcanvas/video-orchestrator-protocol'
-import DirectorPetLauncher, { resolveAuthenticatedHarnessWebUrl } from './DirectorPetLauncher'
+import DirectorPetLauncher from './DirectorPetLauncher'
 import { useUIStore } from './uiStore'
 
 const canonicalStatusFields = {
@@ -44,7 +44,7 @@ if (!window.matchMedia) {
 describe('DirectorPetLauncher', () => {
   beforeEach(() => {
     localStorage.removeItem('tapcanvas.director-pet.position.v1')
-    useUIStore.setState({ aiChatOpen: false })
+    useUIStore.setState({ aiChatOpen: false, nativeAgentWorkspaceOpen: false })
     useChatCommandStore.setState({ busy: false })
     useChatActivityStore.setState({ active: false })
     resetVideoRuns()
@@ -53,68 +53,35 @@ describe('DirectorPetLauncher', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
-    const chatWindow = window as unknown as {
-      __tcExpandChat?: () => void
-      __tcToggleChat?: () => void
-    }
-    delete chatWindow.__tcExpandChat
-    delete chatWindow.__tcToggleChat
   })
 
-  it('does not open the unauthenticated Harness root or fall back to the legacy chat', () => {
+  it('在当前 TapCanvas 页面内打开小 T，绝不创建跨端口窗口', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue({} as Window)
-    const expandChat = vi.fn(() => useUIStore.setState({ aiChatOpen: true }))
-    ;(window as unknown as { __tcExpandChat?: () => void }).__tcExpandChat = expandChat
 
     render(<DirectorPetLauncher />)
 
-    const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
+    const launcher = screen.getByRole('button', { name: '打开导演小T工作区' })
     expect(launcher.hasAttribute('data-click-reaction')).toBe(false)
     fireEvent.click(launcher)
 
     expect(open).not.toHaveBeenCalled()
-    expect(expandChat).not.toHaveBeenCalled()
-    expect(screen.getByText('原生 Agent 启动地址不可用')).toBeTruthy()
+    expect(useUIStore.getState().nativeAgentWorkspaceOpen).toBe(true)
   })
 
-  it('accepts only a loopback Harness URL carrying a launch token', () => {
-    expect(resolveAuthenticatedHarnessWebUrl('http://127.0.0.1:3080/?token=launch-token'))
-      .toBe('http://127.0.0.1:3080/?token=launch-token')
-    expect(resolveAuthenticatedHarnessWebUrl('http://127.0.0.1:3080/')).toBeNull()
-    expect(resolveAuthenticatedHarnessWebUrl('https://127.0.0.1:3080/?token=launch-token')).toBeNull()
-    expect(resolveAuthenticatedHarnessWebUrl('http://example.com/?token=launch-token')).toBeNull()
-    expect(resolveAuthenticatedHarnessWebUrl('http://user:pass@127.0.0.1:3080/?token=launch-token')).toBeNull()
-    expect(resolveAuthenticatedHarnessWebUrl('http://127.0.0.1:3080/?token=one&token=two')).toBeNull()
-  })
-
-  it('does not fall back to the embedded chat while the native launch URL is unavailable', () => {
-    vi.spyOn(window, 'open').mockReturnValue(null)
-    const expandChat = vi.fn()
-    ;(window as unknown as { __tcExpandChat?: () => void }).__tcExpandChat = expandChat
-
-    render(<DirectorPetLauncher />)
-    fireEvent.click(screen.getByRole('button', { name: '打开原生 Agent 对话' }))
-
-    expect(expandChat).not.toHaveBeenCalled()
-    expect(screen.getByText('原生 Agent 启动地址不可用')).toBeTruthy()
-  })
-
-  it('collapses the dialog from the peek state and docks at the right wall', async () => {
-    const toggleChat = vi.fn(() => useUIStore.setState({ aiChatOpen: false }))
-    ;(window as unknown as { __tcToggleChat?: () => void }).__tcToggleChat = toggleChat
-    useUIStore.setState({ aiChatOpen: true })
+  it('收起小 T 工作区后贴靠在右侧墙面', async () => {
+    useUIStore.setState({ nativeAgentWorkspaceOpen: true })
 
     render(<DirectorPetLauncher />)
 
-    const peek = screen.getByRole('button', { name: '收起AI对话' })
+    const peek = screen.getByRole('button', { name: '收起导演小T工作区' })
     expect(peek.getAttribute('data-wall-side')).toBe('chat-left')
-    expect(peek.getAttribute('title')).toBe('上下拖动调整位置，点击收起AI对话')
+    expect(peek.getAttribute('title')).toBe('上下拖动调整位置，点击收起导演小T工作区')
     expect(peek.querySelector('.director-pet-test-sprite')?.getAttribute('data-mirrored')).toBe('true')
     fireEvent.click(peek)
 
-    expect(toggleChat).toHaveBeenCalledTimes(1)
+    expect(useUIStore.getState().nativeAgentWorkspaceOpen).toBe(false)
     await waitFor(() => {
-      const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
+      const launcher = screen.getByRole('button', { name: '打开导演小T工作区' })
       expect(launcher.getAttribute('data-wall-side')).toBe('right')
     })
 
@@ -139,7 +106,7 @@ describe('DirectorPetLauncher', () => {
 
     render(<DirectorPetLauncher />)
 
-    const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
+    const launcher = screen.getByRole('button', { name: '打开导演小T工作区' })
     expect(launcher.getAttribute('data-production-phase')).toBe('rendering')
     expect(launcher.querySelector('.director-pet-test-sprite')?.getAttribute('data-animation-state')).toBe('working')
     expect(screen.getByText('正在出片 · 7/12 段')).toBeTruthy()
@@ -159,7 +126,7 @@ describe('DirectorPetLauncher', () => {
 
     render(<DirectorPetLauncher />)
 
-    const launcher = screen.getByRole('button', { name: '打开原生 Agent 对话' })
+    const launcher = screen.getByRole('button', { name: '打开导演小T工作区' })
     expect(launcher.getAttribute('data-production-phase')).toBe('planning')
     expect(launcher.querySelector('.director-pet-test-sprite')?.getAttribute('data-animation-state')).toBe('idea')
     expect(screen.getByText('正在拆解镜头')).toBeTruthy()
