@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-connection/client'
 import { UiConversation } from './conversation/assembly.ts'
 import type { ViewTab } from './contract/views.ts'
 import type {
@@ -33,6 +34,7 @@ import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { resolveActiveView } from './view-selection.ts'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
+import { type TapCanvasScope } from './tapcanvasScope.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -98,6 +100,20 @@ export function apply(ctx: Context): void {
   const sessions = ctx.sessions
   const slots = ctx.slots
   const workspaceNavigation = ctx.get('uiWorkspace') as unknown as WorkspaceNavigation
+  ctx.inject(['connection'], (connectionCtx) => {
+    const connection = connectionCtx.get('connection')
+    if (connection === undefined) throw new Error('ui-conversation: native connection unavailable')
+    ctx.slots.provideRoot({
+      props: {
+        tapCanvasScopeSync: async (sessionId: SessionId, scope: TapCanvasScope): Promise<void> => {
+          const result = await connection.rpc.call('/tapcanvas', 'scope', {
+            args: { sessionId, scope },
+          })
+          if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+        },
+      },
+    })
+  })
   const uiConversation = new UiConversation(ctx, sessions)
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')

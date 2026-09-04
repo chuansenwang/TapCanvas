@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { listNewApiModels, type BillingModelKind, type NewApiModelDto } from '../api/server'
+import {
+  listModelCatalogModels,
+  listNewApiModels,
+  type BillingModelKind,
+  type ModelCatalogModelDto,
+  type NewApiModelDto,
+} from '../api/server'
 import { NEW_API_AUTO_VENDOR } from './modelRouting'
 import type { ModelOption, ModelOptionPricing, NodeKind } from './models'
 
@@ -269,12 +275,54 @@ export function toCatalogModelOptions(items: NewApiModelDto[]): ModelOption[] {
       value,
       label,
       vendor: NEW_API_AUTO_VENDOR,
+      source: 'new-api',
       modelKey: modelKey || value,
       modelAlias: alias || null,
       routingAliases,
       meta: mergeCatalogMeta(item),
       pricing: toNewApiModelPricing(item),
       videoAnalysisPricing: item.videoAnalysisPricing,
+    })
+  }
+  return out
+}
+
+/** Convert models configured in TapCanvas' own catalog into the shared option shape. */
+export function toConfiguredCatalogModelOptions(items: ModelCatalogModelDto[]): ModelOption[] {
+  if (!Array.isArray(items)) return []
+  const seen = new Set<string>()
+  const out: ModelOption[] = []
+  for (const item of items) {
+    const modelKey = typeof item?.modelKey === 'string' ? item.modelKey.trim() : ''
+    const vendorKey = typeof item?.vendorKey === 'string' ? item.vendorKey.trim() : ''
+    if (!modelKey || !vendorKey || item.enabled === false) continue
+    const alias = typeof item?.modelAlias === 'string' ? item.modelAlias.trim() : ''
+    const value = alias || modelKey
+    const identity = `${vendorKey}:${value}`
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    const label = typeof item?.labelZh === 'string' && item.labelZh.trim()
+      ? item.labelZh.trim()
+      : value
+    out.push({
+      value,
+      label,
+      vendor: vendorKey,
+      source: 'configured',
+      modelKey,
+      modelAlias: alias || null,
+      meta: item.meta,
+      pricing: item.pricing
+        ? {
+          cost: item.pricing.cost,
+          enabled: item.pricing.enabled,
+          specCosts: item.pricing.specCosts.map((spec) => ({
+            specKey: spec.specKey,
+            cost: spec.cost,
+            enabled: spec.enabled,
+          })),
+        }
+        : undefined,
     })
   }
   return out
@@ -360,15 +408,21 @@ async function getCatalogModelOptions(kind?: NodeKind, request?: ModelOptionsReq
   if (inflight) return inflight
   const promise = (async () => {
     try {
-      const rows = await requestModelCatalogWithRetry(() =>
-        listNewApiModels({
+      const [configuredRows, newApiRows] = await Promise.all([
+        catalogKind === 'audio'
+          ? Promise.resolve<ModelCatalogModelDto[]>([])
+          : requestModelCatalogWithRetry(() => listModelCatalogModels({ kind: catalogKind, enabled: true })),
+        requestModelCatalogWithRetry(() => listNewApiModels({
           kind: catalogKind,
           enabled: true,
           selectable: true,
           includeActionModels,
-        }),
+        })),
+      ])
+      const normalized = mergeModelOptions(
+        toConfiguredCatalogModelOptions(configuredRows),
+        toCatalogModelOptions(newApiRows),
       )
-      const normalized = toCatalogModelOptions(rows)
       catalogOptionsCache.set(cacheKey, {
         expiresAt: Date.now() + CATALOG_OPTIONS_CACHE_TTL_MS,
         options: normalized,
@@ -392,6 +446,20 @@ async function getCatalogModelOptions(kind?: NodeKind, request?: ModelOptionsReq
   }
   void promise.then(clearSettledPromise, clearSettledPromise)
   return promise
+}
+
+function mergeModelOptions(...sources: readonly ModelOption[][]): ModelOption[] {
+  const seen = new Set<string>()
+  const merged: ModelOption[] = []
+  for (const options of sources) {
+    for (const option of options) {
+      const identity = `${option.vendor ?? ''}:${option.value}`
+      if (seen.has(identity)) continue
+      seen.add(identity)
+      merged.push(option)
+    }
+  }
+  return merged
 }
 
 export async function preloadModelOptions(kind?: NodeKind, request?: ModelOptionsRequest): Promise<ModelOption[]> {

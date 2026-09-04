@@ -34,6 +34,34 @@
   --dsh-composer-dock-inset: 8px;
 }
 
+.tapCanvasScope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 16px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+}
+
+.tapCanvasScopeLabel {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.tapCanvasScopeValue {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tapCanvasScopeSelection {
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
 .header {
   position: relative;
   flex: none;

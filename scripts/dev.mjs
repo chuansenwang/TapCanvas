@@ -294,24 +294,27 @@ async function isHarnessWebHealthy() {
 async function prepareHarnessWeb() {
   const distEntry = harnessWebDistIndex
   const cliSourceEntry = resolve(harnessDirectory, 'apps/cli/src/bin.ts')
-  if (!existsSync(distEntry)) {
-    console.log('[dev] Harness Agent 前端构建产物缺失，先构建 apps/agents/apps/web...')
-    runBlocking(pnpmCommand, ['pnpm', '--dir', harnessDirectory, 'run', 'build:web'], rootDirectory)
-  }
+  // Harness serves the static TapCanvas bundle before the watch build can
+  // settle. Always build the entry first so an older bundle cannot send API
+  // requests to the wrong origin during startup.
+  console.log(`[dev] 构建 Harness Agent 前端与 TapCanvas 静态入口：${existsSync(distEntry) ? '刷新现有产物' : '产物缺失'}`)
+  runBlocking(pnpmCommand, ['pnpm', '--dir', harnessDirectory, 'run', 'build:web'], rootDirectory)
   if (!existsSync(cliSourceEntry)) {
     throw new Error('[dev] apps/agents/apps/cli/src/bin.ts 缺失，无法启动统一 Harness Web。')
   }
-  if (!existsSync(tapCanvasWebDistIndex)) {
-    console.log('[dev] TapCanvas 前端构建产物缺失，先构建 apps/web...')
-    runBlocking(
-      pnpmCommand,
-      ['pnpm', 'run', 'build:web'],
-      rootDirectory,
-      // Harness 的同源 TapCanvas 业务 API 代理挂在 /tapcanvas-api；/api
-      // 由 Harness 自身占用，不能写入 TapCanvas 前端产物。
-      { ...process.env, VITE_API_BASE: process.env.VITE_API_BASE || '/tapcanvas-api' },
-    )
-  }
+  console.log(`[dev] 构建 TapCanvas 静态入口：${existsSync(tapCanvasWebDistIndex) ? '刷新现有产物' : '产物缺失'}`)
+  runBlocking(
+    pnpmCommand,
+    ['pnpm', 'run', 'build:web'],
+    rootDirectory,
+    // Harness 的同源 TapCanvas 业务 API 代理挂在 /tapcanvas-api；/api
+    // 由 Harness 自身占用，不能写入 TapCanvas 前端产物。
+    {
+      ...process.env,
+      VITE_API_BASE: process.env.VITE_API_BASE || '/tapcanvas-api',
+      ALLOW_LOCALHOST_IN_PROD_BUILD: process.env.ALLOW_LOCALHOST_IN_PROD_BUILD || '1',
+    },
+  )
 
   if (await isHarnessWebHealthy()) {
     console.log(`[dev] 检测到已运行的 Harness Web，复用：${harnessWebUrl}`)

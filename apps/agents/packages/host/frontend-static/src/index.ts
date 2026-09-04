@@ -37,6 +37,7 @@ export const Config: z<Config> = z.object({
 })
 
 const HTML_MIME = 'text/html; charset=utf-8'
+const NO_STORE_HEADER = 'no-store'
 
 const MIME: Record<string, string> = {
   '.html': HTML_MIME,
@@ -84,14 +85,19 @@ export async function serveStatic(
   }
   let body: string | Buffer
   let type: string
+  let cacheControl: string | undefined
   try {
     if (target === distRoot || target === distIndex) {
       if (!authorizeIndex()) return
       body = await renderIndex()
       type = HTML_MIME
+      cacheControl = NO_STORE_HEADER
     } else {
       body = await readFile(target)
       type = MIME[extname(target)] ?? 'application/octet-stream'
+      // The service worker is the cache policy authority. It must always be
+      // revalidated so a changed asset cache namespace can take effect.
+      if (target.toLowerCase().endsWith(`${sep}sw.js`)) cacheControl = NO_STORE_HEADER
     }
   } catch (error) {
     // Only absent or non-file targets are 404; other filesystem failures reach
@@ -101,7 +107,10 @@ export async function serveStatic(
     res.end()
     return
   }
-  res.writeHead(200, { 'content-type': type })
+  res.writeHead(200, {
+    'content-type': type,
+    ...(cacheControl === undefined ? {} : { 'cache-control': cacheControl }),
+  })
   res.end(body)
 }
 

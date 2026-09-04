@@ -251,7 +251,7 @@ describe('web-app runtime glue', () => {
       url: '/agent/',
       headers: { host: '127.0.0.1:4567' },
     })
-    expect(response.writeHead).toHaveBeenCalledWith(200, { 'content-type': 'text/html; charset=utf-8' })
+    expect(response.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({ 'content-type': 'text/html; charset=utf-8' }))
     await ctx.fiber.dispose()
   })
 

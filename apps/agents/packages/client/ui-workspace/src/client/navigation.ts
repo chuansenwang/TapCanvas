@@ -96,6 +96,13 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const inflight = this.connecting.get(workspaceId)
     if (inflight !== undefined) return inflight
 
+    const attempt = this.connectWorkspaceView(workspace)
+      .finally(() => { this.connecting.delete(workspaceId) })
+    this.connecting.set(workspaceId, attempt)
+    return attempt
+  }
+
+  private async connectWorkspaceView(workspace: WorkspaceView): Promise<SessionId> {
     const archived = this.workspaces.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
     for (const id of sessions.ids) {
@@ -104,11 +111,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         && workspace.sessionIds.includes(summary.id)
         && !archived.includes(summary.id)) return summary.id
     }
-
-    const attempt = this.sessions.create({ workspaceId })
-      .finally(() => { this.connecting.delete(workspaceId) })
-    this.connecting.set(workspaceId, attempt)
-    return attempt
+    return this.sessions.create({ workspaceId: workspace.workspaceId })
   }
 
   startSession(workspaceId?: WorkspaceId): void {

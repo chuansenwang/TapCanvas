@@ -124,6 +124,7 @@ class FakeSessions {
 
 class FakeWorkspaces implements IWorkspaces {
   readonly list: MutableSource<WorkspaceSnapshot>
+  readonly create: ReturnType<typeof vi.fn<IWorkspaces['create']>>
   readonly archiveCalls: SessionId[] = []
   onArchive: IWorkspaces['archiveSession'] = async (sessionId) => {
     this.list.update(state => ({
@@ -132,7 +133,6 @@ class FakeWorkspaces implements IWorkspaces {
     }))
   }
 
-  declare readonly create: IWorkspaces['create']
   declare readonly rename: IWorkspaces['rename']
   declare readonly delete: IWorkspaces['delete']
   declare readonly insertBefore: IWorkspaces['insertBefore']
@@ -140,6 +140,7 @@ class FakeWorkspaces implements IWorkspaces {
 
   constructor(initial: WorkspaceSnapshot) {
     this.list = new MutableSource(initial)
+    this.create = vi.fn<IWorkspaces['create']>(async input => workspace(input.path.split('/').pop() ?? 'initial'))
   }
 
   archiveSession(sessionId: SessionId): Promise<void> {

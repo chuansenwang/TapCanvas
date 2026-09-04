@@ -30,6 +30,7 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import { mountTapCanvasApiProxy } from './tapcanvas-api-proxy.ts'
+import { registerTapCanvasRuntime } from './tapcanvas-scope.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'web-app'
@@ -305,6 +306,9 @@ export const internals: {
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
+  ctx.inject(['connection', 'systemPrompt', 'tools'], (runtimeCtx) => {
+    registerTapCanvasRuntime(runtimeCtx)
+  })
   const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts)
   // The loopback URL belongs to this host. Under SSH, the operator reaches it
   // through a local forwarding address that this process cannot derive.

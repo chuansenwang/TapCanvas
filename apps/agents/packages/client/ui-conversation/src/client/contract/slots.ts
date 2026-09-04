@@ -21,6 +21,7 @@ import type { createConversationStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { ConversationSnapshot } from './snapshot.ts'
 import type { ViewTab } from './views.ts'
+import type { TapCanvasScope } from '../tapcanvasScope.ts'
 
 /** Browser-owned image that has not crossed the durable Host boundary. */
 export interface ComposerAttachment {
@@ -150,6 +151,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface GlobalStandardProps {
     /** Workspace selector supplied by the independently loaded Workspace UI. */
     useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>
+    /** Sends the current TapCanvas scope to the native Harness Host. */
+    tapCanvasScopeSync?: (sessionId: SessionId, scope: TapCanvasScope) => Promise<void>
   }
 
   interface SessionStandardProps {

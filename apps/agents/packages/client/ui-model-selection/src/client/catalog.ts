@@ -22,12 +22,33 @@ export class ModelCatalogDirectory {
 
   private generation = 0
   private inflight: Promise<ModelCatalog> | undefined
+  private hostCatalog: ModelCatalog | null = null
+  private externalCatalog: Pick<ModelCatalog, 'groups' | 'failures'> | null = null
 
   /**
    * @param ctx - the providing plugin's context, whose `remote.session`
    * namespace carries the Host-generation catalog.
    */
-  constructor(private readonly ctx: ClientContext) {}
+  constructor(private readonly ctx: ClientContext) {
+    if (typeof window !== 'undefined') {
+      const onMessage = (event: MessageEvent<unknown>): void => {
+        if (event.source !== window.parent || event.origin !== window.location.origin) return
+        const catalog = parseExternalCatalogMessage(event.data)
+        if (catalog !== null) this.setExternalCatalog(catalog)
+      }
+      window.addEventListener('message', onMessage)
+    }
+  }
+
+  /** Merge an externally managed catalog into the next shared selector snapshot. */
+  setExternalCatalog(catalog: Pick<ModelCatalog, 'groups' | 'failures'> | null): void {
+    this.externalCatalog = catalog
+    if (this.hostCatalog !== null) this.store.set({
+      value: mergeCatalog(this.hostCatalog, this.externalCatalog),
+      status: this.store.getSnapshot().status,
+      error: this.store.getSnapshot().error,
+    })
+  }
 
   /**
    * Return the current generation's catalog, sharing its one in-flight load.
@@ -47,7 +68,8 @@ export class ModelCatalogDirectory {
         throw new Error(`${response.error.code}: ${response.error.message}`)
       }
       if (generation === this.generation) {
-        this.store.set({ value: response.value, status: 'ready', error: null })
+        this.hostCatalog = response.value
+        this.store.set({ value: mergeCatalog(this.hostCatalog, this.externalCatalog), status: 'ready', error: null })
       }
       return response.value
     }).catch((error: unknown) => {
@@ -73,6 +95,7 @@ export class ModelCatalogDirectory {
     this.generation += 1
     this.inflight = undefined
     const value = clear ? null : this.store.getSnapshot().value
+    if (clear) this.hostCatalog = null
     this.store.set({ value, status: 'idle', error: null })
   }
 
@@ -87,4 +110,64 @@ export class ModelCatalogDirectory {
     this.invalidate(true)
     void this.load().catch(() => { /* the selector exposes the shared error */ })
   }
+}
+
+function mergeCatalog(
+  base: ModelCatalog,
+  external: Pick<ModelCatalog, 'groups' | 'failures'> | null,
+): ModelCatalog {
+  if (external === null) return base
+  const groups = [...base.groups]
+  for (const externalGroup of external.groups) {
+    const existing = groups.find((group) => group.id === externalGroup.id)
+    if (existing === undefined) {
+      groups.push(externalGroup)
+      continue
+    }
+    const models = [...existing.models]
+    for (const model of externalGroup.models) {
+      if (!models.some((candidate) => candidate.id === model.id)) models.push(model)
+    }
+    const index = groups.indexOf(existing)
+    groups[index] = { ...existing, models }
+  }
+  return {
+    ...base,
+    groups,
+    failures: [...base.failures, ...external.failures],
+  }
+}
+
+function parseExternalCatalogMessage(value: unknown): Pick<ModelCatalog, 'groups' | 'failures'> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const message = value as { type?: unknown; catalog?: unknown }
+  if (message.type !== 'tapcanvas:model-catalog' || typeof message.catalog !== 'object' || message.catalog === null) return null
+  const catalog = message.catalog as { groups?: unknown; failures?: unknown }
+  if (!Array.isArray(catalog.groups)) return null
+  const groups = catalog.groups.flatMap((groupValue): ModelCatalog['groups'][number][] => {
+    if (typeof groupValue !== 'object' || groupValue === null || Array.isArray(groupValue)) return []
+    const group = groupValue as { id?: unknown; name?: unknown; models?: unknown }
+    if (typeof group.id !== 'string' || typeof group.name !== 'string' || !Array.isArray(group.models)) return []
+    const models = group.models.flatMap((modelValue): ModelCatalog['groups'][number]['models'][number][] => {
+      if (typeof modelValue !== 'object' || modelValue === null || Array.isArray(modelValue)) return []
+      const model = modelValue as { id?: unknown; name?: unknown; description?: unknown }
+      if (typeof model.id !== 'string' || typeof model.name !== 'string') return []
+      return [{
+        id: model.id,
+        name: model.name,
+        ...(typeof model.description === 'string' ? { description: model.description } : {}),
+      }]
+    })
+    return models.length > 0 ? [{ id: group.id, name: group.name, models }] : []
+  })
+  const failures = Array.isArray(catalog.failures)
+    ? catalog.failures.flatMap((failureValue): ModelCatalog['failures'][number][] => {
+      if (typeof failureValue !== 'object' || failureValue === null || Array.isArray(failureValue)) return []
+      const failure = failureValue as { id?: unknown; name?: unknown; message?: unknown }
+      return typeof failure.id === 'string' && typeof failure.name === 'string' && typeof failure.message === 'string'
+        ? [{ id: failure.id, name: failure.name, message: failure.message }]
+        : []
+    })
+    : []
+  return { groups, failures }
 }

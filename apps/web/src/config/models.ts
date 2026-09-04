@@ -56,6 +56,8 @@ export interface ModelOption {
   value: string
   label: string
   vendor?: string
+  /** Dynamic catalog source that supplied this option. */
+  source?: 'configured' | 'new-api'
   /** Exact upstream request model resolved by the server catalog. */
   modelKey?: string
   modelAlias?: string | null

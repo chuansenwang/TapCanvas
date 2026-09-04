@@ -9,6 +9,7 @@ import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
 import { conversationPhase } from '../contract/snapshot.ts'
 import { HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import css from './ConversationRoot.module.css'
+import { useTapCanvasScope } from '../tapcanvasScope.ts'
 
 /** Full props composed from the slot contract. */
 export type ConversationRootProps = ConversationSlotProps
@@ -131,7 +132,7 @@ function WidthHandle(props: {
 export function ConversationRoot({
   sessionId, useSession, useSessions, useSessionPendingInteraction,
   useWorkspaces, useConversation, useInput, useComposerBlock,
-  renderSlot, renderSlotChain, selectWorkspace, t,
+  renderSlot, renderSlotChain, selectWorkspace, t, tapCanvasScopeSync,
 }: ConversationRootProps) {
   const session = useSession(s => s)
   const pendingInteraction = useSessionPendingInteraction(snapshot =>
@@ -145,6 +146,21 @@ export function ConversationRoot({
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
   const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
   const workspaces = useWorkspaces(s => s)
+  const tapCanvasScope = useTapCanvasScope()
+  const tapCanvasBound = tapCanvasScope !== null
+  useEffect(() => {
+    if (sessionId === undefined || tapCanvasScope === null) return
+    const timer = window.setTimeout(() => {
+      if (tapCanvasScopeSync === undefined) {
+        console.error('[tapcanvas] 原生 Harness 作用域同步失败：连接能力未注入')
+        return
+      }
+      void tapCanvasScopeSync(sessionId, tapCanvasScope).catch((error: unknown) => {
+        console.error('[tapcanvas] 原生 Harness 作用域同步失败:', error)
+      })
+    }, 100)
+    return () => { window.clearTimeout(timer) }
+  }, [sessionId, tapCanvasScope, tapCanvasScopeSync])
   // A plugin this package cannot import (ui-model-selection) says this session cannot
   // send; its reason is already localized by whoever raised it.
   const composerBlock = useComposerBlock(block => block)
@@ -321,7 +337,12 @@ export function ConversationRoot({
   // blank session whose workspace vanished (deleted from the sidebar). The
   // bar is ONE session-maybe slot rendered unconditionally — inert is a prop,
   // not a different tree, so the textarea DOM survives the transition.
-  const inert = sessionId === undefined || (hero && chipTitle === undefined)
+  // An embedded TapCanvas owns the semantic project scope. Its canvas is the
+  // user's working context, so the Harness filesystem workspace picker is
+  // deliberately absent from this surface. The Host still keeps a session
+  // workspace internally for persistence, but it is never a second user
+  // choice in the TapCanvas Agent.
+  const inert = sessionId === undefined || (hero && !tapCanvasBound && chipTitle === undefined)
   // A raised block is the same inert posture with the blocker's own reason:
   // one disabled textarea, never a second tree. The no-workspace state wins
   // when both hold — picking a workspace is the earlier prerequisite.
@@ -346,7 +367,7 @@ export function ConversationRoot({
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroShell t={t} renderSlot={renderSlot} />}
-      {hero && heroWorkspaceRow}
+      {hero && !tapCanvasBound && heroWorkspaceRow}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>
@@ -371,6 +392,19 @@ export function ConversationRoot({
 
   return (
     <div ref={rootResizeRef} className={css.root} data-phase={phase}>
+      {tapCanvasScope !== null && (
+        <div className={css.tapCanvasScope} role="status">
+          <span className={css.tapCanvasScopeLabel}>当前画布</span>
+          <span className={css.tapCanvasScopeValue}>
+            {tapCanvasScope.chapterTitle ?? tapCanvasScope.projectName ?? tapCanvasScope.projectId ?? '未命名项目'}
+          </span>
+          {tapCanvasScope.selectedNodeIds.length > 0 && (
+            <span className={css.tapCanvasScopeSelection}>
+              已选 {tapCanvasScope.selectedNodeIds.length} 个节点
+            </span>
+          )}
+        </div>
+      )}
       {sessionId === undefined ? null : renderSlot('conversation.session.header', {})}
       <div className={css.body}>
         <div className={css.scrollBody} data-conversation-scroll="">

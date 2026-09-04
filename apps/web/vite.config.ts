@@ -147,7 +147,10 @@ export default defineConfig(({ command, mode }) => {
               urlPattern: /\/assets\/.*\.(?:js|css)$/,
               handler: 'CacheFirst' as const,
               options: {
-                cacheName: 'app-assets-v1',
+                // Change this namespace whenever the app's API transport or
+                // runtime contract changes so an older service worker cannot
+                // reuse stale JavaScript from a previous deployment.
+                cacheName: 'app-assets-v2',
                 expiration: { maxEntries: 120, maxAgeSeconds: 2592000 },
                 cacheableResponse: { statuses: [200] },
               },

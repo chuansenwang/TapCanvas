@@ -180,9 +180,9 @@ docker-compose exec api dreamina version
 
 ### 迁移状态
 
-- `apps/agents` 中的 `@tapcanvas/agents` 是新的唯一原生 Agent Runtime 与浏览器 Origin。根 `pnpm dev` 使用 Harness Web Server 托管 `apps/web/dist`，开发期只启动 Vite 构建监听，不将 Vite Dev Server 作为浏览器入口。Harness 根路径保持 BrowserAuth 令牌保护；无令牌请求返回真实的 `401`。当设置 `TAPCANVAS_WEB_DIST_INDEX` 时，Harness 自己的原生工作区固定挂载为同 Origin 的 `/agent/`；TapCanvas 的小 T 在当前页面内以该路径为嵌入式工作区打开，不新开窗口、不跳转到其他端口。
-- `apps/agents-cli`、`/public/chat` 与 Hono Agents Bridge 仍保留为迁移期的 legacy 源码和诊断接口，但不再自动启动。只有显式设置 `AGENTS_BRIDGE_AUTOSTART=1` 或手动执行 `pnpm run dev:agents-legacy` 时才允许启动旧 Bridge；新小T入口不会回退到旧聊天链路。普通 Studio/章节页不再挂载旧 `AiChatDialog`，避免在新入口下轮询 legacy `/public/agents/chat/status`；导演台仅在建立明确的 `directorChatScopeNodeId` 后按需挂载该旧面板，供导演台专属会话过渡使用。
-- 本阶段只完成运行时迁入、独立工作区、统一静态托管与旧 Bridge 默认隔离。TapCanvas 用户/项目身份映射、工作区会话索引、左侧原生工作区和 `tapcanvas_*` 原生工具注册尚未落地；因此不得把下文的 legacy Bridge 描述误认为新运行时的当前实现。
+- `apps/agents` 中的 `@tapcanvas/agents` 是独立的 Harness Runtime 与浏览器 Origin。根 `pnpm dev` 使用 Harness Web Server 托管 `apps/web/dist`，TapCanvas 的小 T 在当前页面内嵌入同源 `/agent/` 原生 UI；不把 Harness 的文件系统 Workspace 或仓库根目录当作 TapCanvas 画布。父页面通过 `tapcanvas:scope` 结构化消息传递当前项目、Flow、章节、书籍和选中节点 ID，并通过 `tapcanvas:model-catalog` 传递已认证的 `new-api` 动态文本模型目录，Harness 原生会话界面展示该作用域与模型来源。
+- `apps/agents-cli`、`/public/chat` 与 Hono Agents Bridge 仍保留为迁移期的 legacy 源码和诊断接口，但不再自动启动。小 T 入口不回退到旧聊天链路；原生 Harness Web 通过自身 `/tapcanvas/scope` RPC 接收当前页面的结构化画布作用域，系统提示上下文和 `tapcanvas_get_current_canvas` 原生工具直接消费该事实。
+- 当前原生 Agent 入口以右侧固定栏承载，模型选择器同时显示 Harness 自身配置目录与 TapCanvas `new-api` 目录，两个来源均保持结构化来源标识。父页面在当前 Harness 会话建立后同步 `sessionId、projectId、flowId、chapterId、selectedNodeIds` 以及节点/边快照；Host 仅按会话内存保存，不把画布数据写入用户 prompt，也不依赖浏览器 Cookie 或旧 bridge。缺少作用域时原生工具显式失败，不猜测项目或 Flow。
 
 以下内容记录 legacy Bridge 的既有协议与迁移背景，仅供显式诊断和后续迁移对照；它不是 `apps/agents` 的运行时架构说明。
 
