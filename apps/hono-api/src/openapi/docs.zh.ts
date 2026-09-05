@@ -207,7 +207,7 @@ type DemoTask = {
 - \`seed?: number\`（可选；不同厂商可能忽略）
 - \`width?: number\` / \`height?: number\`（可选；像素。\`qwen\` 会严格使用（默认 \`1328×1328\`）；其他厂商可能忽略或仅用于推断横竖构图）
 - \`steps?: number\` / \`cfgScale?: number\`（可选；不同厂商可能忽略）
-- \`extras?: object\`（可选；透传给模型/网关，常用字段：\`modelKey\` / \`aspectRatio\` / \`referenceImages\` / \`resolution\` / \`imageResolution\`）
+- \`extras?: object\`（可选；透传给模型/网关。ComfyUI 图片任务常用字段：\`modelKey\` / \`aspectRatio\` / \`referenceImages\`；MiniMax H3 视频任务使用 \`modelKey\` / \`mediaInputs\`（按顺序的 image/audio/video 对象数组）/ \`resolution\` / \`durationSeconds\`）
   - \`extras.modelAlias?: string\`（模型别名选择；推荐）
   - \`extras.modelKey?: string\`（模型 Key（厂商内）；兼容）
 

@@ -8,16 +8,26 @@ type JsonRecord = Record<string, unknown>;
 type ComfyNode = { class_type?: unknown; inputs?: JsonRecord };
 type ComfyWorkflow = Record<string, ComfyNode>;
 
+export type ComfyMediaInput = {
+	type: "image" | "audio" | "video";
+	url: string;
+	role?: "reference" | "first_frame" | "last_frame" | "audio" | "video";
+};
+
+export type UploadedComfyMedia = ComfyMediaInput & { filename: string };
+
 type WorkflowVariant = {
 	id: string;
 	name?: string;
 	capability?: string;
-	taskKind: "text_to_image" | "image_edit";
+	taskKind: "text_to_image" | "image_edit" | "text_to_video" | "image_to_video";
 	referenceImageCount: number;
 	workflow: ComfyWorkflow;
 	promptNodeIds?: string[];
 	imageNodeIds?: string[];
+	mediaLoaderNodeIds?: string[];
 	outputNodeIds?: string[];
+	outputMediaType?: "image" | "video" | "audio";
 };
 
 type ComfyConfig = {
@@ -64,57 +74,95 @@ export function parseComfyUiWorkflowConfig(meta: unknown, modelKey: string): Com
 	for (const [index, raw] of meta.comfyui.workflowVariants.entries()) {
 		if (!isRecord(raw)) throw new AppError(`ComfyUI 工作流变体 ${index + 1} 配置无效`, { status: 500, code: "comfyui_workflow_config_invalid" });
 		const id = readString(raw.id);
-		const taskKind = raw.taskKind === "text_to_image" || raw.taskKind === "image_edit" ? raw.taskKind : null;
+		const taskKind = raw.taskKind === "text_to_image" || raw.taskKind === "image_edit" || raw.taskKind === "text_to_video" || raw.taskKind === "image_to_video" ? raw.taskKind : null;
 		const count = typeof raw.referenceImageCount === "number" && Number.isInteger(raw.referenceImageCount) && raw.referenceImageCount >= 0 ? raw.referenceImageCount : null;
 		if (!id || !taskKind || count === null) throw new AppError(`ComfyUI 工作流变体 ${index + 1} 缺少 id/taskKind/referenceImageCount`, { status: 500, code: "comfyui_workflow_config_invalid" });
 		const promptNodeIds = Array.isArray(raw.promptNodeIds) ? raw.promptNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const imageNodeIds = Array.isArray(raw.imageNodeIds) ? raw.imageNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
+		const mediaLoaderNodeIds = Array.isArray(raw.mediaLoaderNodeIds) ? raw.mediaLoaderNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const outputNodeIds = Array.isArray(raw.outputNodeIds) ? raw.outputNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const capability = readString(raw.capability);
-		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}) });
+		const outputMediaType = raw.outputMediaType === "image" || raw.outputMediaType === "video" || raw.outputMediaType === "audio" ? raw.outputMediaType : undefined;
+		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(mediaLoaderNodeIds?.length ? { mediaLoaderNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}), ...(outputMediaType ? { outputMediaType } : {}) });
 	}
 	return { workflowVariants: variants };
 }
 
 export function selectComfyUiWorkflowVariant(
 	config: ComfyConfig,
-	input: { modelKey: string; taskKind: WorkflowVariant["taskKind"]; referenceImageCount: number; capability?: string },
+	input: { modelKey: string; taskKind: WorkflowVariant["taskKind"]; referenceImageCount?: number; mediaInputCount?: number; capability?: string },
 ): WorkflowVariant {
-	const matches = config.workflowVariants.filter((variant) => variant.taskKind === input.taskKind && variant.referenceImageCount === input.referenceImageCount && (!input.capability || variant.capability === input.capability || variant.id === input.capability));
-	if (matches.length !== 1) throw new AppError(`ComfyUI 工作流无法唯一匹配：${input.modelKey}/${input.taskKind}/参考图${input.referenceImageCount}张`, { status: 400, code: "comfyui_workflow_route_not_unique", details: { modelKey: input.modelKey, taskKind: input.taskKind, referenceImageCount: input.referenceImageCount, matches: matches.map((variant) => variant.id) } });
+	const matches = config.workflowVariants.filter((variant) => variant.taskKind === input.taskKind && (input.taskKind === "text_to_video" || input.taskKind === "image_to_video" ? true : variant.referenceImageCount === input.referenceImageCount) && (!input.capability || variant.capability === input.capability || variant.id === input.capability));
+	if (matches.length !== 1) throw new AppError(`ComfyUI 工作流无法唯一匹配：${input.modelKey}/${input.taskKind}${typeof input.referenceImageCount === "number" ? `/参考图${input.referenceImageCount}张` : typeof input.mediaInputCount === "number" ? `/媒体${input.mediaInputCount}项` : ""}`, { status: 400, code: "comfyui_workflow_route_not_unique", details: { modelKey: input.modelKey, taskKind: input.taskKind, referenceImageCount: input.referenceImageCount ?? null, mediaInputCount: input.mediaInputCount ?? null, matches: matches.map((variant) => variant.id) } });
 	return matches[0]!;
 }
 
-async function resolveVariant(c: AppContext, modelKey: string, taskKind: WorkflowVariant["taskKind"], referenceImageCount: number, capability?: string): Promise<WorkflowVariant> {
+async function resolveVariant(c: AppContext, modelKey: string, taskKind: WorkflowVariant["taskKind"], referenceImageCount: number, mediaInputCount: number, capability?: string): Promise<WorkflowVariant> {
 	await ensureModelCatalogSchema(c.env.DB);
 	const rows = await getPrismaClient().model_catalog_models.findMany({ where: { vendor_key: "comfyui", enabled: 1, OR: [{ model_key: modelKey }, { model_alias: modelKey }] }, select: { model_key: true, meta: true } });
 	if (rows.length !== 1) throw new AppError(`ComfyUI 模型 ${modelKey} 不存在或匹配不唯一`, { status: 400, code: "comfyui_model_not_unique", details: { modelKey, matches: rows.map((row) => row.model_key) } });
 	let meta: unknown = null;
 	try { meta = rows[0]?.meta ? JSON.parse(rows[0].meta) as unknown : null; } catch { throw new AppError(`ComfyUI 模型 ${modelKey} 的 meta 不是合法 JSON`, { status: 500, code: "comfyui_model_meta_invalid" }); }
-	return selectComfyUiWorkflowVariant(parseComfyUiWorkflowConfig(meta, modelKey), { modelKey, taskKind, referenceImageCount, ...(capability ? { capability } : {}) });
+	return selectComfyUiWorkflowVariant(parseComfyUiWorkflowConfig(meta, modelKey), { modelKey, taskKind, referenceImageCount, mediaInputCount, ...(capability ? { capability } : {}) });
 }
 
 function cloneWorkflow(workflow: ComfyWorkflow): ComfyWorkflow {
 	return JSON.parse(JSON.stringify(workflow)) as ComfyWorkflow;
 }
 
+export function resolveComfyUiSeed(
+	request: TaskRequestDto,
+	randomUuid: () => string = () => crypto.randomUUID(),
+): number {
+	if (typeof request.seed === "number" && Number.isFinite(request.seed)) {
+		return Math.trunc(request.seed);
+	}
+	const uuidHex = randomUuid().split("-").join("").slice(0, 12);
+	const seed = Number.parseInt(uuidHex, 16);
+	if (!Number.isSafeInteger(seed)) {
+		throw new AppError("ComfyUI 随机种子生成失败", { status: 500, code: "comfyui_seed_generation_failed" });
+	}
+	return seed;
+}
+
 function discoverNodeIds(workflow: ComfyWorkflow, kind: "prompt" | "image" | "output"): string[] {
 	return Object.entries(workflow).filter(([, node]) => {
 		const classType = readString(node.class_type).toLowerCase();
-		if (kind === "prompt") return isRecord(node.inputs) && Object.prototype.hasOwnProperty.call(node.inputs, "text") && classType.includes("text");
+		if (kind === "prompt") return isRecord(node.inputs) && (Object.prototype.hasOwnProperty.call(node.inputs, "text") || (classType === "minimaxh3easy" && Object.prototype.hasOwnProperty.call(node.inputs, "prompt")));
 		if (kind === "image") return classType === "loadimage";
 		return classType === "saveimage" || classType === "saveimageadvanced" || classType === "previewimage";
 	}).map(([id]) => id);
 }
 
-function applyWorkflowInputs(variant: WorkflowVariant, request: TaskRequestDto, uploadedNames: readonly string[]): ComfyWorkflow {
+export function applyComfyUiWorkflowInputs(
+	variant: WorkflowVariant,
+	request: TaskRequestDto,
+	uploadedNames: readonly string[],
+	seed: number,
+	mediaInputs: readonly UploadedComfyMedia[] = [],
+): ComfyWorkflow {
 	const workflow = cloneWorkflow(variant.workflow);
+	for (const node of Object.values(workflow)) {
+		if (!node.inputs) continue;
+		for (const key of Object.keys(node.inputs)) {
+			if (key === "seed" || key === "noise_seed") node.inputs[key] = seed;
+		}
+	}
 	const promptIds = variant.promptNodeIds ?? discoverNodeIds(workflow, "prompt");
 	if (promptIds.length === 0) throw new AppError(`ComfyUI 工作流 ${variant.id} 未找到提示词节点`, { status: 500, code: "comfyui_prompt_node_missing" });
 	for (const id of promptIds) {
 		const inputs = workflow[id]?.inputs;
 		if (!inputs) throw new AppError(`ComfyUI 提示词节点 ${id} 不存在`, { status: 500, code: "comfyui_prompt_node_invalid" });
-		inputs.text = request.prompt;
+		if (Object.prototype.hasOwnProperty.call(inputs, "text")) inputs.text = request.prompt;
+		if (Object.prototype.hasOwnProperty.call(inputs, "prompt")) inputs.prompt = request.prompt;
+		const extras = isRecord(request.extras) ? request.extras : {};
+		const h3Fields: Array<[string, string]> = [
+			["resolution", "resolution"], ["aspectRatio", "aspect_ratio"], ["width", "width"], ["height", "height"],
+			["durationSeconds", "seconds"], ["fps", "fps"], ["keyframeRole", "keyframe_role"],
+		];
+		for (const [extraKey, inputKey] of h3Fields) {
+			if (typeof extras[extraKey] === "string" || typeof extras[extraKey] === "number") inputs[inputKey] = extras[extraKey];
+		}
 	}
 	const imageIds = variant.imageNodeIds ?? discoverNodeIds(workflow, "image");
 	if (imageIds.length !== uploadedNames.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 的参考图节点数与输入不一致`, { status: 400, code: "comfyui_reference_node_mismatch", details: { expected: imageIds.length, received: uploadedNames.length } });
@@ -123,21 +171,48 @@ function applyWorkflowInputs(variant: WorkflowVariant, request: TaskRequestDto, 
 		if (!inputs) throw new AppError(`ComfyUI 图片节点 ${imageIds[index]} 无 inputs`, { status: 500, code: "comfyui_image_node_invalid" });
 		inputs.image = uploadedNames[index]!;
 	}
+	const mediaLoaderIds = variant.mediaLoaderNodeIds ?? Object.entries(workflow).filter(([, node]) => readString(node.class_type) === "MiniMaxH3EasyMediaLoader").map(([id]) => id);
+	if (mediaLoaderIds.length > 0) {
+		if (mediaInputs.length === 0) throw new AppError(`ComfyUI 工作流 ${variant.id} 缺少媒体输入`, { status: 400, code: "comfyui_media_input_missing" });
+		if (mediaLoaderIds.length !== 1) throw new AppError(`ComfyUI 工作流 ${variant.id} 的媒体加载节点必须唯一`, { status: 500, code: "comfyui_media_loader_not_unique" });
+		const state = {
+			images: mediaInputs.filter((item) => item.type === "image").map((item) => ({ filename: item.filename })),
+			audios: mediaInputs.filter((item) => item.type === "audio").map((item) => ({ filename: item.filename })),
+			videos: mediaInputs.filter((item) => item.type === "video").map((item) => ({ filename: item.filename })),
+		};
+		const loaderInputs = workflow[mediaLoaderIds[0]!]!.inputs;
+		if (!loaderInputs) throw new AppError(`ComfyUI 媒体加载节点 ${mediaLoaderIds[0]} 无 inputs`, { status: 500, code: "comfyui_media_loader_invalid" });
+		loaderInputs.media_state = JSON.stringify(state);
+		for (const node of Object.values(workflow)) {
+			if (!node.inputs) continue;
+			if (Object.prototype.hasOwnProperty.call(node.inputs, "prompt_optimizer_resources")) {
+				node.inputs.prompt_optimizer_resources = JSON.stringify(state.images.map((item, index) => ({ type: "image", tag: `<Picture ${index + 1}>`, name: item.filename, asset: { filename: item.filename, subfolder: "", storage: "input" } })));
+			}
+		}
+	}
 	return workflow;
 }
 
-async function uploadReferenceImage(baseUrl: string, token: string, url: string, index: number): Promise<string> {
+async function uploadComfyMedia(baseUrl: string, token: string, media: ComfyMediaInput, index: number): Promise<UploadedComfyMedia> {
+	const url = media.url.trim();
 	const source = await fetch(url);
-	if (!source.ok) throw new AppError(`ComfyUI 参考图下载失败：${source.status}`, { status: 502, code: "comfyui_reference_fetch_failed" });
+	if (!source.ok) throw new AppError(`ComfyUI 媒体下载失败：${source.status}`, { status: 502, code: "comfyui_media_fetch_failed", details: { type: media.type, url } });
 	const blob = await source.blob();
 	const form = new FormData();
-	form.append("image", blob, `tapcanvas-reference-${index + 1}.png`);
+	const contentType = source.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() || blob.type.toLowerCase();
+	const ext = media.type === "image" ? (contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png") : media.type === "audio" ? (contentType.includes("wav") ? "wav" : contentType.includes("ogg") ? "ogg" : "mp3") : (contentType.includes("webm") ? "webm" : "mp4");
+	const filename = `tapcanvas-${media.type}-${index + 1}.${ext}`;
+	form.append("image", blob, filename);
 	form.append("overwrite", "true");
 	const response = await fetch(comfyUrl(baseUrl, "upload/image"), { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : undefined, body: form });
-	if (!response.ok) throw new AppError(`ComfyUI 参考图上传失败：${response.status}`, { status: 502, code: "comfyui_upload_failed" });
+	if (!response.ok) throw new AppError(`ComfyUI 媒体上传失败：${response.status}`, { status: 502, code: "comfyui_upload_failed", details: { type: media.type, url } });
 	const payload: unknown = await response.json();
 	if (!isRecord(payload) || !readString(payload.name)) throw new AppError("ComfyUI 上传响应缺少 name", { status: 502, code: "comfyui_upload_response_invalid" });
-	return readString(payload.name);
+	return { ...media, filename: readString(payload.name) };
+}
+
+async function uploadReferenceImage(baseUrl: string, token: string, url: string, index: number): Promise<string> {
+	return (await uploadComfyMedia(baseUrl, token, { type: "image", url, role: "reference" }, index)).filename;
 }
 
 async function runComfyRequest(baseUrl: string, token: string, workflow: ComfyWorkflow): Promise<{ promptId: string; response: unknown }> {
@@ -167,7 +242,7 @@ function extractOutputFiles(history: JsonRecord, variant: WorkflowVariant, workf
 	for (const [nodeId, raw] of Object.entries(outputs)) {
 		if (allowedIds.size && !allowedIds.has(nodeId)) continue;
 		if (!isRecord(raw)) continue;
-		for (const key of ["images", "gifs"] as const) {
+		for (const key of ["images", "gifs", "videos", "audio", "audios"] as const) {
 			const items = raw[key];
 			if (!Array.isArray(items)) continue;
 			for (const item of items) {
@@ -188,20 +263,35 @@ export async function runComfyUiTask(c: AppContext, req: TaskRequestDto): Promis
 	const modelKey = readString(extras.modelKey);
 	if (!modelKey) throw new AppError("ComfyUI 任务缺少 extras.modelKey", { status: 400, code: "comfyui_model_missing" });
 	const references = Array.isArray(extras.referenceImages) ? extras.referenceImages.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim()) : [];
-	const taskKind: WorkflowVariant["taskKind"] = references.length ? "image_edit" : "text_to_image";
+	const mediaInputs: ComfyMediaInput[] = [];
+	if (typeof extras.mediaInputs !== "undefined") {
+		if (!Array.isArray(extras.mediaInputs)) throw new AppError("ComfyUI extras.mediaInputs 必须是数组", { status: 400, code: "comfyui_media_input_invalid" });
+		for (const [index, value] of extras.mediaInputs.entries()) {
+			if (!isRecord(value) || (value.type !== "image" && value.type !== "audio" && value.type !== "video") || typeof value.url !== "string" || !value.url.trim()) {
+				throw new AppError(`ComfyUI 媒体输入 ${index + 1} 无效`, { status: 400, code: "comfyui_media_input_invalid", details: { index } });
+			}
+			const role = value.role === "reference" || value.role === "first_frame" || value.role === "last_frame" || value.role === "audio" || value.role === "video" ? value.role : undefined;
+			mediaInputs.push({ type: value.type, url: value.url.trim(), ...(role ? { role } : {}) });
+		}
+	}
+	const taskKind: WorkflowVariant["taskKind"] = req.kind === "text_to_video" || req.kind === "image_to_video" ? req.kind : mediaInputs.length > 0 ? "text_to_video" : references.length ? "image_edit" : "text_to_image";
 	const capability = readString(extras.workflowCapability) || readString(extras.libTvImagePresetKey) || undefined;
-	const variant = await resolveVariant(c, modelKey, taskKind, references.length, capability);
+	const variant = await resolveVariant(c, modelKey, taskKind, references.length, mediaInputs.length, capability);
+	const seed = resolveComfyUiSeed(req);
 	const uploadedNames: string[] = [];
 	for (let index = 0; index < references.length; index += 1) uploadedNames.push(await uploadReferenceImage(baseUrl, token, references[index]!, index));
-	const workflow = applyWorkflowInputs(variant, req, uploadedNames);
+	const uploadedMedia: UploadedComfyMedia[] = [];
+	for (let index = 0; index < mediaInputs.length; index += 1) uploadedMedia.push(await uploadComfyMedia(baseUrl, token, mediaInputs[index]!, index));
+	const workflow = applyComfyUiWorkflowInputs(variant, req, uploadedNames, seed, uploadedMedia);
 	const submitted = await runComfyRequest(baseUrl, token, workflow);
 	const history = await waitForComfyHistory(baseUrl, token, submitted.promptId, Number(readEnv(c, "COMFYUI_POLL_TIMEOUT_MS")) || 600000);
 	const files = extractOutputFiles(history, variant, workflow);
-	if (!files.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 未产出图片`, { status: 502, code: "comfyui_output_missing", details: { promptId: submitted.promptId } });
+	if (!files.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 未产出媒体`, { status: 502, code: "comfyui_output_missing", details: { promptId: submitted.promptId } });
 	const assets = [];
 	for (const file of files) {
 		const url = comfyUrl(baseUrl, `view?filename=${encodeURIComponent(file.filename)}&subfolder=${encodeURIComponent(file.subfolder)}&type=${encodeURIComponent(file.type)}`);
-		assets.push(TaskAssetSchema.parse({ type: "image", url }));
+		const type = variant.outputMediaType || (req.kind === "text_to_video" || req.kind === "image_to_video" ? "video" : "image");
+		assets.push(TaskAssetSchema.parse({ type, url }));
 	}
-	return TaskResultSchema.parse({ id: submitted.promptId, kind: req.kind, status: "succeeded", assets, raw: { provider: "comfyui", modelKey, workflowVariant: variant.id, promptId: submitted.promptId, response: submitted.response, history } });
+	return TaskResultSchema.parse({ id: submitted.promptId, kind: req.kind, status: "succeeded", assets, raw: { provider: "comfyui", modelKey, workflowVariant: variant.id, seed, promptId: submitted.promptId, mediaInputs: uploadedMedia.map(({ filename: _filename, ...media }) => media), response: submitted.response, history } });
 }

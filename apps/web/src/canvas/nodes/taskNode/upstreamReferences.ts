@@ -26,6 +26,13 @@ export type OrderedUpstreamReferenceItem = {
   videoUrl?: string
 }
 
+export type OrderedUpstreamMediaInput = {
+  sourceNodeId: string
+  sourceKind: 'image' | 'video' | 'audio'
+  url: string
+  role: 'reference' | 'video' | 'audio'
+}
+
 export type NodePrimaryAssetReference = {
   url: string
   assetId: string | null
@@ -160,6 +167,47 @@ export function pickVideoUrlFromNode(node: Node | null | undefined): string {
   const primaryIndex = resolvePrimaryIndex(results.length, data.videoPrimaryIndex)
   const fromResults = getTrimmedString(results[primaryIndex]?.url) || getTrimmedString(results[0]?.url)
   return fromResults || getTrimmedString(data.videoUrl) || ''
+}
+
+function pickAudioUrlFromNode(node: Node | null | undefined): string {
+  const data = getNodeDataRecord(node)
+  const results = getRecordArray(data.audioResults)
+  const primaryIndex = resolvePrimaryIndex(results.length, data.audioPrimaryIndex)
+  return getTrimmedString(results[primaryIndex]?.url) || getTrimmedString(results[0]?.url) || getTrimmedString(data.audioUrl)
+}
+
+export function collectOrderedUpstreamMediaInputs(
+  nodes: Node[],
+  edges: Edge[],
+  targetId: string,
+): OrderedUpstreamMediaInput[] {
+  const inbound = edges.filter((edge) => edge.target === targetId)
+  const order = getReferenceOrderForTargetNode(nodes, targetId)
+  const rankById = new Map(order.map((id, index) => [id, index] as const))
+  const seen = new Set<string>()
+  const items: Array<OrderedUpstreamMediaInput & { edgeIndex: number }> = []
+  inbound.forEach((edge, edgeIndex) => {
+    if (seen.has(edge.source)) return
+    const sourceNode = nodes.find((node) => node.id === edge.source)
+    if (!sourceNode) return
+    const data = getNodeDataRecord(sourceNode)
+    const kind = getTrimmedString(data.kind)
+    const normalizedKind = kind.toLowerCase()
+    const sourceKind = normalizedKind === 'audio' ? 'audio' : isVideoReferenceNodeKind(kind) ? 'video' : IMAGE_REFERENCE_NODE_KINDS.has(kind) ? 'image' : null
+    if (!sourceKind) return
+    const url = sourceKind === 'audio' ? pickAudioUrlFromNode(sourceNode) : sourceKind === 'video' ? pickVideoUrlFromNode(sourceNode) : pickPrimaryImageFromNode(sourceNode)
+    if (!isRemoteUrl(url)) return
+    seen.add(edge.source)
+    items.push({ sourceNodeId: sourceNode.id, sourceKind, url, role: sourceKind === 'image' ? 'reference' : sourceKind, edgeIndex })
+  })
+  return items.sort((left, right) => {
+    const leftRank = rankById.get(left.sourceNodeId)
+    const rightRank = rankById.get(right.sourceNodeId)
+    if (leftRank !== undefined && rightRank !== undefined) return leftRank - rightRank
+    if (leftRank !== undefined) return -1
+    if (rightRank !== undefined) return 1
+    return left.edgeIndex - right.edgeIndex
+  }).map(({ edgeIndex: _edgeIndex, ...item }) => item)
 }
 
 export function collectPoseReferenceUrlsFromNode(node: Node | null | undefined): string[] {

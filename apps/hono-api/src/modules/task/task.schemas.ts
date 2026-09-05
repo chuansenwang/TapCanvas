@@ -60,7 +60,7 @@ export const TaskRequestSchema = z.object({
 	height: z.number().optional(),
 	steps: z.number().optional(),
 	cfgScale: z.number().optional(),
-	extras: z.record(z.any()).optional(),
+	extras: z.record(z.unknown()).optional(),
 });
 
 export type TaskRequestDto = z.infer<typeof TaskRequestSchema>;

@@ -20,6 +20,8 @@ function variant(id, fileName, taskKind, referenceImageCount, options = {}) {
     ...(options.promptNodeIds ? { promptNodeIds: options.promptNodeIds } : {}),
     ...(options.imageNodeIds ? { imageNodeIds: options.imageNodeIds } : {}),
     ...(options.outputNodeIds ? { outputNodeIds: options.outputNodeIds } : {}),
+    ...(options.mediaLoaderNodeIds ? { mediaLoaderNodeIds: options.mediaLoaderNodeIds } : {}),
+    ...(options.outputMediaType ? { outputMediaType: options.outputMediaType } : {}),
   };
 }
 
@@ -77,13 +79,38 @@ const models = [
     labelZh: "Z Image（本地 ComfyUI）",
     variants: [variant("text", "z_image文生图.json", "text_to_image", 0, { promptNodeIds: ["96"], outputNodeIds: ["95"] })],
   },
+  {
+    modelKey: "minimax-h3",
+    modelAlias: "minimax-h3",
+    labelZh: "MiniMax H3（本地 ComfyUI，多媒体生视频）",
+    kind: "video",
+    variants: [variant("reference", "MiniMax_H3_Easy.json", "text_to_video", 0, {
+      promptNodeIds: ["3"], mediaLoaderNodeIds: ["42"], outputNodeIds: ["21", "23"], outputMediaType: "video",
+    })],
+    videoOptions: {
+      defaultDurationSeconds: 4,
+      defaultResolution: "360P",
+      durationOptions: [4],
+      resolutionOptions: ["360P"],
+      sizeOptions: ["2:3", "16:9", "9:16"],
+      supportsMultimodalReferences: true,
+      supportsReferenceImages: true,
+      supportsReferenceVideos: true,
+      supportsReferenceAudios: true,
+      maxReferenceMedia: 8,
+      maxReferenceImages: 8,
+      maxReferenceVideos: 4,
+      maxReferenceAudios: 4,
+      supportsNativeAudio: true,
+    },
+  },
 ].map((model) => ({
   modelKey: model.modelKey,
   modelAlias: model.modelAlias,
   labelZh: model.labelZh,
-  kind: "image",
+  kind: model.kind || "image",
   enabled: true,
-  meta: { imageOptions, comfyui: { workflowVariants: model.variants } },
+  meta: { ...(model.kind === "video" ? { videoOptions: model.videoOptions } : { imageOptions }), comfyui: { workflowVariants: model.variants } },
   pricing: { cost: 0, enabled: true, specCosts: [] },
 }));
 

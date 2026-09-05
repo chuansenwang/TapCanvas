@@ -128,6 +128,7 @@ import {
 } from '../canvas/nodes/taskNode/storyboardEditor'
 import {
   collectOrderedUpstreamMediaSources,
+  collectOrderedUpstreamMediaInputs,
   collectOrderedUpstreamReferenceItems,
   collectPoseReferenceUrlsFromNode,
   extractNodePrimaryAssetReference,
@@ -2923,6 +2924,7 @@ type GenericVideoTaskOptions = {
   upstreamVideoUrl?: string
   referenceVideoDurationSeconds?: number | null
   autoReferenceImageUrls?: string[]
+  mediaInputs?: Array<{ type: 'image' | 'audio' | 'video'; url: string; role?: 'reference' | 'video' | 'audio' }>
 }
 
 type PreparedVideoTaskInput = {
@@ -2948,6 +2950,7 @@ type PreparedVideoTaskInput = {
   upstreamVideoUrl: string
   referenceVideoDurationSeconds: number | null
   autoReferenceImageUrls: string[]
+  mediaInputs: Array<{ type: 'image' | 'audio' | 'video'; url: string; role?: 'reference' | 'video' | 'audio' }>
 }
 
 function resolveVideoVendor(input: { data: any; videoModelValue?: string }): string {
@@ -3139,6 +3142,8 @@ async function prepareVideoTaskInput(ctx: RunnerContext): Promise<PreparedVideoT
   const nodes = Array.isArray((state as { nodes?: unknown }).nodes)
     ? ((state as { nodes?: unknown }).nodes as Node[])
     : []
+  const orderedMediaInputs = collectOrderedUpstreamMediaInputs(nodes, Array.isArray((state as { edges?: unknown }).edges) ? ((state as { edges: unknown[] }).edges as Edge[]) : [], id)
+  const mediaInputs = orderedMediaInputs.map((item) => ({ type: item.sourceKind, url: item.url, role: item.role }))
   const mentionAssetRefs = await resolveAssetImagesByMentions({
     prompt: finalPrompt,
     nodes,
@@ -3305,6 +3310,7 @@ async function prepareVideoTaskInput(ctx: RunnerContext): Promise<PreparedVideoT
     upstreamVideoUrl,
     referenceVideoDurationSeconds,
     autoReferenceImageUrls: mergedReferenceImages,
+    mediaInputs,
   }
 }
 
@@ -3675,6 +3681,7 @@ async function runVideoTask(ctx: RunnerContext) {
       upstreamVideoUrl: prepared.upstreamVideoUrl,
       referenceVideoDurationSeconds: prepared.referenceVideoDurationSeconds,
       autoReferenceImageUrls: prepared.autoReferenceImageUrls,
+      mediaInputs: prepared.mediaInputs,
     })
   } catch (error: unknown) {
     const msg = error instanceof Error && error.message ? error.message : '视频任务执行失败'
@@ -3790,6 +3797,9 @@ async function runGenericVideoTask(ctx: RunnerContext, options: GenericVideoTask
     extras.durationSeconds = options.durationSeconds
     extras.orientation = options.orientation
     extras.audio = (data as Record<string, unknown>).videoGenerateAudio !== false
+    if (normalizedVendor === 'comfyui' && options.mediaInputs?.length) {
+      extras.mediaInputs = options.mediaInputs
+    }
     // sourcePrevTaskId 由 dag.ts injectVideoUpstreamRefsIfNeeded 从上游 video 节点 data.taskId 解析并写入。
     // 透传为 extras.prevTaskId，供 task.service.ts 注入 metadata.prevTaskId，
     // 最终由 new-api pixverse adaptor 用作 extend_from_task_id（apimart 续写）。

@@ -3297,9 +3297,11 @@ export async function runPublicTask(
 	if (
 		requestedVendor === "comfyui" &&
 		request.kind !== "text_to_image" &&
-		request.kind !== "image_edit"
+		request.kind !== "image_edit" &&
+		request.kind !== "text_to_video" &&
+		request.kind !== "image_to_video"
 	) {
-		throw new AppError("本地 ComfyUI 执行器当前仅支持 text_to_image 和 image_edit", {
+		throw new AppError("本地 ComfyUI 执行器当前仅支持图片和 H3 视频任务", {
 			status: 400,
 			code: "unsupported_comfyui_task_kind",
 			details: { vendor: requestedVendor, taskKind: request.kind },
@@ -3570,7 +3572,7 @@ const PublicRunTaskOpenApiRoute = createRoute({
 	tags: [PUBLIC_TAG],
 	summary: "统一任务入口 /public/tasks",
 	description:
-		"统一任务入口：当你希望完全复用内部 TaskRequest 结构时使用（支持 image/video/chat 等）。默认请求 new-api；图片任务可传 vendor=comfyui 直连本地 ComfyUI。",
+		"统一任务入口：当你希望完全复用内部 TaskRequest 结构时使用（支持 image/video/chat 等）。默认请求 new-api；图片任务和 MiniMax H3 视频任务可传 vendor=comfyui 直连本地 ComfyUI。",
 	request: {
 		body: {
 			required: true,

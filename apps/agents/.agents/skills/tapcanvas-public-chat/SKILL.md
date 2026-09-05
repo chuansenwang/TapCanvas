@@ -1,14 +1,14 @@
 ---
 name: tapcanvas-public-chat
-description: 定义 TapCanvas 原生 Agent chat 运行时协作原则：web 收集上下文，hono-api 注入硬约束，原生 Agent 自主决策，skills 提供方法论。此 skill 只负责协作原则，不负责直接调用 TapCanvas `/public/*` API；凡是实际发请求，统一改用 `tapcanvas-api`。
+description: 定义 TapCanvas 原生 Agent chat 运行时协作原则：web 收集上下文，hono-api 注入硬约束，原生 Agent 自主决策，skills 提供方法论。此 skill 不负责调用 legacy 公共 API；当前画布操作使用 owner-scoped 原生工具。
 ---
 
 # TapCanvas Public Chat
 
 注意：
 - 本 skill 不是 API 调用器。
-- 凡是要实际请求 TapCanvas `/public/*` 接口，统一使用 `tapcanvas-api`。
-- 不要在这里重新定义 `apiKey`、`apiBaseUrl`、endpoint 映射或请求脚本。
+- 当前画布读取、修改和媒体生成使用 owner-scoped 原生画布工具，不读取公共 API 配置。
+- legacy `/public/*` 接口不属于当前原生 Agent 运行路径。
 
 ## 何时使用
 
