@@ -1117,8 +1117,8 @@ export type PublicVisionResponseDto = z.infer<typeof PublicVisionResponseSchema>
 export const PublicRunTaskRequestSchema = z.object({
 	vendor: z.string().optional().openapi({
 		description:
-			"兼容旧字段；服务端会忽略外部传入值并固定请求 new-api。调用方不应再传该字段。",
-		example: "newapi",
+			"执行器供应商。图片任务可传 comfyui 直连本地 ComfyUI；省略或传 auto 时使用 new-api 系统路由。",
+		example: "comfyui",
 	}),
 	vendorCandidates: z.array(z.string()).optional().openapi({
 		description: "兼容旧字段；服务端会忽略，不再做多渠道候选重试。",
@@ -1163,8 +1163,8 @@ export type PublicFetchTaskResultResponseDto = z.infer<
 export const PublicDrawRequestSchema = z.object({
 	vendor: z.string().optional().openapi({
 		description:
-			"兼容旧字段；服务端会忽略外部传入值并固定请求 new-api。调用方不应再传该字段。",
-		example: "newapi",
+			"执行器供应商。图片任务可传 comfyui 直连本地 ComfyUI；省略或传 auto 时使用 new-api 系统路由。",
+		example: "comfyui",
 	}),
 	vendorCandidates: z.array(z.string()).optional().openapi({
 		description: "兼容旧字段；服务端会忽略，不再做多渠道候选重试。",

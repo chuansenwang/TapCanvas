@@ -194,7 +194,7 @@ type DemoTask = {
 \`\`\`
 
 说明：
-- \`/public/draw\` 固定请求 new-api；外部传入 \`vendor\` / \`vendorCandidates\` 会被忽略，不再做多渠道尝试或自动降级。
+- \`/public/draw\` 默认请求 new-api；图片任务传入 \`vendor=comfyui\` 时直连本地 ComfyUI；不再做多渠道尝试或自动降级。
 - \`extras.modelAlias\` 用于选择模型；进入 new-api 前会转换为 \`extras.modelKey\`（若已显式传 \`modelKey\` 则保持显式值）。
 - 兼容：仍支持直接传 \`extras.modelKey\`。
 
@@ -280,7 +280,7 @@ type DemoTask = {
 \`\`\`
 
 说明：
-- \`/public/video\` 固定请求 new-api；外部传入 \`vendor\` / \`vendorCandidates\` 会被忽略，不再做多渠道尝试或自动降级。
+- \`/public/video\` 固定请求 new-api；不再做多渠道尝试或自动降级。
 - 视频任务如果需要“参考图/首帧图”，推荐传 \`extras.firstFrameUrl\`；也兼容简写 \`extras.url\`（单图）或 \`extras.urls\` / \`extras.referenceImages\`（多图）。
 
 请求体（完整字段，按需填写）：

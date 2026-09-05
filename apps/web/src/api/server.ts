@@ -9825,6 +9825,7 @@ function toPublicDrawPayload(payload: PublicRunTaskRequestDto): PublicDrawReques
   const request = payload.request
   if (!request || !isPublicDrawKind(request.kind)) return null
   return {
+    vendor: payload.vendor,
     vendorCandidates: payload.vendorCandidates,
     async: true,
     kind: request.kind,
@@ -9841,6 +9842,7 @@ function toPublicDrawPayload(payload: PublicRunTaskRequestDto): PublicDrawReques
 
 function sanitizePublicTaskPayload(payload: PublicRunTaskRequestDto): PublicRunTaskRequestDto {
   return {
+    vendor: payload.vendor,
     vendorCandidates: payload.vendorCandidates,
     request: payload.request,
   }

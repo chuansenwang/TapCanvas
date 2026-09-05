@@ -101,13 +101,23 @@ describe("async image durable task results", () => {
 
 	it("preserves hosted assets and upstream identity at success", () => {
 		const result = buildAsyncImageSucceededResult(
-			queueJob(),
+			queueJob({
+				request: {
+					kind: "text_to_image",
+					prompt: "真实小城黄昏",
+					extras: { modelKey: "klein-9b", providerVendor: "comfyui" },
+				},
+			}),
 			{
 				id: "task-1",
 				kind: "text_to_image",
 				status: "succeeded",
 				assets: [{ type: "image", url: "https://assets.example/image.png" }],
-				raw: { upstreamTaskId: "provider-task-1" },
+				raw: {
+					workflowVariant: "text",
+					promptId: "provider-task-1",
+					upstreamTaskId: "provider-task-1",
+				},
 			},
 			"2026-08-14T00:01:00.000Z",
 		);
@@ -116,7 +126,13 @@ describe("async image durable task results", () => {
 			id: "task-1",
 			status: "succeeded",
 			assets: [{ url: "https://assets.example/image.png" }],
-			raw: { upstreamTaskId: "provider-task-1" },
+			raw: {
+				provider: "task_store",
+				vendor: "comfyui",
+				workflowVariant: "text",
+				promptId: "provider-task-1",
+				upstreamTaskId: "provider-task-1",
+			},
 		});
 	});
 

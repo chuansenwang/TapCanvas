@@ -32,6 +32,16 @@ describe("ComfyUI 工作流目录", () => {
 		expect(selectComfyUiWorkflowVariant(config, { modelKey: "klein9b", taskKind: "image_edit", referenceImageCount: 1, capability: "character-3view" }).id).toBe("character-3view");
 	});
 
+	it("允许用明确的变体 id 选择普通单图编辑", () => {
+		const config = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [
+			{ id: "edit-1", taskKind: "image_edit", referenceImageCount: 1, workflow },
+			{ id: "character-3view", capability: "character-3view", taskKind: "image_edit", referenceImageCount: 1, workflow },
+		] } }, "klein9b");
+		expect(selectComfyUiWorkflowVariant(config, {
+			modelKey: "klein9b", taskKind: "image_edit", referenceImageCount: 1, capability: "edit-1",
+		}).id).toBe("edit-1");
+	});
+
 	it("缺少工作流目录时显式失败", () => {
 		expect(() => parseComfyUiWorkflowConfig({}, "klein9b")).toThrow("未配置 workflowVariants");
 	});

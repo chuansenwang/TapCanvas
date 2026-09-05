@@ -68,6 +68,12 @@ function buildGenerationContextRaw(job: AsyncImageQueueJob): Record<string, unkn
 	return generationContext ? { generationContext } : {};
 }
 
+function readProviderVendor(job: AsyncImageQueueJob): string {
+	const extras = readRecord(job.request.extras);
+	const providerVendor = readRequiredString(extras?.providerVendor);
+	return providerVendor ?? ASYNC_IMAGE_VENDOR;
+}
+
 export function parseAsyncImageDispatchContractV1(
 	value: unknown,
 ): AsyncImageDispatchContractV1 | null {
@@ -147,9 +153,10 @@ export function buildAsyncImageQueuedResult(job: AsyncImageQueueJob): TaskResult
 		kind: job.request.kind,
 		status: "queued",
 		assets: [],
-		raw: {
-			provider: "task_store",
-			queueName: QUEUE_NAMES.asyncImage,
+			raw: {
+				provider: "task_store",
+				vendor: readProviderVendor(job),
+				queueName: QUEUE_NAMES.asyncImage,
 			enqueuedAt: job.enqueuedAt,
 			...buildGenerationContextRaw(job),
 		},
@@ -165,9 +172,10 @@ export function buildAsyncImageRunningResult(
 		kind: job.request.kind,
 		status: "running",
 		assets: [],
-		raw: {
-			provider: "task_store",
-			queueName: QUEUE_NAMES.asyncImage,
+			raw: {
+				provider: "task_store",
+				vendor: readProviderVendor(job),
+				queueName: QUEUE_NAMES.asyncImage,
 			enqueuedAt: job.enqueuedAt,
 			startedAt,
 			...buildGenerationContextRaw(job),
@@ -190,11 +198,12 @@ export function buildAsyncImageSucceededResult(
 		kind: job.request.kind,
 		status: "succeeded",
 		assets: providerResult.assets,
-		raw: {
-			provider: "task_store",
-			vendor: ASYNC_IMAGE_VENDOR,
-			queueName: QUEUE_NAMES.asyncImage,
-			upstreamTaskId: readUpstreamTaskId(providerResult),
+			raw: {
+				provider: "task_store",
+				vendor: readProviderVendor(job),
+				queueName: QUEUE_NAMES.asyncImage,
+				...(readRecord(providerResult.raw) ?? {}),
+				upstreamTaskId: readUpstreamTaskId(providerResult),
 			storedAt: completedAt,
 			...buildGenerationContextRaw(job),
 		},
@@ -212,9 +221,9 @@ export function buildAsyncImageFailedResult(
 		kind: job.request.kind,
 		status: "failed",
 		assets: [],
-		raw: {
-			provider: "task_store",
-			vendor: ASYNC_IMAGE_VENDOR,
+			raw: {
+				provider: "task_store",
+				vendor: readProviderVendor(job),
 			queueName: QUEUE_NAMES.asyncImage,
 			failureReason: errorMessage(error),
 			code: typeof record?.code === "string" ? record.code : null,
@@ -234,10 +243,10 @@ export async function registerAsyncImageTask(
 	const result = buildAsyncImageQueuedResult(job);
 	const contract = buildAsyncImageDispatchContract(job);
 	await createTaskResultWithDurableDispatch(env.DB, {
-		result: {
-			userId: job.userId,
-			taskId: job.taskId,
-			vendor: ASYNC_IMAGE_VENDOR,
+			result: {
+				userId: job.userId,
+				taskId: job.taskId,
+				vendor: readProviderVendor(job),
 			kind: job.request.kind,
 			status: "queued",
 			result,
@@ -273,10 +282,10 @@ async function failAsyncImageTaskByIdentity(input: {
 		kind: row.kind,
 		status: "failed",
 		assets: [],
-		raw: {
-			...(readRecord(raw) ?? {}),
-			provider: "task_store",
-			vendor: ASYNC_IMAGE_VENDOR,
+			raw: {
+				...(readRecord(raw) ?? {}),
+				provider: "task_store",
+				vendor: readRequiredString(readRecord(raw)?.vendor) ?? ASYNC_IMAGE_VENDOR,
 			queueName: QUEUE_NAMES.asyncImage,
 			failureReason: errorMessage(input.error),
 			failedAt: completedAt,
@@ -507,7 +516,7 @@ export async function processAsyncImageTask(
 		await upsertTaskResult(env.DB, {
 			userId: job.userId,
 			taskId: job.taskId,
-			vendor: ASYNC_IMAGE_VENDOR,
+			vendor: readProviderVendor(job),
 			kind: job.request.kind,
 			status: "succeeded",
 			result: succeededResult,

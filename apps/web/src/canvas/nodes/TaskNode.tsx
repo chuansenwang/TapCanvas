@@ -2325,7 +2325,7 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     }
     if (coreKind === 'image' || kind === 'imageEdit') {
       setImageModel(firstValue)
-      updateNodeData(id, { imageModel: firstValue, imageModelVendor: null })
+      updateNodeData(id, { imageModel: firstValue, imageModelVendor: firstOption.vendor || null })
       return
     }
     setModelKey(firstValue)
@@ -2842,7 +2842,7 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     }
     if (coreKind === 'image' || kind === 'imageEdit') {
       setImageModel(nextModelValue)
-      updateNodeData(id, { imageModel: nextModelValue, imageModelVendor: null })
+      updateNodeData(id, { imageModel: nextModelValue, imageModelVendor: next.vendor || null })
       return
     }
     setModelKey(nextModelValue)
@@ -3190,7 +3190,7 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     }
     if (coreKind === 'image' || kind === 'imageEdit') {
       setImageModel(selectedValue)
-      updateNodeData(id, { imageModel: selectedValue, imageModelVendor: null })
+      updateNodeData(id, { imageModel: selectedValue, imageModelVendor: option.vendor || null })
       persistRecentGenerationPrefs({ imageModel: selectedValue })
       return
     }

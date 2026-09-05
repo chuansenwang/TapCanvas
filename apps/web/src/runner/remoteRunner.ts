@@ -305,15 +305,11 @@ function isStoryboardEditorKind(kind: string | null | undefined): boolean {
   return kind === 'storyboard'
 }
 
-function resolveImageTaskVendor(selectedModel: string, explicitVendor?: string | null): string {
+function resolveImageTaskVendor(_selectedModel: string, explicitVendor?: string | null): string {
   const normalizedExplicitVendor = String(explicitVendor || '').trim().toLowerCase()
-  if (normalizedExplicitVendor) return normalizedExplicitVendor
-  const modelLower = selectedModel.toLowerCase()
-  if (modelLower.includes('gemini')) return 'gemini'
-  if (modelLower.includes('gpt') || modelLower.includes('openai') || modelLower.includes('dall') || modelLower.includes('o3-')) {
-    return 'openai'
-  }
-  return 'qwen'
+  if (normalizedExplicitVendor === 'comfyui') return 'comfyui'
+  if (normalizedExplicitVendor) return 'auto'
+  return 'auto'
 }
 type RoleCardRef = {
   roleName: string
@@ -5573,8 +5569,11 @@ async function runGenericTask(ctx: RunnerContext) {
     const explicitVendor = isImageTask
       ? null
       : ((data as any)?.modelVendor as string | undefined)
+    const configuredImageVendor = typeof (data as Record<string, unknown>).imageModelVendor === 'string'
+      ? String((data as Record<string, unknown>).imageModelVendor).trim().toLowerCase()
+      : ''
     const vendor = isImageTask
-      ? 'auto'
+      ? (configuredImageVendor === 'comfyui' ? 'comfyui' : 'auto')
       : explicitVendor || (
           isAnthropicModel(selectedModel) ||
           modelLower.includes('claude') ||

@@ -56,6 +56,30 @@ export interface TapCanvasModelCatalogMessage {
 
 const TAPCANVAS_SCOPE_REQUEST = 'tapcanvas:scope-request'
 
+/**
+ * Resolve the origin of the page embedding the Agent surface.
+ *
+ * The native Agent is hosted on 3080 while the development TapCanvas shell is
+ * hosted on 5175. `window.location.origin` therefore identifies the Agent,
+ * not the parent that owns the canvas scope. A referrer is the browser-provided
+ * parent URL and remains available without reading any cross-origin DOM.
+ */
+export function resolveTapCanvasParentOrigin(
+  referrer: string,
+  ownOrigin: string,
+  embedded: boolean,
+): string | null {
+  if (!embedded) return ownOrigin
+  const trimmed = referrer.trim()
+  if (trimmed === '') return null
+  try {
+    const origin = new URL(trimmed).origin
+    return origin === 'null' ? null : origin
+  } catch {
+    return null
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -163,9 +187,17 @@ export function useTapCanvasScope(): TapCanvasScope | null {
   const [scope, setScope] = useState<TapCanvasScope | null>(null)
 
   useEffect(() => {
+    const parentOrigin = resolveTapCanvasParentOrigin(
+      document.referrer,
+      window.location.origin,
+      window.parent !== window,
+    )
     const onMessage = (event: MessageEvent<unknown>): void => {
       if (event.source !== window.parent) return
-      if (event.origin !== window.location.origin) return
+      // An embedded page without a trustworthy referrer cannot authenticate
+      // the parent origin; keep the scope unavailable instead of accepting an
+      // arbitrary cross-origin message.
+      if (parentOrigin === null || event.origin !== parentOrigin) return
       const message = parseTapCanvasScopeMessage(event.data)
       if (message !== null) setScope(message.scope)
     }
@@ -173,7 +205,10 @@ export function useTapCanvasScope(): TapCanvasScope | null {
     // The parent can finish mounting before this listener exists. Request the
     // authoritative scope after registration so the embedded Agent never
     // falls back to the Harness directory picker because of load ordering.
-    window.parent.postMessage({ type: TAPCANVAS_SCOPE_REQUEST }, window.location.origin)
+    // The request travels to the embedding page, so its target is the parent
+    // origin rather than the Agent iframe's own origin. A request has no scope
+    // data; '*' is only used when the browser omitted referrer metadata.
+    window.parent.postMessage({ type: TAPCANVAS_SCOPE_REQUEST }, parentOrigin ?? '*')
     return () => { window.removeEventListener('message', onMessage) }
   }, [])
 

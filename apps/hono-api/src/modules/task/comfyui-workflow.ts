@@ -80,7 +80,7 @@ export function selectComfyUiWorkflowVariant(
 	config: ComfyConfig,
 	input: { modelKey: string; taskKind: WorkflowVariant["taskKind"]; referenceImageCount: number; capability?: string },
 ): WorkflowVariant {
-	const matches = config.workflowVariants.filter((variant) => variant.taskKind === input.taskKind && variant.referenceImageCount === input.referenceImageCount && (!input.capability || variant.capability === input.capability));
+	const matches = config.workflowVariants.filter((variant) => variant.taskKind === input.taskKind && variant.referenceImageCount === input.referenceImageCount && (!input.capability || variant.capability === input.capability || variant.id === input.capability));
 	if (matches.length !== 1) throw new AppError(`ComfyUI 工作流无法唯一匹配：${input.modelKey}/${input.taskKind}/参考图${input.referenceImageCount}张`, { status: 400, code: "comfyui_workflow_route_not_unique", details: { modelKey: input.modelKey, taskKind: input.taskKind, referenceImageCount: input.referenceImageCount, matches: matches.map((variant) => variant.id) } });
 	return matches[0]!;
 }

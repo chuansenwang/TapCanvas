@@ -1261,13 +1261,15 @@ function formatPublicChatThinkingFromTraceEvent(ev: TraceEventLite): string | nu
 
 	if (ev.stage === "public:run:begin") return "已接收请求，开始执行";
 
-	if (ev.stage === "public:newapi:resolved") {
+	if (ev.stage === "public:task:resolved" || ev.stage === "public:newapi:resolved") {
 		const modelKey = typeof ev.meta?.modelKey === "string" ? ev.meta.modelKey.trim() : "";
-		return modelKey ? `已解析 new-api 模型：${modelKey}` : "已解析 new-api 请求";
+		const vendor = typeof ev.meta?.vendor === "string" ? ev.meta.vendor.trim() : "new-api";
+		return modelKey ? `已解析 ${vendor} 模型：${modelKey}` : `已解析 ${vendor} 请求`;
 	}
 
-	if (ev.stage === "public:newapi:task_failed") {
-		return "new-api 返回 failed";
+	if (ev.stage === "public:task:failed" || ev.stage === "public:newapi:task_failed") {
+		const vendor = typeof ev.meta?.vendor === "string" ? ev.meta.vendor.trim() : "上游";
+		return `${vendor} 返回 failed`;
 	}
 
 	if (ev.stage === "public:agent:todo_write") {
@@ -3287,14 +3289,26 @@ export async function runPublicTask(
 	const extras = (request?.extras || {}) as Record<string, any>;
 	const externalVendor =
 		typeof input?.vendor === "string" && input.vendor.trim() ? input.vendor.trim() : null;
-	const requestedVendor = externalVendor?.toLowerCase() || "newapi";
+	const requestedVendorRaw = externalVendor?.toLowerCase() || "newapi";
+	const requestedVendor = requestedVendorRaw === "auto" ? "newapi" : requestedVendorRaw;
 	if (requestedVendor !== "newapi" && requestedVendor !== "comfyui") {
 		throw new AppError("公共任务仅支持 newapi 或 comfyui 执行器", { status: 400, code: "unsupported_task_vendor", details: { vendor: requestedVendor } });
+	}
+	if (
+		requestedVendor === "comfyui" &&
+		request.kind !== "text_to_image" &&
+		request.kind !== "image_edit"
+	) {
+		throw new AppError("本地 ComfyUI 执行器当前仅支持 text_to_image 和 image_edit", {
+			status: 400,
+			code: "unsupported_comfyui_task_kind",
+			details: { vendor: requestedVendor, taskKind: request.kind },
+		});
 	}
 	setTraceStage(c, "public:run:begin", {
 		taskKind: request?.kind ?? null,
 		vendor: requestedVendor,
-		externalVendorIgnored: externalVendor,
+		externalVendorRequested: externalVendor,
 		modelAlias:
 			typeof extras?.modelAlias === "string" && extras.modelAlias.trim()
 				? extras.modelAlias.trim()
@@ -3320,7 +3334,7 @@ export async function runPublicTask(
 	// Hint proxy selector for new-api tasks; ComfyUI is dispatched directly by the task service.
 	if (request?.kind) c.set("routingTaskKind", request.kind);
 
-	const requestForNewApi = (() => {
+	const requestForExecution = (() => {
 		const cleanExtras = { ...(request?.extras || {}) } as Record<string, any>;
 		const modelAliasRaw =
 			typeof cleanExtras.modelAlias === "string" && cleanExtras.modelAlias.trim()
@@ -3333,31 +3347,31 @@ export async function runPublicTask(
 		return { ...request, extras: cleanExtras } as Record<string, any>;
 	})();
 
-	debugLog("newapi_task_resolved", {
+	debugLog("task_resolved", {
 		taskKind: request?.kind ?? null,
-		vendor: NEW_API_AUTO_VENDOR,
-		externalVendorIgnored: externalVendor,
+		vendor: requestedVendor,
+		externalVendorRequested: externalVendor,
 		modelKey:
-			typeof requestForNewApi.extras?.modelKey === "string" &&
-			requestForNewApi.extras.modelKey.trim()
-				? requestForNewApi.extras.modelKey.trim()
+			typeof requestForExecution.extras?.modelKey === "string" &&
+			requestForExecution.extras.modelKey.trim()
+				? requestForExecution.extras.modelKey.trim()
 				: null,
 	});
-	setTraceStage(c, "public:newapi:resolved", {
+	setTraceStage(c, "public:task:resolved", {
 		taskKind: request?.kind ?? null,
-		vendor: NEW_API_AUTO_VENDOR,
-		externalVendorIgnored: externalVendor,
+		vendor: requestedVendor,
+		externalVendorRequested: externalVendor,
 	});
 
-	// 图片任务异步路径：立刻返回 task_UUID，后台跑 new-api，避免前端等待长达数十秒
+	// 图片任务异步路径：立刻返回 task_UUID，后台按请求执行器运行，避免前端等待长达数十秒
 	const isAsyncImageKind =
-		requestForNewApi.kind === "text_to_image" ||
-		requestForNewApi.kind === "image_edit";
+		requestForExecution.kind === "text_to_image" ||
+		requestForExecution.kind === "image_edit";
 	if (isAsyncImageKind) {
 		// Deterministic validation and queue readiness both finish before a task is
 		// accepted. Provider execution is owned by the durable worker, never by a
 		// detached Promise in this request process.
-		const asyncRequest = TaskRequestSchema.parse(requestForNewApi);
+		const asyncRequest = TaskRequestSchema.parse(requestForExecution);
 		await resolveAuthorizedGenerationAssetContext(
 			c as AppContext,
 			userId,
@@ -3411,8 +3425,8 @@ export async function runPublicTask(
 	let result = await runGenericTaskForVendor(
 		c,
 		userId,
-		NEW_API_AUTO_VENDOR,
-		requestForNewApi as any,
+		requestedVendor,
+		requestForExecution as TaskRequestDto,
 	);
 
 	if (result?.status === "failed") {
@@ -3437,7 +3451,7 @@ export async function runPublicTask(
 				sanitizedFailedResult &&
 				typeof (sanitizedFailedResult as Record<string, unknown>)?.kind === "string"
 					? String((sanitizedFailedResult as Record<string, unknown>).kind).trim()
-					: String(requestForNewApi.kind || "").trim();
+					: String(requestForExecution.kind || "").trim();
 			if (taskId && kind && status === "failed") {
 				const nowIso = new Date().toISOString();
 				await upsertTaskResult(c.env.DB, {
@@ -3458,7 +3472,7 @@ export async function runPublicTask(
 			);
 		}
 
-		setTraceStage(c, "public:newapi:task_failed", {
+		setTraceStage(c, "public:task:failed", {
 			taskKind: request?.kind ?? null,
 			vendor: requestedVendor,
 			resultStatus: "failed",
@@ -3468,7 +3482,7 @@ export async function runPublicTask(
 
 	result = await maybeWrapSyncImageResultAsStoredTask(c as any, userId, {
 		vendor: requestedVendor,
-		requestKind: requestForNewApi.kind,
+		requestKind: requestForExecution.kind,
 		result: result as any,
 	});
 	const sanitizedResult = sanitizePublicTaskResult(result);
@@ -3481,8 +3495,8 @@ export async function runPublicTask(
 			status: 502,
 			code: "public_asset_hosting_failed",
 			details: {
-				vendor: NEW_API_AUTO_VENDOR,
-				taskKind: requestForNewApi.kind,
+				vendor: requestedVendor,
+				taskKind: requestForExecution.kind,
 				taskId:
 					typeof (result as any)?.id === "string"
 						? String((result as any).id).trim()
@@ -3519,7 +3533,7 @@ export async function runPublicTask(
 				sanitizedResult &&
 				typeof (sanitizedResult as Record<string, unknown>)?.kind === "string"
 					? String((sanitizedResult as Record<string, unknown>).kind).trim()
-					: String(requestForNewApi.kind || "").trim();
+					: String(requestForExecution.kind || "").trim();
 			if (
 				taskId &&
 				kind &&
@@ -3556,7 +3570,7 @@ const PublicRunTaskOpenApiRoute = createRoute({
 	tags: [PUBLIC_TAG],
 	summary: "统一任务入口 /public/tasks",
 	description:
-		"统一任务入口：当你希望完全复用内部 TaskRequest 结构时使用（支持 image/video/chat 等）。服务端固定请求 new-api，外部传入 vendor/vendorCandidates 会被忽略。",
+		"统一任务入口：当你希望完全复用内部 TaskRequest 结构时使用（支持 image/video/chat 等）。默认请求 new-api；图片任务可传 vendor=comfyui 直连本地 ComfyUI。",
 	request: {
 		body: {
 			required: true,
@@ -3620,6 +3634,7 @@ publicApiRouter.openapi(PublicRunTaskOpenApiRoute, async (c) => {
 
 	try {
 		const { vendor, result } = await runPublicTask(c, userId, {
+			vendor: input.vendor,
 			request: input.request,
 		});
 		return c.json(
@@ -3651,7 +3666,7 @@ const PublicDrawOpenApiRoute = createRoute({
 	tags: [PUBLIC_TAG],
 	summary: "绘图 /public/draw",
 	description:
-		"便捷绘图接口：创建 text_to_image 或 image_edit 任务。服务端固定请求 new-api，外部传入 vendor/vendorCandidates 会被忽略。支持通过 width/height 或 extras.aspectRatio/extras.resolution 配置尺寸/分辨率。",
+		"便捷绘图接口：创建 text_to_image 或 image_edit 任务。默认请求 new-api；传 vendor=comfyui 时直连本地 ComfyUI。支持通过 width/height 或 extras.aspectRatio/extras.resolution 配置尺寸/分辨率。",
 	request: {
 		body: {
 			required: true,
@@ -3735,6 +3750,7 @@ publicApiRouter.openapi(PublicDrawOpenApiRoute, async (c) => {
 	}
 
 	const { vendor, result } = await runPublicTask(c, userId, {
+		vendor: input.vendor,
 		request: normalizedRequest,
 	});
 
@@ -3753,7 +3769,7 @@ const PublicVideoOpenApiRoute = createRoute({
 	tags: [PUBLIC_TAG],
 	summary: "生成视频 /public/video",
 	description:
-		"便捷视频接口：创建 text_to_video 任务。服务端固定请求 new-api，外部传入 vendor/vendorCandidates 会被忽略；可通过 extras.modelAlias 指定模型（推荐；兼容 extras.modelKey）。",
+		"便捷视频接口：创建 text_to_video 任务，使用 new-api；可通过 extras.modelAlias 指定模型（推荐；兼容 extras.modelKey）。",
 	request: {
 		body: {
 			required: true,
