@@ -1,0 +1,9 @@
+{
+  "extends": "../../packages/agent-runtime/tsconfig.build.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["../../packages/agent-runtime/src/**/*.ts"],
+  "exclude": ["../../packages/agent-runtime/src/**/*.test.ts"]
+}

@@ -26,7 +26,7 @@ TapCanvas 把创意、脚本、角色与场景资产、分镜、图像、视频�
 ## 核心能力
 
 - **无限画布**：用强类型节点、端口和连线组织文档、角色、分镜、图像、视频、音频、字幕与工作流。
-- **Agent 原生执行**：`POST /public/agents/chat` 统一进入 DeepSeek Harness Bridge，由 Agents 负责语义理解、规划、Skills、子代理与最终交付自检。
+- **Agent 原生执行**：默认入口进入 `apps/agents` 的 `@tapcanvas/agents` 原生 Harness Runtime，由 Agent 负责语义理解、规划、Skills、子代理与最终交付自检；旧 `apps/agents-cli` 仅保留作迁移期 legacy 诊断。
 - **成片生产底座（需编排）**：支持章节上下文、角色/场景资产、结构化分镜、连续镜头、首尾帧承接、视频生成与合成；固定的一键成片入口尚未上线。
 - **多模型网关**：文本、图像、视频和音频模型由鲁班 API（`apps/new-api`）统一接入、计量和动态下发，前端不写死模型列表。
 - **项目化资产**：素材库、版本、生成历史、任务状态、交付证据与项目本地元数据持续沉淀，生成成功的资产不会被后处理丢弃。
@@ -40,11 +40,11 @@ TapCanvas 把创意、脚本、角色与场景资产、分镜、图像、视频�
   </a>
 </p>
 
-主链路是 **无限画布 → Agents Bridge → 生产工作流内核 → 任务与媒体 Workers → 可验证交付**。Agents 根据真实项目状态按需调用 Skills、MCP、子代理与工作流；图片、视频和音频任务经鲁班 API 进入 AIGC 模型，再由任务账本、队列、租约、幂等、重试与 reconcile，以及真实资产 URL 和 delivery evidence，保证长链路生产可恢复、可追溯、可验收。
+主链路是 **无限画布 → 原生 Agent Runtime → 生产工作流内核 → 任务与媒体 Workers → 可验证交付**。`apps/agents` 中的原生 Agent 根据真实项目状态按需调用 Skills、MCP、子代理与工作流；图片、视频和音频任务经鲁班 API 进入 AIGC 模型，再由任务账本、队列、租约、幂等、重试与 reconcile，以及真实资产 URL 和 delivery evidence，保证长链路生产可恢复、可追溯、可验收。旧 Agents Bridge 不在默认链路中。
 
 > **一键成片边界：** 底层 AIGC、工作流编排、异步执行与交付验收能力已经具备，但固定的一键成片产品入口尚未上线，当前需要自行编排工作流。点击架构图可打开带导览与节点说明的交互版本。
 
-Monorepo 的职责边界：`apps/web` 负责交互与确定性画布执行，`apps/hono-api` 负责协议、权限、任务与事实证据，`apps/agents-cli` 是 DeepSeek Harness 的 TapCanvas Bridge，`apps/new-api` 负责模型网关，`packages/schemas` 保存前后端共享契约。AI 对话架构细节见 [apps/hono-api/README.md](./apps/hono-api/README.md)，Bridge 说明见 [apps/agents-cli/README.md](./apps/agents-cli/README.md)。
+Monorepo 的职责边界：`apps/web` 负责交互与确定性画布执行，`apps/hono-api` 负责协议、权限、任务与事实证据，`apps/agents` 是默认的 DeepSeek Harness 原生 Agent Runtime，`apps/agents-cli` 仅是迁移期 legacy Bridge，`apps/new-api` 负责模型网关，`packages/schemas` 保存前后端共享契约。AI 对话架构细节见 [apps/hono-api/README.md](./apps/hono-api/README.md)，原生 Agent 说明见 [apps/agents/README.md](./apps/agents/README.md)，legacy Bridge 说明见 [apps/agents-cli/README.md](./apps/agents-cli/README.md)。
 
 ## 快速开始
 
@@ -65,7 +65,7 @@ docker compose up -d --build
 pnpm dev
 ```
 
-打开 TapCanvas 主页面 [http://localhost:5175](http://localhost:5175)，点击页面右下角小 T 进入 Agent 页面。API 位于 [http://localhost:8788](http://localhost:8788)，鲁班 API 管理台位于 [http://localhost:4455](http://localhost:4455)。全新数据库的 Canvas 管理员默认为 `admin / 123456`，仅用于本机首次启动；暴露到局域网或公网前必须修改。
+打开 TapCanvas 主页面 [http://localhost:5175](http://localhost:5175)，点击页面右下角小 T 进入 Agent 页面。`pnpm dev` 会同时启动 Agent 的开发监听，修改 `apps/agents` 客户端代码后会自动重编译并刷新 Agent iframe。API 位于 [http://localhost:8788](http://localhost:8788)，鲁班 API 管理台位于 [http://localhost:4455](http://localhost:4455)。全新数据库的 Canvas 管理员默认为 `admin / 123456`，仅用于本机首次启动；暴露到局域网或公网前必须修改。
 
 ### 环境变量
 

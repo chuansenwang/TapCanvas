@@ -97,7 +97,13 @@ type RFState = {
   endRunToken: (id: string) => void
   cancelNode: (id: string) => void
   isCanceled: (id: string, runToken?: string | null) => boolean
-  deleteNode: (id: string) => void
+  /**
+   * 删除节点。
+   *
+   * 返回值用于让 UI/调用方区分“确实删除”与“节点不存在或受保护”，
+   * 避免受保护节点被静默忽略后看起来像点击无效。
+   */
+  deleteNode: (id: string) => boolean
   deleteEdge: (id: string) => void
   reorderEdgeForTarget: (edgeId: string, direction: 'left' | 'right') => void
   inheritUpstreamConnections: (nodeId: string) => void
@@ -3181,18 +3187,22 @@ export const useRFStore = createWithEqualityFn<RFState>((set, get) => ({
     const past = [...s.historyPast, snapshotGraph(s.nodes, s.edges)].slice(-50)
     return { nodes: next.nodes, edges: next.edges, historyPast: past, historyFuture: future }
   }),
-  deleteNode: (id) => set((s) => {
-    const target = s.nodes.find((n) => n.id === id)
-    if (target && isNodeDeleteProtected(target)) return s
-    const nextNodesRaw = s.nodes.filter(n => n.id !== id)
-    const nextNodes = ensureParentFirstOrder(nextNodesRaw)
-    return {
-      nodes: nextNodes,
-      edges: s.edges.filter(e => e.source !== id && e.target !== id),
-      historyPast: [...s.historyPast, snapshotGraph(s.nodes, s.edges)].slice(-50),
-      historyFuture: [],
-    }
-  }),
+  deleteNode: (id) => {
+    const target = get().nodes.find((n) => n.id === id)
+    if (!target || isNodeDeleteProtected(target)) return false
+
+    set((s) => {
+      const nextNodesRaw = s.nodes.filter(n => n.id !== id)
+      const nextNodes = ensureParentFirstOrder(nextNodesRaw)
+      return {
+        nodes: nextNodes,
+        edges: s.edges.filter(e => e.source !== id && e.target !== id),
+        historyPast: [...s.historyPast, snapshotGraph(s.nodes, s.edges)].slice(-50),
+        historyFuture: [],
+      }
+    })
+    return true
+  },
   deleteEdge: (id) => set((s) => ({
     edges: s.edges.filter(e => e.id !== id),
     historyPast: [...s.historyPast, snapshotGraph(s.nodes, s.edges)].slice(-50),

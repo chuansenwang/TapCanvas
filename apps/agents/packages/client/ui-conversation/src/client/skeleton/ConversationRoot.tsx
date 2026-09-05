@@ -8,6 +8,8 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
 import { conversationPhase } from '../contract/snapshot.ts'
 import { HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
+import { HeroToolbar } from './HeroToolbar.tsx'
+import { HistorySessionDialog } from './HistorySessionDialog.tsx'
 import css from './ConversationRoot.module.css'
 import { useTapCanvasScope } from '../tapcanvasScope.ts'
 
@@ -132,7 +134,7 @@ function WidthHandle(props: {
 export function ConversationRoot({
   sessionId, useSession, useSessions, useSessionPendingInteraction,
   useWorkspaces, useConversation, useInput, useComposerBlock,
-  renderSlot, renderSlotChain, selectWorkspace, t, tapCanvasScopeSync,
+  renderSlot, renderSlotChain, selectWorkspace, inputActions, startSession, openSession, t, tapCanvasScopeSync,
 }: ConversationRootProps) {
   const session = useSession(s => s)
   const pendingInteraction = useSessionPendingInteraction(snapshot =>
@@ -143,14 +145,16 @@ export function ConversationRoot({
     : conversationPhase(session, conversation)
   const openState = session?.openState
   const inputState = useInput(s => s)
+  const sessionList = useSessions(snapshot => snapshot)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
   const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
   const workspaces = useWorkspaces(s => s)
   const tapCanvasScope = useTapCanvasScope()
   const tapCanvasBound = tapCanvasScope !== null
   const tapCanvasEmbedded = window.parent !== window
+    || new URLSearchParams(window.location.search).get('embedded') === '1'
   useEffect(() => {
-    if (sessionId === undefined || tapCanvasScope === null) return
+    if (tapCanvasScope === null) return
     if (tapCanvasScopeSync === undefined) {
       console.error('[tapcanvas] 原生 Harness 作用域同步失败：连接能力未注入')
       return
@@ -164,6 +168,7 @@ export function ConversationRoot({
   const composerBlock = useComposerBlock(block => block)
 
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<WorkspaceId | undefined>()
   const pickerAnchor = useRef<HTMLButtonElement>(null)
 
@@ -340,7 +345,8 @@ export function ConversationRoot({
   // deliberately absent from this surface. The Host still keeps a session
   // workspace internally for persistence, but it is never a second user
   // choice in the TapCanvas Agent.
-  const inert = sessionId === undefined || (hero && !tapCanvasBound && chipTitle === undefined)
+  const inert = (sessionId === undefined && !tapCanvasBound)
+    || (hero && !tapCanvasBound && chipTitle === undefined)
   // A raised block is the same inert posture with the blocker's own reason:
   // one disabled textarea, never a second tree. The no-workspace state wins
   // when both hold — picking a workspace is the earlier prerequisite.
@@ -364,7 +370,15 @@ export function ConversationRoot({
 
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
-      {hero && <HeroShell t={t} renderSlot={renderSlot} />}
+      {hero && (
+        <HeroShell
+          t={t}
+          renderSlot={renderSlot}
+          onSuggestion={inputActions === undefined
+            ? undefined
+            : (prompt) => { inputActions.setDraft(prompt) }}
+        />
+      )}
       {hero && !tapCanvasBound && !tapCanvasEmbedded && heroWorkspaceRow}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
@@ -389,7 +403,12 @@ export function ConversationRoot({
   )
 
   return (
-    <div ref={rootResizeRef} className={css.root} data-phase={phase}>
+    <div
+      ref={rootResizeRef}
+      className={css.root}
+      data-phase={phase}
+      data-embedded={tapCanvasEmbedded || undefined}
+    >
       {tapCanvasScope !== null && (
         <div className={css.tapCanvasScope} role="status">
           <span className={css.tapCanvasScopeLabel}>当前画布</span>
@@ -404,6 +423,7 @@ export function ConversationRoot({
         </div>
       )}
       {sessionId === undefined ? null : renderSlot('conversation.session.header', {})}
+      <HeroToolbar t={t} onNewSession={startSession} onOpenHistory={() => { setHistoryOpen(true) }} />
       <div className={css.body}>
         <div className={css.scrollBody} data-conversation-scroll="">
           {sessionId === undefined ? null : renderSlot('conversation.session', {})}
@@ -422,6 +442,14 @@ export function ConversationRoot({
           />
         ))}
       </div>
+      <HistorySessionDialog
+        open={historyOpen}
+        sessions={sessionList}
+        workspacePath={cwd}
+        onClose={() => { setHistoryOpen(false) }}
+        onOpenSession={openSession}
+        t={t}
+      />
     </div>
   )
 }

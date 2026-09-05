@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-04T11:46:48.802Z",
+  "notes": {
+    "total": 0,
+    "byStore": {
+      "core": 0,
+      "episodic": 0,
+      "semantic": 0,
+      "procedural": 0,
+      "vault": 0
+    }
+  },
+  "sessions": [],
+  "consolidatedCandidates": [],
+  "artifacts": {
+    "summary": "memory_summary.md",
+    "detailed": "MEMORY.md",
+    "sessionRollups": "session-rollups",
+    "candidateRuns": "memory-candidates/runs",
+    "consolidatedCandidates": "memory-candidates/consolidated.json"
+  }
+}

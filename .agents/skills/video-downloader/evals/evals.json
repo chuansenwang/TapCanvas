@@ -1,0 +1,35 @@
+{
+  "skill_name": "tapcanvas-video-downloader",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我下载这个 YouTube 视频：https://www.youtube.com/watch?v=BaW_jenozKc",
+      "expected_output": "使用 tapcanvas-video-downloader，默认单视频 1080p 下载，输出 Video/Downloads 下的目录和 download-report.md。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这个 B 站视频帮我保存到本地：https://www.bilibili.com/video/BV1xx411c7mD",
+      "expected_output": "使用 tapcanvas-video-downloader 调用 yt-dlp 下载 Bilibili 视频；若遇到 412 或登录限制，提示并使用 --cookies-file cookies/cookies.txt 重试。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把这个 mp4 直链下载下来，文件别乱放：https://example.com/video.mp4",
+      "expected_output": "使用 tapcanvas-video-downloader 的直链流式下载能力，保存到 Video/Downloads/YYYY-MM-DD-主题，并生成报告。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "下载这个 YouTube 视频，顺便把能给播客流水线用的字幕也准备好：https://www.youtube.com/watch?v=BaW_jenozKc",
+      "expected_output": "使用 tapcanvas-video-downloader；下载视频后优先提取 YouTube 字幕，并在 resources/podcast_outputs/BaW_jenozKc/ 生成 BaW_jenozKc_transcript.txt 与字幕准备报告。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "这个本地 mp4 没字幕，转成 pipeline 能读的字幕文本，路径是 D:/media/interview.mp4",
+      "expected_output": "使用 tapcanvas-video-downloader 的 prepare_subtitles.py，以 Whisper 转写本地媒体，并生成 UTF-8 transcript 文件与报告；不重复下载视频。",
+      "files": []
+    }
+  ]
+}

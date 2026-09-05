@@ -507,7 +507,13 @@ export class CanvasService {
   static async deleteNode(params: { nodeId: string }): Promise<FunctionResult> {
     try {
       const { deleteNode } = useRFStore.getState()
-      deleteNode(params.nodeId)
+      const deleted = deleteNode(params.nodeId)
+      if (!deleted) {
+        return {
+          success: false,
+          error: '节点不存在或受保护，无法删除'
+        }
+      }
 
       return {
         success: true,
@@ -639,8 +645,16 @@ export class CanvasService {
       if (!targets.length) {
         return { success: false, error: '缺少要删除的节点 ID' }
       }
+      const failedNodeIds: string[] = []
       for (const nodeId of targets) {
-        await this.deleteNode({ nodeId })
+        const result = await this.deleteNode({ nodeId })
+        if (!result.success) failedNodeIds.push(nodeId)
+      }
+      if (failedNodeIds.length > 0) {
+        return {
+          success: false,
+          error: `以下节点不存在或受保护，无法删除：${failedNodeIds.join('、')}`,
+        }
       }
       return { success: true, data: { message: `已删除 ${targets.length} 个节点` } }
     }

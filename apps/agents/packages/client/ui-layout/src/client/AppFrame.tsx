@@ -107,6 +107,18 @@ export function AppFrame({
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
+  // TapCanvas embeds the Agent in a right-side panel. The Harness browsing
+  // rail duplicates the host's canvas navigation there, so embedded mode is
+  // a hard zero-width track with no re-expand path.
+  const embedded = window.parent !== window
+    || new URLSearchParams(window.location.search).get('embedded') === '1'
+
+  useEffect(() => {
+    if (embedded) return
+    const toggleSidebar = (): void => { actions.toggleSidebar() }
+    window.addEventListener('dsh:toggle-sidebar', toggleSidebar)
+    return () => { window.removeEventListener('dsh:toggle-sidebar', toggleSidebar) }
+  }, [actions, embedded])
 
   const lastSession = useRef(detailsSession)
   useLayoutEffect(() => {
@@ -145,11 +157,21 @@ export function AppFrame({
   // absorbs the squeeze.
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
-  const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
-  const sidebarPreference = sidebarCollapsed
+  const sidebarCollapsed = embedded
+    ? true
+    : narrow ? !panels.narrowExpanded : panels.sidebar === 0
+  const sidebarPreference = embedded
     ? 0
-    : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+    : sidebarCollapsed
+      ? 0
+      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
+  const solvedCols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  // The standalone Harness contract keeps a 56px collapsed rail. The
+  // embedded TapCanvas surface has its own toolbar, so its sidebar is always
+  // a true zero-width grid track rather than an empty rail.
+  const cols = embedded
+    ? { ...solvedCols, sidebar: 0, center: Math.max(0, viewport - solvedCols.details) }
+    : solvedCols
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -178,6 +200,7 @@ export function AppFrame({
       className={css.frame}
       style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-embedded={embedded || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
       data-dragging={dragging || undefined}
     >
@@ -211,7 +234,7 @@ export function AppFrame({
         {renderSlot('shell.overlay', {})}
       </div>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {!embedded && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )

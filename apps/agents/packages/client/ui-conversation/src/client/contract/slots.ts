@@ -152,7 +152,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /** Workspace selector supplied by the independently loaded Workspace UI. */
     useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>
     /** Sends the current TapCanvas scope to the native Harness Host. */
-    tapCanvasScopeSync?: (sessionId: SessionId, scope: TapCanvasScope) => Promise<void>
+    tapCanvasScopeSync?: (sessionId: SessionId | undefined, scope: TapCanvasScope) => Promise<void>
   }
 
   interface SessionStandardProps {
@@ -219,6 +219,12 @@ export type ConvViewProps = PropsRuntime<'conversation.view'>
 export interface ConversationInjected {
   /** Connect and open a blank Session in the selected Workspace. */
   selectWorkspace: (workspaceId: WorkspaceId) => Promise<void>
+  /** Writes a hero suggestion into the current session composer. */
+  inputActions?: InputActions | undefined
+  /** Starts a fresh blank session using the current or recent canvas workspace. */
+  startSession?: (() => void) | undefined
+  /** Opens one listed Session from the current canvas history. */
+  openSession: (sessionId: SessionId) => void
   /** Session-addressed composer block source, or the stable absent source. */
   hooks: { composerBlock: ObservableSnapshot<ComposerBlock | undefined> }
 }

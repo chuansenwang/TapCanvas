@@ -29,6 +29,12 @@
   border-right: 0.5px solid var(--dsw-alias-border-l3);
 }
 
+/* Embedded Agent mode removes the redundant sidebar track entirely; avoid
+   leaving a half-pixel border when the grid column is zero-width. */
+.frame[data-embedded][data-sidebar-collapsed] .sidebarCol {
+  border-right: none;
+}
+
 .centerCol {
   min-width: 0;
   display: flex;

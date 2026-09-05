@@ -194,9 +194,9 @@
 }
 ```
 
-可选（本地开发）：如果后端配置了 `AGENTS_BRIDGE_BASE_URL`，则当 `vendor=auto` 且请求 kind 为 `chat/prompt_refine` 时，会优先尝试走 `vendor=agents`（通过 HTTP 调用本地 `apps/agents-cl 进程）。你也可以显式传 `vendor: "agents"` 强制走该通道。
+可选（legacy 本地开发）：如果后端配置了 `AGENTS_BRIDGE_BASE_URL`，则当 `vendor=auto` 且请求 kind 为 `chat/prompt_refine` 时，会尝试走 `vendor=agents`（通过 HTTP 调用迁移期保留的 `apps/agents-cli` 进程）。该通道不属于当前原生 Agent 默认入口；新功能应接入 `apps/agents`。你也可以显式传 `vendor: "agents"` 强制走该 legacy 通道。
 
-说明：当走 `vendor=agents` 时，请求会转发给本地 Agents CLI（`agents serve`）。该智能体支持 `Skill`（从 `AGENTS_SKILLS_DIR` 目录加载）以及 `tapcanvas_*` 工具（用于调用本后端的 `/public/*` 接口生成资产/图像理解/视频等），并默认中文输出。
+说明：当走 `vendor=agents` 时，请求会转发给迁移期保留的 Agents CLI（`agents serve`）。该 legacy 智能体支持 `Skill`（从 `AGENTS_SKILLS_DIR` 目录加载）以及 `tapcanvas_*` 工具（用于调用本后端的 `/public/*` 接口生成资产/图像理解/视频等），并默认中文输出。当前产品 Agent 使用 `apps/agents` 原生 Harness Runtime，不通过此公开 legacy 通道。
 
 ### 3.6 图像理解（可选）
 

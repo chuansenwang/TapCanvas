@@ -425,10 +425,13 @@ async function executeTaskWithWorkerContext(
 		c.set("routingTaskKind", job.request.kind);
 		c.set("requestId", `async-image:${job.taskId}`);
 		try {
+			const providerVendor = typeof job.request.extras?.providerVendor === "string" && job.request.extras.providerVendor.trim()
+				? job.request.extras.providerVendor.trim()
+				: ASYNC_IMAGE_VENDOR;
 			taskResult = await runGenericTaskForVendor(
 				c,
 				job.userId,
-				ASYNC_IMAGE_VENDOR,
+				providerVendor,
 				job.request,
 				{ forceTaskId: job.taskId },
 			);

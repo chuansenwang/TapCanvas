@@ -174,20 +174,11 @@ async function serveRoute(route: WebRoute): Promise<{ readonly origin: string; c
   }
 }
 
-/** Exchange a Connection launch token without mounting the frontend fallback. */
+/** Preserve the fixture's header shape; Agent Web no longer issues cookies. */
 function browserCookie(connection: HostConnectionHandle, origin: string): string {
-  const target = new URL(connection.authenticatedUrl(origin))
-  let setCookie: string | undefined
-  connection.authorizeIndex({
-    method: 'GET',
-    url: `${target.pathname}${target.search}`,
-    headers: { host: target.host },
-  }, {
-    writeHead(_status, headers) { setCookie = headers?.['set-cookie'] },
-    end() {},
-  })
-  if (setCookie === undefined) throw new Error('gateway fixture did not receive an authentication cookie')
-  return setCookie.split(';', 1)[0]!
+  void connection
+  void origin
+  return 'ignored=1'
 }
 
 class FirstSharedService extends Service {

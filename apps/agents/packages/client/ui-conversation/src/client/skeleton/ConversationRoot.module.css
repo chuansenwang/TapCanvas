@@ -62,6 +62,15 @@
   white-space: nowrap;
 }
 
+/* Embedded TapCanvas surfaces own the top toolbar. Reserve its chrome band
+   before the scope row and hero content so the two never overlap. */
+.root[data-embedded] {
+  padding-top: 56px;
+  /* The host panel is the available workspace; use nearly all of it instead
+     of the standalone chat's readability clamp. */
+  --dsh-chat-content-width: clamp(0px, calc(100% - 48px), 1200px);
+}
+
 .header {
   position: relative;
   flex: none;
@@ -336,6 +345,9 @@
    so wheel over the footer moves the flow. */
 .root[data-phase='active'] {
   overflow: hidden;
+  /* The shared top toolbar is absolute so the hero can stay centered. Active
+     sessions reserve its 56px chrome band before the canvas scope/header. */
+  padding-top: 56px;
 }
 
 .root[data-phase='active'] .header {

@@ -53,6 +53,10 @@
 - 用户可能不够了解代码 对技术的理解可能不如你
 - 用户和你说的作为参考 而不是绝对值 如果某些事情说不通，请挑战我的假设。
 
+### AI 错误经验登记
+
+在 coding、实施或验证阶段确认 AI 事实错误，或用户明确指出刚发生的事实错误时，加载 `.agents/skills/learning-extractor/SKILL.md`，按其规则追加 `docs/engineering/learning-extractor.md`，并在满足升级条件时同步 `docs/engineering/ai-error-learnings.md`。需求澄清与方案探索阶段的临时假设不登记。
+
 # AI Assistant Skills / 能力说明
 
 - Model: GPT-5.1 running in Codex CLI，专注于代码编辑和重构。
@@ -78,29 +82,29 @@
   - 默认以 orchestrator 模式运行复杂任务：维护和更新 To-Do plan（使用 Codex 的计划工具），拆分子任务并在每个阶段后做小结，直到明确满足用户目标才停止。
   - 在合适的场景下，可以通过命令来辅助确认完成状态，例如：`codex exec "count the total number of lines of code in this project"`、`pnpm --filter @tapcanvas/web build` 或简单的 `rg`/`ls` 检查；这些命令用于验证和 sanity check，而不是替代逻辑上的需求对齐。
   - 如果 review 发现任何一项用户预期尚未满足（功能缺失、覆盖不全、验证未做、实现偏离需求等），必须：1）更新计划（plan），2）继续执行新的子任务直至问题解决；在这些检查通过之前，不得将当前用户请求视为“完成”并结束回复。
-  - 文档同步约束（强制）：凡是修改 AI 对话链路、agents bridge、`/public/chat` 路由、prompt 装配、persona/context 加载、workspace context 装配、outputMode 分支、tool gating、trace/diagnostics 行为，必须同步更新 `apps/hono-api/README.md` 中的“AI 对话架构（当前）”章节，确保该文档始终反映当前真实实现；未同步文档视为任务未完成。
+  - 文档同步约束（强制）：凡是修改原生 Agent 对话链路、legacy Agents Bridge、`/public/chat` 路由、prompt 装配、persona/context 加载、workspace context 装配、outputMode 分支、tool gating、trace/diagnostics 行为，必须同步更新 `apps/hono-api/README.md` 中的“AI 对话架构（当前）”章节，确保该文档始终反映当前真实实现；未同步文档视为任务未完成。
   - 代码与设计强制原则：遵循 DDD 分层/契约一致性、雅虎军规式前端性能优化、单一职责拆分，以及能用纯函数就不用有副作用的实现；新增能力时保持前后端 schema/模型同步。
   - 失败策略（强制）：失败就是失败。禁止为“看起来可用”而做静默兜底/自动降级/模板填充（尤其是小说分镜、镜头提示词、剧情抽取、角色一致性链路）。当关键输入缺失或解析失败时，必须显式报错并暴露原因，由用户或上游流程修复后重试。
   - 生成后处理规则（强制）：视频/图片任务一旦已成功产出资产，禁止在后处理阶段做任何拦截、质检门禁、自动回滚或丢弃；必须保留并记录全部已产出资产（节点结果、日志与元数据），后续仅允许新增记录，不允许覆盖删除已生成结果。
   - 诊断策略（强制）：拿不定就不要猜测，必须先记录可检索日志（输入摘要、关键分支、工具调用结果、解析失败原因），再返回错误；禁止仅返回笼统失败描述。
   - 定位策略（强制）：禁止在证据不足时主观猜测根因；一旦拿不准，必须先补充可观测性（新增/加强日志、trace、关键入参与返回值）并基于日志定位，再给出结论与修复方案。
-  - 生产范式（强制）：核心流程默认由 AI（agents-cli）端到端完成，人工只做微调。涉及小说分镜/镜头续写/剧情补全/生产编排时，优先通过 agents-cli 根据当前进度自动产出结果，再进入人工校正；避免把主要生成逻辑下放为手工拼装。
-  - Agents 优先级（强制）：语义理解、功能决策、流程拦截与修复建议，默认以 agents-cli 输出为最高优先级；能由 agents-cli 完成的能力，不应退化为本地写死正则/关键字规则来替代。本地规则仅可用于结构性校验（如空值、类型、数量、权限、边界），不得覆盖或否定 agents-cli 的语义结论。
-  - 语义识别禁令（强制）：禁止在业务流程中使用正则/关键字硬编码进行语义理解、语义识别或语义拦截（包括分镜质量判断与内容风险判断）；相关决策必须以 agents-cli 的语义输出为准。本地仅允许做非语义的结构性校验（空值、类型、数量、权限、边界）。
-  - 语义实现禁令（强制）：所有涉及语义理解的逻辑（意图识别、语义分类、语义路由、语义拦截、语义纠错、语义数量理解等）一律禁止使用正则实现；必须由 agents-cli/agents 的语义输出驱动。
+  - 生产范式（强制）：核心流程默认由原生 Agent（`apps/agents`，包名 `@tapcanvas/agents`）端到端完成，人工只做微调。涉及小说分镜/镜头续写/剧情补全/生产编排时，优先由原生 Agent 根据当前进度自动产出结果，再进入人工校正；避免把主要生成逻辑下放为手工拼装。
+  - Agents 优先级（强制）：语义理解、功能决策、流程拦截与修复建议，默认以原生 Agent 输出为最高优先级；能由原生 Agent 完成的能力，不应退化为本地写死正则/关键字规则来替代。本地规则仅可用于结构性校验（如空值、类型、数量、权限、边界），不得覆盖或否定原生 Agent 的语义结论。
+  - 语义识别禁令（强制）：禁止在业务流程中使用正则/关键字硬编码进行语义理解、语义识别或语义拦截（包括分镜质量判断与内容风险判断）；相关决策必须以原生 Agent 的语义输出为准。本地仅允许做非语义的结构性校验（空值、类型、数量、权限、边界）。
+  - 语义实现禁令（强制）：所有涉及语义理解的逻辑（意图识别、语义分类、语义路由、语义拦截、语义纠错、语义数量理解等）一律禁止使用正则实现；必须由原生 Agent 的语义输出驱动。
   - AI 对话反僵化约束（强制）：禁止把 AI 对话实现为“用户意图 -> 本地固定 route -> 本地固定 system prompt 分支 -> 本地固定执行流程”的中心化硬编码链路；必须优先设计成“真实上下文收集 -> 执行建议 -> agents 自主决策 -> 前端/后端执行”的编排结构。
   - 运行时知识源约束（强制）：AI 运行时可注入的知识源仅限 `skills/`、当前真实代码、当前项目状态、工具返回结果与用户本轮提供的显式上下文；任何运行时知识装配都必须优先基于这些一手事实。
-  - 静态资产运行时禁令（强制）：`docs/`、`assets/`、`ai-metadata/` 属于编译前资产、分析资产或人工阅读资产，默认不得作为 agents、agents-cli、`/public/chat`、system prompt、prompt specialist、知识 allowlist 或上下文拼装的运行时输入来源；若未来确需引入，必须先获得用户明确批准并同步更新本文件与 `apps/hono-api/README.md`。
-  - 编排职责边界（强制）：前端/本地代码只负责 1）收集真实上下文 2）注入安全硬约束 3）执行本地可验证动作 4）展示过程与结果；涉及“是否读取项目上下文、是否返回画布计划、是否直接生成、下一步调用哪类工具”等带有语义判断的决策，必须交给 agents / agents-cli / LLM，不得由本地关键词或枚举分支替代。
+  - 静态资产运行时禁令（强制）：`docs/`、`assets/`、`ai-metadata/` 属于编译前资产、分析资产或人工阅读资产，默认不得作为原生 Agent、`/public/chat`、system prompt、prompt specialist、知识 allowlist 或上下文拼装的运行时输入来源；若未来确需引入，必须先获得用户明确批准并同步更新本文件与 `apps/hono-api/README.md`。
+  - 编排职责边界（强制）：前端/本地代码只负责 1）收集真实上下文 2）注入安全硬约束 3）执行本地可验证动作 4）展示过程与结果；涉及“是否读取项目上下文、是否返回画布计划、是否直接生成、下一步调用哪类工具”等带有语义判断的决策，必须交给原生 Agent / LLM，不得由本地关键词或枚举分支替代。
   - `hono-api` 职责边界（强制）：`apps/hono-api` 只允许承担硬约束注入与协议编排职责，包括权限、协议格式、输出契约、事实性约束、失败策略、trace/diagnostics；禁止在 `hono-api` 中固化 SOP、创作方法论、知识装配顺序、意图路由、固定 prompt 套餐、固定子代理顺序或 prompt specialist 编排策略。
-  - `agents-cli` 职责边界（强制）：意图识别、证据规划、技能选择、子代理委派、任务拆解与最终综合判断，必须默认由 `agents-cli` / agents 承担；前端与 `hono-api` 不得以本地 route、枚举分支、关键词表或 prompt 分流替代 agents 的语义决策。
-  - `agents-cli` 最终自检（强制）：禁止依赖 `hono-api` / 前端通过手写 prompt 补丁、语义关键词检查或本地兜底规则去拦截“输出不符合用户预期”的问题；`agents-cli` 必须在最终输出前执行一次面向用户意图的自检，核对“实际产物类型、执行动作、结果落点、是否真的完成用户要的事”是否一致。若自检发现偏差（例如用户要图片却只产出文本节点、用户要落画布却只给说明文案），必须在 `agents-cli` 内部继续修正或显式失败，不能把问题下沉给 `hono-api` / 前端做 prompt 打补丁式修复。
-  - `agents-cli` 运行时自修复原则（强制）：planning gate、completion gate、delivery verifier 等通用收口器一旦判定“尚不能结束”，必须优先把失败事实（如 `failureReason`、`rationale`、`missingCriteria`、`requiredActions` 与相关 planning/delivery 状态）在同一条 `agents-cli` 执行链内回灌给主代理继续修正，直到满足完成态或显式失败；这类内部纠偏信息必须以 ephemeral 运行时消息存在，不得写回持久会话。禁止把这类修复长期下沉为 `hono-api` / `apps/web` 的 case-specific prompt 补丁、正则拦截、关键词兜底或固定 route 修复。
-  - 交付验收契约（强制）：凡是 agents bridge / `/public/chat` / `turnVerdict` / diagnostics / completion gate / 结果验收相关实现，必须采用“`expectedDelivery -> deliveryEvidence -> deliveryVerification`”这类通用交付校验链路。先根据 agents 的结构化语义摘要与真实作用域确定“期望交付类型”，再基于真实 trace / tool calls / 节点最终状态 / 资产 URL 构造“事实证据”，最后由可复用 verifier 判断是否满足交付。禁止把“有文本”“写了画布”“子代理 completed”“wait 返回了”直接当作完成态充分条件。
+  - 原生 Agent 职责边界（强制）：意图识别、证据规划、技能选择、子代理委派、任务拆解与最终综合判断，必须默认由 `apps/agents` 的原生 Agent 承担；前端与 `hono-api` 不得以本地 route、枚举分支、关键词表或 prompt 分流替代原生 Agent 的语义决策。
+  - 原生 Agent 最终自检（强制）：禁止依赖 `hono-api` / 前端通过手写 prompt 补丁、语义关键词检查或本地兜底规则去拦截“输出不符合用户预期”的问题；原生 Agent 必须在最终输出前执行一次面向用户意图的自检，核对“实际产物类型、执行动作、结果落点、是否真的完成用户要的事”是否一致。若自检发现偏差（例如用户要图片却只产出文本节点、用户要落画布却只给说明文案），必须在原生 Agent 内部继续修正或显式失败，不能把问题下沉给 `hono-api` / 前端做 prompt 打补丁式修复。
+  - 原生 Agent 运行时自修复原则（强制）：planning gate、completion gate、delivery verifier 等通用收口器一旦判定“尚不能结束”，必须优先把失败事实（如 `failureReason`、`rationale`、`missingCriteria`、`requiredActions` 与相关 planning/delivery 状态）在同一条原生 Agent 执行链内回灌给主代理继续修正，直到满足完成态或显式失败；这类内部纠偏信息必须以 ephemeral 运行时消息存在，不得写回持久会话。禁止把这类修复长期下沉为 `hono-api` / `apps/web` 的 case-specific prompt 补丁、正则拦截、关键词兜底或固定 route 修复。
+  - 交付验收契约（强制）：凡是原生 Agent、legacy Agents Bridge、`/public/chat`、`turnVerdict`、diagnostics、completion gate 或结果验收相关实现，必须采用“`expectedDelivery -> deliveryEvidence -> deliveryVerification`”这类通用交付校验链路。先根据 Agent 的结构化语义摘要与真实作用域确定“期望交付类型”，再基于真实 trace / tool calls / 节点最终状态 / 资产 URL 构造“事实证据”，最后由可复用 verifier 判断是否满足交付。禁止把“有文本”“写了画布”“子代理 completed”“wait 返回了”直接当作完成态充分条件。
   - 交付验收禁令（强制）：禁止为某个具体 case 临时添加硬编码完成态/失败态补丁，例如针对单个工作流、单类 prompt、某一章小说、某一种节点组合去写专用 `if` / 正则 / 关键词 / `includes` / 计数规则来决定 satisfied/failed。若发现当前 verifier 覆盖不了新场景，必须回到通用交付契约层扩展 `expectedDelivery`、`deliveryEvidence` 或 verifier 维度，而不是继续堆叠 case patch。
   - 前端执行层禁令（强制）：`apps/web` 在执行或校验 AI 返回的 canvas plan、节点 prompt、storyBeatPlan、对白字段时，只允许做 schema、类型、数量、时长、句柄、资产 URL、章节追溯等结构性校验；禁止基于 prompt 正文、对白文本或上游文案做正则/关键词/`includes` 匹配，也禁止本地自动改写 prompt 来“补对白”“去报告腔”或兜底生成语义。
-  - Prompt Specialist 归属（强制）：`image_prompt_specialist`、`video_prompt_specialist`、`pacing_reviewer` 的创作方法论、视觉模型提示词写法、镜头语言规范、`@角色名` 角色卡绑定语义，必须沉到 `apps/agents-cli` 内部 prompt / skill / specialist 契约中；禁止长期依赖 `apps/hono-api` 通过常驻 system prompt 为这些 specialist 补产品语义。
-  - 视觉提示词语义归属（强制）：凡是“给图片/视频模型直接执行的生成提示词”相关规则，例如主体/场景/空间布局/人物关系/镜头语言/动作边界/禁止漂移，以及 `@角色名` 应保留为角色卡绑定语法，都属于 agents-cli specialist 的原生能力；`hono-api` 只可传递事实型上下文，不应承载这类方法论。
+  - Prompt Specialist 归属（强制）：`image_prompt_specialist`、`video_prompt_specialist`、`pacing_reviewer` 的创作方法论、视觉模型提示词写法、镜头语言规范、`@角色名` 角色卡绑定语义，必须沉到 `apps/agents` 内部 prompt / skill / specialist 契约中；禁止长期依赖 `apps/hono-api` 通过常驻 system prompt 为这些 specialist 补产品语义。
+  - 视觉提示词语义归属（强制）：凡是“给图片/视频模型直接执行的生成提示词”相关规则，例如主体/场景/空间布局/人物关系/镜头语言/动作边界/禁止漂移，以及 `@角色名` 应保留为角色卡绑定语法，都属于原生 Agent specialist 的能力；`hono-api` 只可传递事实型上下文，不应承载这类方法论。
   - Skills 职责边界（强制）：SOP、方法论、分阶段策略、创作套路、连续性规则、prompt specialist 使用方式等“可渐进披露的专业知识”，必须沉淀在 `skills/` 中按需加载；禁止把这些内容重新膨胀为常驻 system prompt、固定后端模板或前端硬编码说明链路。
   - 本地规则白名单（强制）：本地仅允许处理纯结构性或确定性动作，如空值、类型、数量、权限、边界校验，以及用户显式指定且无需语义推断的本地操作（如“只重排当前画布布局”）。除上述白名单外，禁止本地代码接管语义决策。
   - 前置资产执行门禁（强制）：凡是图片/视频/分镜板生成依赖上游视觉资产的场景，执行时必须要求前置节点已经存在真实资产 URL（如 `imageUrl`、`imageResults[].url`、`videoUrl`、`videoResults[].url`、`storyboardEditorCells[].imageUrl`、`firstFrameUrl`、`lastFrameUrl`）。仅有节点连线、文本脚本、prompt、planned metadata、占位状态，不构成可执行前置资产。画布内点击某节点“生成”时，运行时必须先自动补跑该节点之前、直到该节点为止的未生成资产链路；若补跑后仍缺真实 URL，才允许停在待执行/显式失败状态，禁止把缺前置资产的下游节点当作可直接执行。
@@ -114,16 +118,16 @@
     2. 用本地 `switch(route)` / `if route === ...` 主导主要任务决策
     3. 用默认 route / fallback route / fallback prompt 吞掉语义不确定性
     4. 以“兼容旧行为”为理由保留本地硬编码决策双轨
-    5. 新增一个平行的本地 AI 流程而不是复用 agents bridge、记忆、项目上下文和画布协议
+    5. 新增一个平行的本地 AI 流程而不是复用原生 Agent、记忆、项目上下文和画布协议
     6. 将 `docs/`、`assets/`、`ai-metadata/` 重新接入运行时 prompt、知识加载、specialist allowlist 或 agent 上下文装配
-    7. 在 `apps/web` 或 `apps/hono-api` 中重新引入本地固定工作流、固定意图分流或固定子代理编排来覆盖 agents-cli 的自主决策
+    7. 在 `apps/web` 或 `apps/hono-api` 中重新引入本地固定工作流、固定意图分流或固定子代理编排来覆盖原生 Agent 的自主决策
     8. 在 `turnVerdict`、diagnostic flags、completion gate 或结果验收链路中新增 case-specific 硬编码补丁，而不是扩展通用 delivery verifier
     9. 通过正则、关键词、prompt 文案匹配、个案节点数量阈值等局部启发式去直接判定“这轮已完成/失败”，而不是先构造可复用的事实证据与交付校验契约
-  - 分镜连续性（强制）：章节分镜每个分组的生成结果，除数据库外，必须写入项目本地元数据（book `index.json` 的 `assets.storyboardChunks`）。后续分组生成时，agents-cli 必须先读取上一组 `tailFrameUrl`，并将其作为下一组首帧参考图；缺失则直接失败，不允许兜底。
+  - 分镜连续性（强制）：章节分镜每个分组的生成结果，除数据库外，必须写入项目本地元数据（book `index.json` 的 `assets.storyboardChunks`）。后续分组生成时，原生 Agent 必须先读取上一组 `tailFrameUrl`，并将其作为下一组首帧参考图；缺失则直接失败，不允许兜底。
   - Skill 约束（强制）：执行章节分镜续写时，优先使用仓库内 skill：`skills/storyboard-continuity/SKILL.md`，按其中契约读写 `storyboardChunks`，确保“尾帧承接”可追溯、可复现。
-  - 交互规则（强制）：用户触发“当前章节分镜/章节分镜生产”后，前端必须先在画布创建对应占位节点（queued/running），再异步执行 agents pipeline，并在完成/失败后回填该节点状态与内容；禁止等待 pipeline 完成后才创建节点。
-- 续写来源规则（强制）：章节分镜续写时，不得回退使用历史“已生成镜头记录”作为脚本来源；必须在生成前仅将“上一个分镜剧本片段”传给 agents-cli（首组无上文），以本次 agents 输出作为唯一有效脚本来源。生成成功后再将结果写回元数据（含 storyboardPlans/storyboardChunks）。
-- 画布验证与操作路径（强制）：凡是为了读取、验证、修改、轮询用户真实画布数据而访问 TapCanvas 对外接口时，只允许通过 `apps/agents-cli/skills/tapcanvas-api` 这一条 skill 路径执行，禁止绕过该 skill 直接拼接请求、调用平行 skill、或使用其他临时脚本触碰用户画布数据。
+  - 交互规则（强制）：用户触发“当前章节分镜/章节分镜生产”后，前端必须先在画布创建对应占位节点（queued/running），再异步执行原生 Agent pipeline，并在完成/失败后回填该节点状态与内容；禁止等待 pipeline 完成后才创建节点。
+- 续写来源规则（强制）：章节分镜续写时，不得回退使用历史“已生成镜头记录”作为脚本来源；必须在生成前仅将“上一个分镜剧本片段”传给原生 Agent（首组无上文），以本次 Agent 输出作为唯一有效脚本来源。生成成功后再将结果写回元数据（含 storyboardPlans/storyboardChunks）。
+- 画布验证与操作路径（强制）：凡是为了读取、验证、修改、轮询用户真实画布数据而访问 TapCanvas 对外接口时，只允许通过 `apps/agents/.agents/skills/tapcanvas-api` 这一条原生 Agent skill 路径执行，禁止绕过该 skill 直接拼接请求、调用平行 skill、或使用其他临时脚本触碰用户画布数据。
 - 画布验证能力扩充（强制）：若 `tapcanvas-api` 在验证或操作用户画布数据时缺少必要能力，必须先以当前仓库源码中的真实公开接口、请求方法、参数契约为依据扩充该 skill，再继续验证；禁止脱离 skill 直接走其他路径完成同类操作。
 
 # Repository Guidelines
@@ -204,14 +208,14 @@
 - Prefer `nano-banana-pro` when building flows that need consistent visual style across scenes; other image models are optional fallbacks.
 - When wiring tools, treat image nodes as the primary source of “base frames” for Sora/Veo video nodes, especially for novel-to-animation workflows.
 - 强制：所有前端/对话中的“模型可选列表”必须来自系统模型管理（model catalog / vendor 配置）的动态数据；禁止写死模型枚举作为可选来源（仅允许在动态列表为空时做占位提示，不允许回退到硬编码候选）。
-- 强制：`agents-cli` / `agents` 均指同一个可调用的自研智能体进程能力（Agents Bridge），不是第三方渠道商（vendor）。涉及该能力的路由与校验应按“能力通道”处理，不得要求其在模型管理中作为厂商条目存在后才可调用。
+- 强制：当前默认智能体能力是 `apps/agents` 中的原生 Agent（`@tapcanvas/agents`），不是第三方渠道商（vendor）。涉及该能力的路由与校验应按“能力通道”处理，不得要求其在模型管理中作为厂商条目存在后才可调用。`apps/agents-cli` 仅为 legacy Bridge，不得作为新功能的默认依赖。
 
 ## AI Tool Schemas (backend)
 
 - Shared tool contracts live in `apps/hono-api/src/modules/ai/tool-schemas.ts`. This file describes what the canvas can actually do (tool names, parameters, and descriptions) from a **frontend capability** perspective, but is only imported on the backend to build LLM tools.
 - Whenever you change or add frontend AI canvas functionality (e.g. new `CanvasService` handlers, new tool names, new node kinds that tools can operate on), you **must** update `apps/hono-api/src/modules/ai/tool-schemas.ts` in the same change so that backend LLM tool schemas stay in sync.
-- Whenever you change canvas node protocols, handle matrices, `tapcanvas_flow_patch` / canvas plan schema, or node-kind semantics such as `storyboard` vs `storyboardScript`, you **must** also update the TapCanvas agent skill documentation that agents-cli actually loads. Current source of truth skill file: `/Users/libiqiang/.agents/skills/tapcanvas/SKILL.md`. If skill docs are not updated in the same change, the task is not complete.
-- The TapCanvas skill doc must also stay aligned with execution preconditions, including “no upstream real asset URL, no downstream generation”. If runtime behavior or allowed prerequisite asset fields change, update `/Users/libiqiang/.agents/skills/tapcanvas/SKILL.md` in the same change.
+- Whenever you change canvas node protocols, handle matrices, `tapcanvas_flow_patch` / canvas plan schema, or node-kind semantics such as `storyboard` vs `storyboardScript`, you **must** also update the TapCanvas skill documentation loaded by the native Agent in `apps/agents`. The native runtime resolves skills from its configured skill roots (including the repository-local `apps/agents/.agents/skills/` when enabled); do not use the legacy `apps/agents-cli/skills/` copy as the current source of truth. If skill docs are not updated in the same change, the task is not complete.
+- The TapCanvas native Agent skill doc must also stay aligned with execution preconditions, including “no upstream real asset URL, no downstream generation”. If runtime behavior or allowed prerequisite asset fields change, update the corresponding skill under the native Agent's configured skill root in the same change.
 - Do not declare tools or node types in `canvasToolSchemas` that are not implemented on the frontend. The schemas are not aspirational docs; they must reflect real, callable capabilities.
 - Node type + model feature descriptions live in `canvasNodeSpecs` inside the same file. This object documents what each logical node kind (image/composeVideo/audio/subtitle/character etc.) is for, and which models are recommended / supported for it（例如 Nano Banana / Nano Banana Pro / Sora2 / Veo 3.1 的适用场景与提示词策略）。Model-level prompt tips（如 Banana 的融合/角色锁、Sora2 的镜头/物理/时序指令）也应集中维护在这里或 `apps/hono-api/src/modules/ai/constants.ts` 的 SYSTEM_PROMPT 中，避免分散。
 - When you add or change node kinds, or enable new models for an existing kind, update `canvasNodeSpecs` 与相关系统提示（SYSTEM_PROMPT）以匹配真实接入的模型能力（不要列出实际上未接入的模型或特性）。
@@ -224,11 +228,11 @@
 
 ---
 
-# `apps/agents-cl（Agents CLI）功能说明
+# `apps/agents-cli`（Legacy Agents Bridge）功能说明
 
-本仓库内包含一个独立的 TypeScript 命令行智能体项目：`apps/agents-cl。它提供一个最小但可扩展的 agent loop：`plan -> tool -> report`，支持 Skills（按需加载的知识/模板）、Todo（任务清单）、Subagent（子代理隔离上下文）、会话续写（JSONL history）、以及可选的 agents-world 日志推送。
+本节仅记录迁移期保留的旧 TypeScript Agents Bridge：`apps/agents-cli`。它不是当前默认智能体运行时；当前默认运行时是 `apps/agents` 中的 `@tapcanvas/agents`。本节用于显式诊断和历史维护，不得据此把新功能接回旧链路。
 
-> 这部分文档只描述仓库内 `apps/agents-cl 的真实实现（以代码为准），不是“理想设计”。
+> 这部分文档只描述仓库内 `apps/agents-cli` 的真实实现（以代码为准），不是“理想设计”。
 
 ## 索引
 
@@ -271,11 +275,11 @@
 
 在本仓库（pnpm workspace）里常见两类使用方式：
 
-- **把 `apps/agents-cl 当作 CLI 工具用**（工作区 = 你当前所在目录 `cwd`）：
+- **把 `apps/agents-cli` 当作 CLI 工具用**（工作区 = 你当前所在目录 `cwd`）：
   - 先构建一次：`pnpm --filter agents build`
   - 在“目标工作区目录”下运行：`node <repo>/apps/agents-cli/dist/cli/index.js run "..."`
   - 说明：工具的读写与 shell 都以“当前 `cwd`”为边界（路径沙箱也以此为准），所以想让它操作仓库根目录，就在仓库根目录执行上述命令
-- **开发/调试 `apps/agents-cl 本身**（工作区通常 = `apps/agents-cl）：
+- **开发/调试 `apps/agents-cli` 本身**（工作区通常 = `apps/agents-cli`）：
   - `pnpm --filter agents dev -- run "..."`
   - `pnpm --filter agents dev:watch -- run "..."`
 

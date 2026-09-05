@@ -1,0 +1,49 @@
+{
+  "round": 1,
+  "goal": "Freeze the Web Agent and canvas tool contracts, establish the Hermes runtime integration seam, and produce a buildable native Web chat foundation without retaining a second agent runtime.",
+  "ownedTasks": ["T1", "T2-foundation", "T3-foundation", "T4-contract", "T6-foundation"],
+  "deliverables": [
+    "Shared TypeScript schemas for Web Agent commands and events.",
+    "A Hermes bridge runtime abstraction with explicit unavailable failure.",
+    "A restricted Canvas tool contract with real scope and approval inputs.",
+    "A native Web chat transport/reducer foundation with no xterm or PTY dependency.",
+    "Focused tests for protocol discrimination, idempotency, and scope validation."
+  ],
+  "verificationPlan": [
+    {
+      "criterion": "Every Web Agent frame is a discriminated, versioned schema with session, turn, event, and timestamp identifiers.",
+      "howToCheck": "Run focused schema and reducer tests plus TypeScript compilation.",
+      "hardFail": true
+    },
+    {
+      "criterion": "The new client transport has no xterm, PTY, ANSI, or agents-cli import/dependency.",
+      "howToCheck": "Search the new modules and inspect dependency graph.",
+      "hardFail": true
+    },
+    {
+      "criterion": "Canvas mutation requests require authenticated user, project, flow, and turn scope and distinguish approval-required operations.",
+      "howToCheck": "Run focused bridge/tool contract tests for missing or mismatched scope and destructive operation policy.",
+      "hardFail": true
+    },
+    {
+      "criterion": "Hermes unavailable state is surfaced as an explicit error with traceable diagnostic data.",
+      "howToCheck": "Unit-test the unavailable transport branch.",
+      "hardFail": true
+    }
+  ],
+  "nonGoals": [
+    "Deleting the legacy bridge before the full native chat and Hermes path are verified.",
+    "Bulk migration of old session or memory files.",
+    "Shipping a terminal emulator in the new UI."
+  ],
+  "handoffPaths": [
+    "packages/schemas",
+    "apps/hono-api/src/modules",
+    "apps/web/src/ui/chat",
+    "apps/web/src/api"
+  ],
+  "notes": [
+    "The final cutover remains T9 and requires independent review after end-to-end validation.",
+    "If Hermes lacks a required structured primitive, extend the adapter at the protocol boundary rather than parsing terminal output."
+  ]
+}

@@ -121,6 +121,13 @@ function openPanel() {
 }
 
 describe('SettingsRoot trigger', () => {
+  it('opens the existing settings panel from the conversation toolbar event', () => {
+    mount()
+    act(() => { window.dispatchEvent(new CustomEvent('dsh:open-settings')) })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByTestId('section-general')).toBeTruthy()
+  })
+
   it('renders the trigger seat content as the accessible name (no aria-label of its own)', () => {
     const { renderSlot } = mount()
     const trigger = screen.getByRole('button', { name: 'Settings' })

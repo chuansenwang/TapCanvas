@@ -18,7 +18,7 @@
   - factuality
   - explicit failure
   - audit/trace
-- `agents-cli` performs:
+- The native Agent in `apps/agents` (`@tapcanvas/agents`) performs:
   - intent recognition
   - evidence planning
   - skill loading
@@ -38,6 +38,16 @@
 
 ## Current Migration Direction
 
+- `apps/agents` is the only default Agent runtime and the only runtime that new
+  product work should target. It owns the native Harness Web UI, sessions,
+  Agent loop, Skills, subagents, and TapCanvas tool registration.
+- The migrated TapCanvas skills are versioned under
+  `apps/agents/.agents/skills/tapcanvas-*` and are discovered by the native
+  runtime's project skill provider. The copies under `apps/agents-cli/skills/`
+  remain only as legacy migration source and are not the current skill root.
+- `apps/agents-cli` is legacy migration and diagnostic code. It is not started
+  by the default entrypoint and must not be treated as the current execution
+  path.
 - Remove runtime guidance that points agents to `docs/assets/ai-metadata`.
 - Keep `hono-api` prompt minimal and structural.
 - Move TapCanvas workflow methods into dedicated runtime skills.

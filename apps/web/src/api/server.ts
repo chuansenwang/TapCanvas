@@ -9729,7 +9729,7 @@ export type TaskRequestDto = {
 
 // Public API (/public/*): JWT 或 API key（二选一）；两者同时提供时以 JWT 作为计费/归属用户。
 export type PublicRunTaskRequestDto = {
-  // Deprecated: server ignores external vendor and always routes as auto.
+  // Optional executor; image tasks may use the configured local ComfyUI provider.
   vendor?: string
   vendorCandidates?: string[]
   request: TaskRequestDto
@@ -9741,7 +9741,7 @@ export type PublicRunTaskResponseDto = {
 }
 
 type PublicDrawRequestDto = {
-  // Deprecated: server ignores external vendor and always routes as auto.
+  // Optional executor; image tasks may use the configured local ComfyUI provider.
   vendor?: string
   vendorCandidates?: string[]
   async?: boolean

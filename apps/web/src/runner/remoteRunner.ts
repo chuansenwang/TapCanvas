@@ -2454,13 +2454,13 @@ async function resolveRunnerImageModelBeforeExecution(ctx: RunnerContext, set: S
   if (resolution.shouldWriteBack) {
     patchNodeExecutionModel(set, ctx.id, {
       imageModel: resolution.value,
-      imageModelVendor: null,
+      imageModelVendor: resolution.vendor,
     })
   }
   ctx.data = {
     ...ctx.data,
     imageModel: resolution.requestModelKey,
-    imageModelVendor: null,
+    imageModelVendor: resolution.vendor,
   }
   ctx.modelKey = resolution.requestModelKey
   if (resolution.reason === 'canonicalized' && requestedModel !== resolution.value) {
@@ -5733,6 +5733,9 @@ async function runGenericTask(ctx: RunnerContext) {
               nodeKind: kind,
               nodeId: id,
               modelKey: selectedModel,
+              ...((typeof (data as Record<string, unknown>).libTvImagePresetKey === 'string' && String((data as Record<string, unknown>).libTvImagePresetKey).trim())
+                ? { workflowCapability: String((data as Record<string, unknown>).libTvImagePresetKey).trim() }
+                : {}),
               aspectRatio,
               ...(imageBillingSpecKey ? { specKey: imageBillingSpecKey, billingSpecKey: imageBillingSpecKey } : {}),
               ...(imageEditSizeSetting

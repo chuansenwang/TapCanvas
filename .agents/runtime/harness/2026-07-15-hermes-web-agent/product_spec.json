@@ -1,0 +1,53 @@
+{
+  "title": "Hermes Native Web Agent Chat",
+  "problem": "TapCanvas currently routes agent chat through agents-cli and renders an oversized legacy dialog. The replacement must use Hermes as the sole agent runtime while providing a native structured Web chat that can safely operate the current user's canvas.",
+  "userOutcomes": [
+    "Open a native Agent dialog without a terminal, PTY, or xterm dependency.",
+    "Send a task with selected model, attachments, execution policy, and real canvas scope.",
+    "See structured streamed messages, tool progress, approvals, canvas mutations, assets, and failures.",
+    "Allow the Hermes Agent to read and operate only the current user's authorized project and flow.",
+    "Retain successful generated assets and show evidence that the requested delivery actually occurred."
+  ],
+  "scope": {
+    "mustHave": [
+      "A versioned bidirectional Web Agent session contract.",
+      "Hermes runtime bridge with user/project/flow scope and model inheritance.",
+      "Restricted real canvas read, patch, and node execution tools.",
+      "Native Web chat UI with structured event rendering and approval controls.",
+      "Hermes Skills overlay and per-user native memory isolation.",
+      "Hard removal of agents-cli bridge and PTY/xterm paths after verified cutover."
+    ],
+    "shouldHave": [
+      "Resumable event stream with idempotent client reducer.",
+      "Browser-driven validation against the supplied Studio URL.",
+      "Migration audit report for legacy skills and local memory artifacts."
+    ],
+    "outOfScope": [
+      "Embedding or visually reproducing Hermes TUI or dashboard.",
+      "Model training, fine-tuning, or automatic migration of legacy local memory.",
+      "A browser-held Hermes credential or cross-user workspace access."
+    ]
+  },
+  "acceptanceThemes": [
+    "feature_completeness",
+    "structured_streaming_correctness",
+    "canvas_operation_safety",
+    "user_isolation",
+    "ux_or_design_quality",
+    "code_quality"
+  ],
+  "constraints": [
+    "No any types or as any assertions in new code.",
+    "No local semantic routing, keyword matching, regex intent detection, or fallback agent path.",
+    "High-risk mutations require explicit approval.",
+    "No downstream visual generation without actual upstream asset URLs.",
+    "Generated assets are append-only after success.",
+    "Runtime knowledge is limited to skills, current code, current project state, tool results, and user-provided context."
+  ],
+  "risks": [
+    "Hermes TUI Gateway may lack an event or tool transport needed by the Web contract.",
+    "Hermes sidecar lifecycle cannot be implemented inside Cloudflare Worker runtime and needs a Node/Python sidecar boundary.",
+    "Legacy chat behavior and canvas tool contracts are large and tightly coupled.",
+    "Browser verification may require an authenticated session unavailable to automation."
+  ]
+}

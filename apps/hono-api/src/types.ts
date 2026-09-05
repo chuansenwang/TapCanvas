@@ -87,6 +87,10 @@ export type WorkerEnv = Record<string, unknown> & {
 	NEW_API_PUBLIC_BASE_URL?: string;
 	NEW_API_RECOMMENDED_PROVIDER_BASE_URL?: string;
 	NEW_API_INTERNAL_TOKEN?: string;
+	/** Local ComfyUI API endpoint used by the comfyui model-catalog vendor. */
+	COMFYUI_BASE_URL?: string;
+	COMFYUI_API_TOKEN?: string;
+	COMFYUI_POLL_TIMEOUT_MS?: string;
 	NEW_API_USD_EXCHANGE_RATE?: string;
 	NEW_API_SQL_DSN?: string;
 	TAP_CREDITS_PER_CNY?: string;

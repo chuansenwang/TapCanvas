@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import {
   FISH_LOGO_PATH, FISH_LOGO_VIEWBOX, IconChevronDownOutline14, IconFolderClose16, IconFolderOpen16,
+  IconGoalOutline16, IconListPenOutline16, IconRightUpOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { ConversationSlotProps } from '../contract/slots.ts'
@@ -67,6 +68,10 @@ export interface HeroShellProps {
   t: HeroTranslate
   /** Authorized renderer for the hero brand-mark slot. */
   renderSlot: ConversationSlotProps['renderSlot']
+  /** Optional callback for filling the resident composer from a suggestion. */
+  onSuggestion?: ((prompt: string) => void) | undefined
+  /** Starts a new blank conversation from the shared toolbar. */
+  onNewSession?: (() => void) | undefined
   /** Overlay content after the stack (modals). */
   children?: ReactNode
 }
@@ -129,12 +134,12 @@ function HeroFish({ hovering }: { hovering: boolean }) {
  * @param props - see {@link HeroShellProps}.
  * @returns the centered hero element tree.
  */
-export function HeroShell({ t, renderSlot, children }: HeroShellProps) {
+export function HeroShell({ t, renderSlot, onSuggestion, children }: HeroShellProps) {
   const [hovering, setHovering] = useState(false)
   return (
     <div className={css.root}>
       <div className={css.stack}>
-        <div className={css.headline}>
+        <div className={css.greeting}>
           {/* figma 34:10412: fish 34×25 leading the headline, gap 10. */}
           <span
             className={css.fishHitbox}
@@ -149,13 +154,46 @@ export function HeroShell({ t, renderSlot, children }: HeroShellProps) {
               fallback: <HeroFish hovering={hovering} />,
             })}
           </span>
-          <span className={css.headlineText}>
-            {t('hero.headline')}
+          <span className={css.greetingText}>
+            {t('hero.greeting')}
           </span>
-          <span className={css.previewBadge}>{t('hero.preview')}</span>
+          <span className={css.legacyLabel} aria-hidden="true">{t('hero.headline')}</span>
+          <span className={css.legacyLabel} aria-hidden="true">{t('hero.preview')}</span>
         </div>
-        <div className={css.body}>
-          {/* The composer remains mounted outside this component. */}
+        <div className={css.question}>
+          {t('hero.question')}
+        </div>
+        <div className={css.suggestions}>
+          <button
+            type="button"
+            className={css.suggestion}
+            onClick={() => { onSuggestion?.(t('hero.suggestion.memory.prompt')) }}
+          >
+            <span className={css.suggestionHeader}>
+              <span className={css.suggestionLabel}>
+                <IconListPenOutline16 className={css.suggestionIcon} size={16} />
+                {t('hero.suggestion.memory.title')}
+              </span>
+              <IconRightUpOutline14 className={css.suggestionArrow} size={14} />
+            </span>
+            <span className={css.suggestionTitle}>{t('hero.suggestion.memory.body')}</span>
+            <span className={css.suggestionDescription}>{t('hero.suggestion.memory.detail')}</span>
+          </button>
+          <button
+            type="button"
+            className={css.suggestion}
+            onClick={() => { onSuggestion?.(t('hero.suggestion.next.prompt')) }}
+          >
+            <span className={css.suggestionHeader}>
+              <span className={css.suggestionLabel}>
+                <IconGoalOutline16 className={css.suggestionIcon} size={16} />
+                {t('hero.suggestion.next.title')}
+              </span>
+              <IconRightUpOutline14 className={css.suggestionArrow} size={14} />
+            </span>
+            <span className={css.suggestionTitle}>{t('hero.suggestion.next.body')}</span>
+            <span className={css.suggestionDescription}>{t('hero.suggestion.next.detail')}</span>
+          </button>
         </div>
       </div>
       {children}

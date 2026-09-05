@@ -58,7 +58,17 @@ function createManualChunks(id: string): string | undefined {
 }
 
 export default defineConfig(({ command, mode }) => {
-  const env = loadEnv(mode, process.cwd(), 'VITE_');
+  const loadedEnv = loadEnv(mode, process.cwd(), 'VITE_');
+  // 本地统一入口由 scripts/dev.mjs 通过进程环境注入同源代理前缀。
+  // Vite 的 .env 文件优先被 loadEnv 读取；若不显式合并该变量，
+  // apps/web/.env 中的 /api 会覆盖 /tapcanvas-api，导致 3080 页面把
+  // TapCanvas 请求发给 Harness 自身而不是 Hono API。
+  const env = {
+    ...loadedEnv,
+    ...(typeof process.env.VITE_API_BASE === 'string'
+      ? { VITE_API_BASE: process.env.VITE_API_BASE }
+      : {}),
+  };
   const storageProvider = env.VITE_OBJECT_STORAGE_PROVIDER?.trim().toLowerCase();
   if (storageProvider !== 'tos' && storageProvider !== 'r2') {
     throw new Error('[tapcanvas] VITE_OBJECT_STORAGE_PROVIDER must be either tos or r2.');

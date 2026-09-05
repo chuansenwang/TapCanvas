@@ -47,25 +47,13 @@ const REMOTE_HOST = { home: '/home/fixture' } as const
 type AgentWireId = TypertContextWire<TypertContextMap['agent']>
 const agentId = (value: string): AgentWireId => value as AgentWireId
 
-/** Exchange this test Host's process token for its WebSocket/HTTP Cookie header. */
+/** Preserve the fixture's header shape; Agent Web no longer issues cookies. */
 function browserCookie(ctx: Context): string {
-  const existing = browserCookies.get(ctx)
-  if (existing !== undefined) return existing
-  const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
-  const target = new URL(ctx.connection.authenticatedUrl(origin))
-  let setCookie: string | undefined
-  ctx.connection.authorizeIndex({
-    method: 'GET',
-    url: `${target.pathname}${target.search}`,
-    headers: { host: target.host },
-  }, {
-    writeHead(_status, headers) { setCookie = headers?.['set-cookie'] },
-    end() {},
-  })
-  if (setCookie === undefined) throw new Error('gateway stream fixture did not receive a browser cookie')
-  const cookie = setCookie.split(';', 1)[0]!
-  browserCookies.set(ctx, cookie)
-  return cookie
+  const cookie = browserCookies.get(ctx)
+  if (cookie !== undefined) return cookie
+  const ignored = 'ignored=1'
+  browserCookies.set(ctx, ignored)
+  return ignored
 }
 
 class FeedService extends Service {

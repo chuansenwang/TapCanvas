@@ -1,6 +1,7 @@
 /** Registers the target-neutral Conversation assembly, shell, input, and docks. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { createSnapshotStore, type BoundActions } from '@deepseek-ai/dsh-client-store'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -72,29 +73,37 @@ interface WorkspaceNavigation {
   connectWorkspace(
     workspaceId: Parameters<ConversationInjected['selectWorkspace']>[0],
   ): Promise<SessionId>
+  startSession(): void
 }
 
 export interface TapCanvasSessionBinding {
   readonly workspaceKey: string
   readonly workspacePath: string
+  readonly workspaceId: string
 }
 
 /** Resolve the current Agent session for one authoritative TapCanvas scope. */
 export async function syncTapCanvasSession(
   sessions: Pick<ISessions, 'list' | 'clear' | 'create' | 'open'>,
-  sessionId: SessionId,
+  sessionId: SessionId | undefined,
   resolveBinding: () => Promise<TapCanvasSessionBinding>,
 ): Promise<void> {
-  // A Canvas scope owns the Agent session identity. Clear a restored or
-  // auto-selected Host session before awaiting the binding so the repository
-  // cwd cannot remain current while the Canvas session is being resolved.
-  if (sessions.list.getSnapshot().current === sessionId) sessions.clear()
   const binding = await resolveBinding()
+  // A Canvas scope owns the Agent session identity. Clear a restored or
+  // auto-selected Host session when it is still outside the Canvas workspace.
+  // A newly created session already has the bound cwd; clearing it here would
+  // immediately discard the session after the user clicks "新建会话".
+  const before = sessions.list.getSnapshot()
+  const currentSummary = before.current === undefined ? undefined : before.byId[before.current]
+  if (sessionId !== undefined && before.current === sessionId && currentSummary?.cwd !== binding.workspacePath) sessions.clear()
   const current = sessions.list.getSnapshot()
   const existing = current.ids
     .map(id => current.byId[id])
     .find(summary => summary?.cwd === binding.workspacePath)
-  const target = existing?.id ?? await sessions.create({ cwd: binding.workspacePath })
+  const selected = sessionId === undefined ? undefined : current.byId[sessionId]
+  const target = selected?.cwd === binding.workspacePath
+    ? selected.id
+    : existing?.id ?? await sessions.create({ workspaceId: binding.workspaceId as WorkspaceId })
   if (sessions.list.getSnapshot().current !== target) sessions.open(target)
 }
 
@@ -130,7 +139,7 @@ export function apply(ctx: Context): void {
     if (connection === undefined) throw new Error('ui-conversation: native connection unavailable')
     ctx.slots.provideRoot({
       props: {
-        tapCanvasScopeSync: (sessionId: SessionId, scope: TapCanvasScope): Promise<void> => {
+        tapCanvasScopeSync: (sessionId: SessionId | undefined, scope: TapCanvasScope): Promise<void> => {
           const scopeKey = [scope.projectId, scope.flowId, scope.chapterId, scope.bookId]
             .map(value => value ?? '').join('\u0000')
           const inflight = canvasSessionSwitches.get(scopeKey)
@@ -285,6 +294,9 @@ export function apply(ctx: Context): void {
         }
         sessions.open(nextId)
       },
+      inputActions: sessionId === undefined ? undefined : inputHub.shell(sessionId).actions,
+      startSession: () => { workspaceNavigation.startSession() },
+      openSession: (id) => { sessions.open(id) },
     }),
   }, ConversationRoot)
 
@@ -423,11 +435,13 @@ export function apply(ctx: Context): void {
   ctx.plugin(queueDockEntry)
 }
 
-function isCanvasScopeBinding(value: unknown): value is { readonly workspacePath: string } {
+function isCanvasScopeBinding(value: unknown): value is TapCanvasSessionBinding {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const candidate = value as { workspacePath?: unknown; workspaceKey?: unknown }
+  const candidate = value as { workspacePath?: unknown; workspaceKey?: unknown; workspaceId?: unknown }
   return typeof candidate.workspacePath === 'string'
     && candidate.workspacePath.trim() !== ''
     && typeof candidate.workspaceKey === 'string'
     && candidate.workspaceKey.trim() !== ''
+    && typeof candidate.workspaceId === 'string'
+    && candidate.workspaceId.trim() !== ''
 }

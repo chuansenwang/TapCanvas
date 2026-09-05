@@ -5,7 +5,7 @@
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
  * harness-source and web-surface prompt sections, the bash-visible web runtime
- * variable, the process-token URL line, and the default-browser handoff. The
+ * variable, the clean Web URL line, and the default-browser handoff. The
  * model and shell retain the clean URL. App command-line values arrive through
  * the `webStartup` service expressions in the bundle patch.
  * @module @deepseek-ai/dsh-web-app
@@ -195,13 +195,31 @@ function resolveDistIndex(): string {
 }
 
 /** Mount the native Harness UI under the TapCanvas page without opening another Origin. */
-function mountHarnessWorkspace(ctx: Context): void {
+function mountHarnessWorkspace(ctx: Context, tapCanvasDistIndex: string): void {
   const distIndex = resolveHarnessDistIndex()
   const distRoot = dirname(distIndex)
   ctx.inject(['connection'], (workspaceCtx) => {
     const renderIndex = async (): Promise<string> => {
       const html = workspaceCtx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
       return html.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="/agent/">`)
+    }
+    const serveTapCanvasIndex = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405)
+        res.end()
+        return
+      }
+      await serveStatic(
+        '/',
+        res,
+        dirname(tapCanvasDistIndex),
+        tapCanvasDistIndex,
+        () => workspaceCtx.connection.authorizeIndex(req, res),
+        async () => {
+          const html = workspaceCtx.webServer.renderIndex(await readFile(tapCanvasDistIndex, 'utf8'))
+          return html.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="/">`)
+        },
+      )
     }
     workspaceCtx.effect(() => {
       const redirect = workspaceCtx.webServer.register({
@@ -244,15 +262,21 @@ function mountHarnessWorkspace(ctx: Context): void {
           }
         },
       })
+      const tapCanvasRoutes = ['/canvas', '/projects', '/studio'].map((path) => workspaceCtx.webServer.register({
+        kind: 'prefix' as const,
+        path,
+        handler: serveTapCanvasIndex,
+      }))
       return () => {
         workspace()
         redirect()
+        tapCanvasRoutes.forEach(dispose => dispose())
       }
     }, 'web-app: native agent workspace')
   })
 }
 
-/** Start the maintained platform opener without forwarding Harness credentials. */
+/** Start the maintained platform opener for the clean Agent Web URL. */
 function spawnBrowserLauncher(url: string): ChildProcess {
   return spawn(process.execPath, [
     '--input-type=module',
@@ -316,9 +340,10 @@ export function apply(ctx: Context, config: Config): void {
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   mountTapCanvasApiProxy(ctx, ctx.webServer, process.env.TAPCANVAS_API_PROXY_TARGET)
-  ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
+  const distIndex = internals.resolveDistIndex()
+  ctx.plugin(FrontendStatic, { distIndex })
   if (process.env.TAPCANVAS_WEB_DIST_INDEX !== undefined && process.env.TAPCANVAS_WEB_DIST_INDEX !== '') {
-    mountHarnessWorkspace(ctx)
+    mountHarnessWorkspace(ctx, distIndex)
   }
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {

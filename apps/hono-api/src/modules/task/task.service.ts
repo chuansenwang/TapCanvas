@@ -25,6 +25,7 @@ import {
 	type TaskRequestDto,
 	TaskStatusSchema,
 } from "./task.schemas";
+import { runComfyUiTask } from "./comfyui-workflow";
 import { emitTaskProgress } from "./task.progress";
 import {
 	hostTaskAssetsInWorker,
@@ -4477,8 +4478,7 @@ export async function runGenericTaskForVendor(
 	req: TaskRequestDto,
 	options?: { forceTaskId?: string | null },
 ): Promise<TaskResult> {
-	void vendor;
-	const v = "newapi";
+	const v = String(vendor || "").trim().toLowerCase() || "newapi";
 	setTraceStage(c, "task:run:begin", { vendor: v, taskKind: req.kind });
 	const progressCtx = extractProgressContext(req, v);
 	const startedAtMs = Date.now();
@@ -4509,20 +4509,27 @@ export async function runGenericTaskForVendor(
 		let result: TaskResult;
 
 		setTraceStage(c, "task:vendor:dispatch", { vendor: v, taskKind: req.kind });
-		if (!resolveNewApiRelayConfig(c)) {
-			throw new AppError(
-				"hono-api 已硬切到 new-api，但 NEW_API_INTERNAL_BASE_URL / NEW_API_INTERNAL_TOKEN 未配置",
-				{
-					status: 500,
-					code: "new_api_not_configured",
-					details: { vendor: v, taskKind: req.kind },
-				},
+		if (v === "comfyui") {
+			result = attachGenerationAssetContextToTaskResult(
+				await runComfyUiTask(c, req),
+				generationContext,
+			);
+		} else {
+			if (!resolveNewApiRelayConfig(c)) {
+				throw new AppError(
+					"hono-api 已硬切到 new-api，但 NEW_API_INTERNAL_BASE_URL / NEW_API_INTERNAL_TOKEN 未配置",
+					{
+						status: 500,
+						code: "new_api_not_configured",
+						details: { vendor: v, taskKind: req.kind },
+					},
+				);
+			}
+			result = attachGenerationAssetContextToTaskResult(
+				await runTaskViaNewApi(c, userId, v, req, options),
+				generationContext,
 			);
 		}
-		result = attachGenerationAssetContextToTaskResult(
-			await runTaskViaNewApi(c, userId, v, req, options),
-			generationContext,
-		);
 
 		const apiVendor = pickApiVendorForTask(result, v);
 		const persistAssets =

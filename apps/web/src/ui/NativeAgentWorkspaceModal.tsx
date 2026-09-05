@@ -53,7 +53,8 @@ function areStringArraysEqual(left: string[], right: string[]): boolean {
 
 /**
  * 在 TapCanvas 的当前页面内承载 Harness 原生工作区。
- * `/agent/` 与画布使用同一个浏览器 Origin，由 Harness Web Server 提供。
+ * 开发模式下画布由 Vite 提供，Agent iframe 使用 Harness Web 的独立 Origin；
+ * 生产/嵌入模式仍可通过同源 URL 承载。
  * Harness 的文件系统 Workspace 不承载画布数据；画布作用域通过结构化消息传入。
  */
 export function NativeAgentWorkspaceModal(): JSX.Element | null {
@@ -82,10 +83,19 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
   }), [canvasSource])
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null)
   const closeButtonRef = React.useRef<HTMLButtonElement | null>(null)
-  const agentSrc = React.useMemo(() => {
-    const search = window.location.search
-    return search === '' ? '/agent/' : `/agent/${search}`
+  const agentUrl = React.useMemo(() => {
+    const configuredUrl = import.meta.env.VITE_HARNESS_WEB_URL?.trim()
+    const url = new URL(configuredUrl || window.location.origin)
+    url.pathname = '/agent/'
+    // Keep legacy query strings out of the Agent route; Agent Web has no token.
+    url.searchParams.delete('token')
+    for (const [key, value] of new URLSearchParams(window.location.search)) {
+      url.searchParams.append(key, value)
+    }
+    url.searchParams.set('embedded', '1')
+    return url
   }, [])
+  const agentSrc = `${agentUrl.origin}${agentUrl.pathname}?${agentUrl.searchParams.toString()}`
   const [modelCatalogMessage, setModelCatalogMessage] = React.useState<TapCanvasModelCatalogMessage>({
     type: 'tapcanvas:model-catalog',
     catalog: { groups: [], failures: [] },
@@ -108,21 +118,21 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
   const publishScope = React.useCallback(() => {
     const frame = iframeRef.current
     if (frame?.contentWindow === null || frame?.contentWindow === undefined) return
-    frame.contentWindow.postMessage(scopeMessage, window.location.origin)
-    frame.contentWindow.postMessage(modelCatalogMessage, window.location.origin)
-  }, [modelCatalogMessage, scopeMessage])
+    frame.contentWindow.postMessage(scopeMessage, agentUrl.origin)
+    frame.contentWindow.postMessage(modelCatalogMessage, agentUrl.origin)
+  }, [agentUrl.origin, modelCatalogMessage, scopeMessage])
 
   React.useEffect(() => {
     if (!opened) return
     const onMessage = (event: MessageEvent<unknown>): void => {
-      if (event.origin !== window.location.origin) return
+      if (event.origin !== agentUrl.origin || event.source !== iframeRef.current?.contentWindow) return
       if (typeof event.data !== 'object' || event.data === null || Array.isArray(event.data)) return
       const message = event.data as { type?: unknown }
       if (message.type === 'tapcanvas:scope-request') publishScope()
     }
     window.addEventListener('message', onMessage)
     return () => { window.removeEventListener('message', onMessage) }
-  }, [opened, publishScope])
+  }, [agentUrl.origin, opened, publishScope])
 
   React.useEffect(() => {
     if (!opened) return
@@ -183,31 +193,26 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
   if (!opened) return null
 
   return (
-    <div className="native-agent-workspace-modal" role="dialog" aria-modal="true" aria-label="导演小T" onKeyDown={handleKeyDown}>
+    <div className="native-agent-workspace-modal" role="dialog" aria-modal="true" aria-label="Agent 工作区" onKeyDown={handleKeyDown}>
       <div className="native-agent-workspace-modal__backdrop" onClick={close} aria-hidden="true" />
       <aside className="native-agent-workspace-modal__panel">
-        <header className="native-agent-workspace-modal__header">
-          <h2 className="native-agent-workspace-modal__title">导演小T</h2>
-          <ActionIcon
-            className="native-agent-workspace-modal__close"
-            ref={closeButtonRef}
-            variant="subtle"
-            color="gray"
-            aria-label="收起导演小T"
-            onClick={close}
-          >
-            <IconX size={18} />
-          </ActionIcon>
-        </header>
-        <div className="native-agent-workspace-modal__body">
+        <ActionIcon
+          className="native-agent-workspace-modal__close"
+          ref={closeButtonRef}
+          variant="subtle"
+          color="gray"
+          aria-label="关闭 Agent 工作区"
+          onClick={close}
+        >
+          <IconX size={18} />
+        </ActionIcon>
         <iframe
           ref={iframeRef}
           className="native-agent-workspace-modal__frame"
           src={agentSrc}
-          title="导演小T原生工作区"
+          title="Agent 原生工作区"
           onLoad={publishScope}
         />
-        </div>
       </aside>
     </div>
   )

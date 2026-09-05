@@ -1,13 +1,15 @@
-# TapCanvas 项目索引（for agents-cli）
+# TapCanvas 项目索引（for 原生 Agent）
 
-> 目标：给后续开发/排障提供稳定索引入口，优先服务 `agents-cli` 检索与任务编排。
+> 目标：给后续开发/排障提供稳定索引入口，优先服务 `apps/agents` 中的原生 Agent 检索与任务编排。`apps/agents-cli` 仅作为 legacy 迁移/诊断入口维护。
 
 ## 1. Monorepo 结构总览
 
 - 根工作区：`pnpm-workspace.yaml`
 - 前端画布：`apps/web`（Vite + React + Mantine + React Flow + Zustand）
 - 后端 API：`apps/hono-api`（NestJS Node 进程 + 挂载 Hono 路由）
-- 智能体 CLI：`apps/agents-cli`（agents-cli 主体）
+- 原生智能体运行时：`apps/agents`（`@tapcanvas/agents`）
+- 原生 TapCanvas 技能：`apps/agents/.agents/skills/tapcanvas-*`
+- Legacy Bridge：`apps/agents-cli`（不属于默认运行路径）
 - 共享包：`packages/schemas`、`packages/sdk`、`packages/cli`
 - 文档：`docs`
 
@@ -15,8 +17,8 @@
 
 - Web 开发：`pnpm dev:web`
 - API 开发：`pnpm dev:api`
-- Agents CLI（本地桥接常用）：
-  - `pnpm --filter agents dev -- serve --port 8799`
+- 原生 Agent 开发：`pnpm dev:agents`
+- Legacy Agents CLI（仅显式诊断）：`pnpm dev:agents-legacy`
 - 构建：
   - Web：`pnpm --filter @tapcanvas/web build`
   - API：`pnpm --filter @tapcanvas/api build`
@@ -70,13 +72,13 @@
   - `assets.storyboardChunks`
   - `tailFrameUrl`
 
-## 4. Agents CLI 优先策略（项目约束）
+## 4. 原生 Agent 优先策略（项目约束）
 
 - 规范来源：`AGENTS.md`
 - 原则：
-  - 语义理解、功能决策、流程拦截优先走 `agents-cli`
+  - 语义理解、功能决策、流程拦截优先由 `apps/agents` 原生 Agent 完成
   - 本地规则仅做结构性校验（空值/类型/数量/权限/边界）
-  - 不使用本地硬编码规则覆盖 agents-cli 的语义结论
+  - 不使用本地硬编码规则覆盖原生 Agent 的语义结论
 
 ## 5. 模块定位速查（按改动意图）
 
@@ -104,10 +106,12 @@
   - 检查节点 `kind` 是否为 `novelStoryboard`
 - “续写不连续”：
   - 检查 `index.json` 的 `assets.storyboardChunks[*].tailFrameUrl`
-- “agents bridge 调用失败”：
-  - 检查 `AGENTS_BRIDGE_BASE_URL`、`AGENTS_API_BASE_URL`、网络超时
+- “原生 Agent 工具调用失败”：
+  - 检查 `apps/agents` 的原生 Harness Runtime、当前 TapCanvas 作用域与工具注册日志
+- “legacy Bridge 调用失败”：
+  - 仅在显式使用 legacy 通道时检查 `AGENTS_BRIDGE_BASE_URL`、`AGENTS_API_BASE_URL`、网络超时
 
-## 7. 建议检索命令（给 agents-cli）
+## 7. 建议检索命令（给原生 Agent）
 
 ```bash
 # 找章节分镜主流程

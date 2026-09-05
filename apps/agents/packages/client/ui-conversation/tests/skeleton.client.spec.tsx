@@ -25,6 +25,7 @@ import { ConversationSession, ConversationSessionHeader } from '../src/client/sk
 import { conversationPhase } from '../src/client/contract/snapshot.ts'
 import { HeroShell } from '../src/client/skeleton/EmptyHero.tsx'
 import type { HeroShellProps } from '../src/client/skeleton/EmptyHero.tsx'
+import { HeroToolbar } from '../src/client/skeleton/HeroToolbar.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
@@ -299,6 +300,7 @@ function mount(
     renderSlot,
     renderSlotChain,
     selectWorkspace: retargetWorkspace,
+    openSession: open,
     t,
   }
   const view = render(<ConversationRoot {...props} />)
@@ -310,6 +312,13 @@ function mount(
 }
 
 describe('Hero chrome', () => {
+  it('opens the history entry from the toolbar', () => {
+    const opened = vi.fn()
+    const view = render(<HeroToolbar t={t} onOpenHistory={opened} />)
+    fireEvent.click(view.getByRole('button', { name: '历史会话' }))
+    expect(opened).toHaveBeenCalledOnce()
+  })
+
   it('renders the English preview badge through the hero locale seat', () => {
     const renderSlot = vi.fn<HeroShellProps['renderSlot']>(() => null)
     const view = render(<HeroShell t={makeTranslate(en, commonEn)} renderSlot={renderSlot} />)
@@ -328,6 +337,16 @@ describe('Hero chrome', () => {
 })
 
 describe('ConversationRoot resident composer', () => {
+  it('opens a canvas-scoped history dialog and restores the selected session', () => {
+    const b = mount(sessionSnapshotOf())
+    fireEvent.click(b.view.getByRole('button', { name: '历史会话' }))
+    const dialog = b.view.getByRole('dialog', { name: '历史会话' })
+    expect(dialog).toBeTruthy()
+    fireEvent.click(dialog.querySelector('button[aria-current="page"]')!)
+    expect(b.open).toHaveBeenCalledWith(SID)
+    expect(b.view.queryByRole('dialog', { name: '历史会话' })).toBeNull()
+  })
+
   it('does not redispatch composer child slots for an unrelated Session publication', () => {
     const b = mount(sessionSnapshotOf())
     const childKeys = new Set([
@@ -432,6 +451,7 @@ describe('ConversationRoot resident composer', () => {
     expect(host?.contains(header)).toBe(false)
     expect(host?.contains(seat)).toBe(true)
     expect(seat?.contains(textarea)).toBe(true)
+    expect(b.view.container.querySelector('[data-hero-toolbar]')).not.toBeNull()
     expect(b.slotCalls).toContain('conversation.session.header.lineage')
     expect(b.slotCalls).toContain('conversation.session.header.actions')
     expect(b.slotCalls).toContain('conversation.session.header.utilities')

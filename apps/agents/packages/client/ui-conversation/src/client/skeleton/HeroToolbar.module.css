@@ -1,0 +1,64 @@
+.root {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 8px 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The host modal keeps its close control in the same top band. Leave a
+   dedicated right-side slot so it never covers the Agent settings button. */
+.root[data-embedded] {
+  padding-right: 60px;
+}
+
+.leading,
+.trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconButton,
+.newSession {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.iconButton {
+  width: 32px;
+  padding: 0;
+}
+
+.newSession {
+  gap: 8px;
+  padding: 0 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.iconButton:hover,
+.newSession:hover {
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:focus-visible,
+.newSession:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}

@@ -166,7 +166,9 @@ taskRouter.post("/", async (c) => {
 		);
 	}
 
-	const vendor = "newapi";
+	const vendor = "vendor" in payload && typeof payload.vendor === "string" && payload.vendor.trim()
+		? payload.vendor.trim()
+		: "newapi";
 	const req = await normalizeTaskAssetBackedVideoRequest(
 		c as any,
 		userId,

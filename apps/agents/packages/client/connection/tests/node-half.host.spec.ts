@@ -102,17 +102,9 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
   }
 }
 
-/** Exchange a service's process token for one authority-bound Cookie header. */
-function browserCookie(connection: HostConnectionHandle, authority: string): string {
-  const url = new URL(connection.authenticatedUrl(`http://${authority}`))
-  const exchanged = fakeResponse()
-  connection.authorizeIndex(
-    fakeRequest({ host: authority }, `${url.pathname}${url.search}`),
-    exchanged.response,
-  )
-  const setCookie = exchanged.state.headers?.['set-cookie']
-  if (setCookie === undefined) throw new Error('browser token exchange did not set a cookie')
-  return setCookie.split(';', 1)[0]!
+/** Legacy call sites keep a harmless cookie-shaped header; Agent auth ignores it. */
+function browserCookie(_connection: HostConnectionHandle, _authority: string): string {
+  return 'ignored=1'
 }
 
 describe('connection node half', () => {
@@ -166,7 +158,7 @@ describe('connection node half', () => {
     await dispose()
   })
 
-  it('requires the same browser session for every method on every trusted authority', async () => {
+  it('allows every method on every trusted authority without a browser session', async () => {
     const { routes, connection, dispose } = await mounted({ trustedHosts: ['harness.example'] })
     const methods = [
       'session/openWorkspacePath',
@@ -175,7 +167,7 @@ describe('connection node half', () => {
     for (const method of methods) {
       const denied = fakeResponse()
       await routes[0]!.handler(fakeRequest({ host: 'harness.example' }, `${API_PATH}/${method}`), denied.response)
-      expect([method, denied.state.status, denied.state.body]).toEqual([method, 401, 'unauthorized'])
+      expect([method, denied.state.status, denied.state.body]).toEqual([method, 404, 'not found'])
     }
 
     const cookie = browserCookie(connection, 'harness.example')
@@ -190,7 +182,7 @@ describe('connection node half', () => {
 
     const forged = fakeResponse()
     await routes[0]!.handler(fakeRequest({ host: 'localhost:3080' }), forged.response)
-    expect(forged.state).toMatchObject({ status: 401, body: 'unauthorized' })
+    expect(forged.state).toMatchObject({ status: 404, body: 'not found' })
     await dispose()
   })
 
@@ -229,8 +221,8 @@ describe('connection node half', () => {
     const loopback = fakeRequest({ host: '127.0.0.1:3080' })
     const declared = fakeRequest({ host: 'harness.example' })
 
-    expect(connection.requestRejection(loopback)).toBe(401)
-    expect(connection.requestRejection(declared)).toBe(401)
+    expect(connection.requestRejection(loopback)).toBeUndefined()
+    expect(connection.requestRejection(declared)).toBeUndefined()
     expect(connection.requestRejection(fakeRequest({
       host: 'harness.example',
       cookie: browserCookie(connection, 'harness.example'),
@@ -395,7 +387,7 @@ describe('connection node half', () => {
 
     const unauthenticated = fakeResponse()
     await route.handler(fakePost({ host: 'harness.example' }, '/rpc/goals/create', {}), unauthenticated.response)
-    expect(unauthenticated.state).toMatchObject({ status: 401, body: 'unauthorized' })
+    expect(unauthenticated.state.status).toBe(200)
 
     const methodMismatch = fakeResponse()
     await route.handler(fakePost(harnessHeaders, '/rpc/goals/create', {
@@ -488,8 +480,8 @@ describe('connection node half over a real HTTP server', () => {
   }
 
   it('requires authentication uniformly over a real HTTP request', async () => {
-    // A real IncomingMessage pins the exploit boundary: a client-controlled
-    // Host naming loopback passes the rebinding fence but never authenticates.
+    // A real IncomingMessage still enforces the Host trust fence, without a
+    // separate browser token or cookie gate.
     const { routes, connection, dispose } = await mounted({ trustedHosts: ['harness.example'] })
     const { port, close } = await serve(routes)
     try {
@@ -501,8 +493,8 @@ describe('connection node half over a real HTTP server', () => {
         'llm/listProviders', 'session/modelCatalog',
       ]
       for (const method of methods) {
-        expect([method, await call(port, method, 'localhost')]).toEqual([method, 401])
-        expect([method, await call(port, method, 'harness.example')]).toEqual([method, 401])
+        expect([method, await call(port, method, 'localhost')]).toEqual([method, 404])
+        expect([method, await call(port, method, 'harness.example')]).toEqual([method, 404])
       }
       expect(await call(port, 'settings/openSettingsDocument', 'other.example')).toBe(403)
 

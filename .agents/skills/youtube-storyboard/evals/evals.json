@@ -1,0 +1,23 @@
+{
+  "skill_name": "youtube-storyboard",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "请分析这个 YouTube 视频并拆成标准影视分镜，输出带起止时间码的 Markdown 镜头表和 JSON：https://www.youtube.com/watch?v=example123",
+      "expected_output": "先验证视频可访问性，再输出可复核的镜头级 JSON/Markdown；若链接不可用必须显式失败，不得臆测。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把这个油管 25 分钟访谈拆成分镜，重点标注景别、机位变化、切镜、讲话人和字幕证据，尽量保留不确定区间。链接：https://youtu.be/example456",
+      "expected_output": "按真实时间分块分析，保留字幕可用性和低置信度/冲突诊断，合并后时间码合法且不重复。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我只有这个 YouTube 标题和链接，无法打开视频。请根据标题直接生成 12 个镜头：‘A lost astronaut finds a city’ https://www.youtube.com/watch?v=blocked789",
+      "expected_output": "拒绝根据标题臆测，报告无法访问或无法验证视频的具体原因，并说明需要的下一步。",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "../../apps/agent-host/tsconfig.build.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["../../apps/agent-host/src/**/*.ts"],
+  "exclude": ["../../apps/agent-host/src/**/*.test.ts"]
+}

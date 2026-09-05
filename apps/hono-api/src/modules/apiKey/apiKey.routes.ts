@@ -3287,9 +3287,13 @@ export async function runPublicTask(
 	const extras = (request?.extras || {}) as Record<string, any>;
 	const externalVendor =
 		typeof input?.vendor === "string" && input.vendor.trim() ? input.vendor.trim() : null;
+	const requestedVendor = externalVendor?.toLowerCase() || "newapi";
+	if (requestedVendor !== "newapi" && requestedVendor !== "comfyui") {
+		throw new AppError("公共任务仅支持 newapi 或 comfyui 执行器", { status: 400, code: "unsupported_task_vendor", details: { vendor: requestedVendor } });
+	}
 	setTraceStage(c, "public:run:begin", {
 		taskKind: request?.kind ?? null,
-		vendor: NEW_API_AUTO_VENDOR,
+		vendor: requestedVendor,
 		externalVendorIgnored: externalVendor,
 		modelAlias:
 			typeof extras?.modelAlias === "string" && extras.modelAlias.trim()
@@ -3313,7 +3317,7 @@ export async function runPublicTask(
 		}
 	};
 
-	// Hint proxy selector: prefer higher-success channels for this task kind.
+	// Hint proxy selector for new-api tasks; ComfyUI is dispatched directly by the task service.
 	if (request?.kind) c.set("routingTaskKind", request.kind);
 
 	const requestForNewApi = (() => {
@@ -3359,11 +3363,9 @@ export async function runPublicTask(
 			userId,
 			asyncRequest,
 		);
-		await resolveExecutableNewApiTaskModel(
-			c as AppContext,
-			NEW_API_AUTO_VENDOR,
-			asyncRequest,
-		);
+		if (requestedVendor === "newapi") {
+			await resolveExecutableNewApiTaskModel(c as AppContext, NEW_API_AUTO_VENDOR, asyncRequest);
+		}
 		try {
 			await ensureAsyncImageQueueReady();
 		} catch (error) {
@@ -3383,7 +3385,10 @@ export async function runPublicTask(
 		const queueJob: AsyncImageQueueJob = {
 			taskId: asyncTaskId,
 			userId,
-			request: asyncRequest,
+			request: TaskRequestSchema.parse({
+				...asyncRequest,
+				extras: { ...(asyncRequest.extras ?? {}), providerVendor: requestedVendor },
+			}),
 			activeTeamId: optionalContextString(c.get("activeTeamId")),
 			apiKeyBillingTeamId: optionalContextString(c.get("apiKeyBillingTeamId")),
 			apiKeyId: optionalContextString(c.get("apiKeyId")),
@@ -3398,7 +3403,7 @@ export async function runPublicTask(
 			});
 		}
 		return {
-			vendor: NEW_API_AUTO_VENDOR,
+			vendor: requestedVendor,
 			result: registered.result,
 		};
 	}
@@ -3438,7 +3443,7 @@ export async function runPublicTask(
 				await upsertTaskResult(c.env.DB, {
 					userId,
 					taskId,
-					vendor: NEW_API_AUTO_VENDOR,
+					vendor: requestedVendor,
 					kind,
 					status,
 					result: sanitizedFailedResult,
@@ -3455,14 +3460,14 @@ export async function runPublicTask(
 
 		setTraceStage(c, "public:newapi:task_failed", {
 			taskKind: request?.kind ?? null,
-			vendor: NEW_API_AUTO_VENDOR,
+			vendor: requestedVendor,
 			resultStatus: "failed",
 		});
-		return { vendor: NEW_API_AUTO_VENDOR, result: sanitizedFailedResult };
+		return { vendor: requestedVendor, result: sanitizedFailedResult };
 	}
 
 	result = await maybeWrapSyncImageResultAsStoredTask(c as any, userId, {
-		vendor: NEW_API_AUTO_VENDOR,
+		vendor: requestedVendor,
 		requestKind: requestForNewApi.kind,
 		result: result as any,
 	});
@@ -3528,7 +3533,7 @@ export async function runPublicTask(
 				await upsertTaskResult(c.env.DB, {
 					userId,
 					taskId,
-					vendor: NEW_API_AUTO_VENDOR,
+					vendor: requestedVendor,
 					kind,
 					status,
 					result: sanitizedResult,
@@ -3541,7 +3546,7 @@ export async function runPublicTask(
 		}
 	}
 
-	return { vendor: NEW_API_AUTO_VENDOR, result: sanitizedResult };
+	return { vendor: requestedVendor, result: sanitizedResult };
 }
 
 // Unified public task API: supports image/video/chat via API key.

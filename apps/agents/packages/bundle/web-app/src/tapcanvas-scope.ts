@@ -37,13 +37,24 @@ export interface TapCanvasEdgeSnapshot {
 }
 
 interface ScopeRecord {
-  readonly sessionId: string
+  readonly sessionId: string | undefined
   readonly scope: TapCanvasScope
+}
+
+interface WorkspaceLike {
+  readonly id: string
+  attachSession(sessionId: string): Promise<void>
+}
+
+interface WorkspaceRegistryLike {
+  create(path: string, title?: string): Promise<WorkspaceLike>
+  get(id: string): WorkspaceLike | undefined
 }
 
 export interface TapCanvasScopeBinding {
   readonly workspaceKey: string
   readonly workspacePath: string
+  readonly workspaceId: string
 }
 
 const scopes = new Map<string, TapCanvasScope>()
@@ -56,9 +67,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseScope(value: unknown): ScopeRecord | null {
   if (!isRecord(value) || !isRecord(value.args)) return null
-  const sessionId = typeof value.args.sessionId === 'string' ? value.args.sessionId.trim() : ''
+  const sessionId = typeof value.args.sessionId === 'string' ? value.args.sessionId.trim() : undefined
   const rawScope = value.args.scope
-  if (!sessionId || !isRecord(rawScope)) return null
+  if (!isRecord(rawScope)) return null
   const projectId = typeof rawScope.projectId === 'string' ? rawScope.projectId.trim() : ''
   if (!projectId) return null
   return {
@@ -75,7 +86,7 @@ export function tapCanvasWorkspaceKey(scope: TapCanvasScope): string {
   return createHash('sha256').update(identity, 'utf8').digest('hex').slice(0, 32)
 }
 
-async function ensureWorkspace(scope: TapCanvasScope): Promise<TapCanvasScopeBinding> {
+async function ensureWorkspace(ctx: Context, scope: TapCanvasScope): Promise<TapCanvasScopeBinding> {
   const existing = bindings.get(tapCanvasWorkspaceKey(scope))
   if (existing !== undefined) return existing
   const dshHome = typeof process.env.DSH_HOME === 'string' ? process.env.DSH_HOME.trim() : ''
@@ -83,7 +94,10 @@ async function ensureWorkspace(scope: TapCanvasScope): Promise<TapCanvasScopeBin
   const key = tapCanvasWorkspaceKey(scope)
   const workspacePath = join(dshHome, 'tapcanvas-workspaces', key)
   await mkdir(workspacePath, { recursive: true })
-  const binding = { workspaceKey: key, workspacePath }
+  const registry = ctx.get('workspaceRegistry') as unknown as WorkspaceRegistryLike | undefined
+  if (registry === undefined) throw new Error('TapCanvas 画布会话无法绑定：Workspace Registry 未加载')
+  const workspace = await registry.create(workspacePath, scope.projectName ?? undefined)
+  const binding = { workspaceKey: key, workspacePath, workspaceId: String(workspace.id) }
   bindings.set(key, binding)
   return binding
 }
@@ -110,10 +124,23 @@ export function registerTapCanvasRuntime(ctx: Context): void {
     }
     const parsed = parseScope(payload)
     if (parsed === null) {
-      return failure('tapcanvas/invalid-scope', 'TapCanvas 作用域消息缺少有效的 sessionId 或画布标识')
+      return failure('tapcanvas/invalid-scope', 'TapCanvas 作用域消息缺少有效的画布标识')
     }
-    const binding = await ensureWorkspace(parsed.scope)
-    scopes.set(parsed.sessionId, parsed.scope)
+    const binding = await ensureWorkspace(ctx, parsed.scope)
+    const sessionId = parsed.sessionId
+    const session = sessionId === undefined
+      ? undefined
+      : ctx.sessions.get(sessionId as Parameters<typeof ctx.sessions.get>[0])
+    if (sessionId !== undefined && session !== undefined) {
+      const registry = ctx.get('workspaceRegistry') as unknown as WorkspaceRegistryLike | undefined
+      if (registry === undefined) throw new Error('TapCanvas 画布会话绑定失败：Workspace Registry 未加载')
+      const workspace = registry.get(binding.workspaceId)
+      if (workspace === undefined) {
+        throw new Error(`TapCanvas 画布会话绑定失败：Workspace ${binding.workspaceId} 不存在`)
+      }
+      await workspace.attachSession(sessionId)
+    }
+    if (parsed.sessionId !== undefined) scopes.set(parsed.sessionId, parsed.scope)
     scopesByWorkspacePath.set(binding.workspacePath, parsed.scope)
     return success({ accepted: true, ...binding })
   })

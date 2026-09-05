@@ -23,6 +23,116 @@
   overflow: visible;
 }
 
+.greeting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 32px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 500;
+}
+
+.greetingText {
+  display: inline-flex;
+  align-items: center;
+}
+
+.legacyLabel {
+  display: none;
+}
+
+.question {
+  color: var(--dsw-alias-label-primary);
+  font-size: 34px;
+  line-height: 42px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.suggestion {
+  display: flex;
+  min-height: 156px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  background: var(--dsw-specific-input-major);
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.suggestion:hover {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.suggestion:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+.suggestionHeader,
+.suggestionLabel {
+  display: flex;
+  align-items: center;
+}
+
+.suggestionHeader {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.suggestionLabel {
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.suggestionIcon,
+.suggestionArrow {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.suggestionTitle {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.suggestionDescription {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+@media (max-width: 640px) {
+  .question {
+    font-size: 28px;
+    line-height: 34px;
+  }
+
+  .suggestions {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* figma 34:10411: fish + title, gap 10, centered; 26/32 wt500. The preview
    badge is a product addition outside that source: a mono superscript pill
    riding the title's top-right. */

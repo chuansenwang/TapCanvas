@@ -4556,7 +4556,20 @@ function CanvasInner({
                   {!nodeIsGroup && (canCreateGroupFromSelection || canCreateScriptBundleFromSelection || canUngroupSelection) && <Divider className="tc-canvas__context-menu-divider" my={2} />}
                   <Button className="tc-canvas__context-menu-action" variant="subtle" onClick={() => { copyNode(menu.id!); setMenu(null) }}>复制</Button>
                   <Button className="tc-canvas__context-menu-action" variant="subtle" onClick={() => { duplicateNode(menu.id!); setMenu(null) }}>复制一份</Button>
-                  <Button className="tc-canvas__context-menu-action" variant="subtle" color="red" onClick={() => { deleteNode(menu.id!); setMenu(null) }}>删除</Button>
+                  <Button
+                    className="tc-canvas__context-menu-action"
+                    variant="subtle"
+                    color="red"
+                    onClick={() => {
+                      const deleted = deleteNode(menu.id!)
+                      if (!deleted) {
+                        toast('该节点受保护，无法删除；请在所属章节目录中管理章节内容', 'warning')
+                      }
+                      setMenu(null)
+                    }}
+                  >
+                    删除
+                  </Button>
                   <Divider className="tc-canvas__context-menu-divider" my={2} />
                   <Button
                     className="tc-canvas__context-menu-action"

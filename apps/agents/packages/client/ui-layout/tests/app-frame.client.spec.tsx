@@ -153,6 +153,20 @@ afterEach(() => {
 })
 
 describe('AppFrame', () => {
+  it('removes the duplicate sidebar permanently in embedded mode', () => {
+    window.history.pushState({}, '', '/?embedded=1')
+    try {
+      const { frame, slotCalls } = mountFrame()
+      expect(frame.style.gridTemplateColumns).toBe('0px minmax(0, 1fr) 0px')
+      expect(slotCalls.filter(call => call.key === 'sidebar').at(-1)?.props)
+        .toEqual({ collapsed: true, width: 0 })
+      act(() => { window.dispatchEvent(new CustomEvent('dsh:toggle-sidebar')) })
+      expect(frame.style.gridTemplateColumns).toBe('0px minmax(0, 1fr) 0px')
+    } finally {
+      window.history.pushState({}, '', '/')
+    }
+  })
+
   it('localizes the product title when the build does not supply one', () => {
     mountFrame()
     expect(document.title).toBe('DSH Local Build')
