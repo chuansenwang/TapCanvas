@@ -104,7 +104,6 @@ describe('real Loader composition', () => {
     expect(unloaded).toEqual([])
     const server = loaded.webServer
     const port = server.port
-    const launchUrl = loaded.connection.authenticatedUrl(`http://127.0.0.1:${String(port)}`)
     const authenticated = (init?: RequestInit): RequestInit => {
       const headers = new Headers(init?.headers)
       headers.set('cookie', 'ignored=1')

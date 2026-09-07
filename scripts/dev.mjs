@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { delimiter, resolve } from 'node:path'
@@ -6,12 +7,14 @@ import { fileURLToPath } from 'node:url'
 
 const rootDirectory = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 const harnessDirectory = resolve(rootDirectory, 'apps/agents')
+const honoDirectory = resolve(rootDirectory, 'apps/hono-api')
 const harnessWebDistIndex = resolve(harnessDirectory, 'apps/web/dist/index.html')
 const tapCanvasWebDistIndex = resolve(rootDirectory, 'apps/web/dist/index.html')
 // 新 Harness 运行时不能复用迁移前 Bridge 的持久化目录：两者的会话 schema
 // 和身份边界不同，混用时必须显式失败，而不是在启动时迁移或覆盖旧记录。
 const harnessHomeDirectory = resolve(rootDirectory, '.runtime/tapcanvas-agents-web')
 const harnessAuthenticatedUrlFile = resolve(harnessHomeDirectory, 'authenticated-url.txt')
+const harnessEnvironmentFingerprintFile = resolve(harnessHomeDirectory, 'environment-fingerprint')
 const harnessWebUrl = 'http://127.0.0.1:3080'
 const command = process.argv[2] || 'local'
 const options = new Set(process.argv.slice(3))
@@ -20,6 +23,28 @@ const pnpmCommand = 'corepack'
 const npmCommand = isWindows ? 'npm.cmd' : 'npm'
 const services = []
 let stopping = false
+
+function readDotEnvValue(filePath, key) {
+  if (!existsSync(filePath)) return undefined
+  const prefix = `${key}=`
+  for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/u)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.startsWith(prefix)) continue
+    const raw = trimmed.slice(prefix.length).trim()
+    if (!raw) return undefined
+    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+      return raw.slice(1, -1)
+    }
+    return raw
+  }
+  return undefined
+}
+
+const internalWorkerToken = process.env.INTERNAL_WORKER_TOKEN?.trim()
+  || readDotEnvValue(resolve(honoDirectory, '.env'), 'INTERNAL_WORKER_TOKEN')
+const internalWorkerTokenFingerprint = internalWorkerToken
+  ? createHash('sha256').update(internalWorkerToken, 'utf8').digest('hex')
+  : ''
 
 function runBlocking(program, args, cwd, env = process.env) {
   const spec = toProcessSpec(program, args)
@@ -346,9 +371,13 @@ async function prepareHarnessWeb() {
     const harnessProcessId = getListeningProcessIds(3080).find((processId) =>
       isHarnessWebProcess(getProcessCommandLine(processId)),
     )
+    const fingerprint = existsSync(harnessEnvironmentFingerprintFile)
+      ? readFileSync(harnessEnvironmentFingerprintFile, 'utf8').trim()
+      : ''
     if (authenticatedUrl !== null && new URL(authenticatedUrl).searchParams.size === 0
       && harnessProcessId !== undefined
-      && isHarnessAuthenticatedUrlFresh(harnessProcessId)) {
+      && isHarnessAuthenticatedUrlFresh(harnessProcessId)
+      && fingerprint === internalWorkerTokenFingerprint) {
       console.log(`[dev] 检测到已运行的 Harness Web，复用：${harnessWebUrl}`)
       return false
     }
@@ -406,6 +435,40 @@ async function prepareHonoApi() {
   return true
 }
 
+async function isAsyncImageWorkerHealthy() {
+  const workerEnvironment = {
+    ...process.env,
+    // 本地开发时 worker 与 Redis 默认都在回环地址；生产/Compose 通过环境变量覆盖。
+    REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+  }
+  const result = spawnSync(
+    pnpmCommand,
+    ['pnpm', '--filter', '@tapcanvas/api', 'async-image:worker:health'],
+    {
+      cwd: rootDirectory,
+      env: workerEnvironment,
+      encoding: 'utf8',
+      timeout: 8_000,
+      windowsHide: true,
+    },
+  )
+  if (result.error || result.status !== 0) return false
+  const lines = String(result.stdout || '').split(/\r?\n/u).reverse()
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) continue
+    try {
+      const value = JSON.parse(trimmed)
+      if (isRecord(value) && value.ok === true && typeof value.workerCount === 'number') {
+        return Number.isInteger(value.workerCount) && value.workerCount > 0
+      }
+    } catch {
+      // Ignore package-manager output; only the structured health result is authoritative.
+    }
+  }
+  return false
+}
+
 if (command === 'help' || command === '--help' || command === '-h') {
   console.log('用法：pnpm run dev [-- --install]')
   process.exit(0)
@@ -437,7 +500,6 @@ if (!shouldStartHarnessWeb && harnessLaunchUrl === null) {
 }
 stopStaleWebDevServers()
 
-const honoDirectory = resolve(rootDirectory, 'apps/hono-api')
 const honoEnvironment = {
   ...process.env,
   NODE_PATH: [resolve(honoDirectory, 'node_modules'), process.env.NODE_PATH || '']
@@ -467,6 +529,22 @@ if (shouldStartNewApi) {
   startService('new-api', 'go', ['run', 'main.go'], resolve(rootDirectory, 'apps/new-api'))
   console.log('[dev] new-api: http://localhost:4455')
 }
+if (!(await isAsyncImageWorkerHealthy())) {
+  const workerEnvironment = {
+    ...process.env,
+    REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+  }
+  startService(
+    'async-image-worker',
+    pnpmCommand,
+    ['pnpm', '--filter', '@tapcanvas/api', 'async-image:worker'],
+    rootDirectory,
+    workerEnvironment,
+  )
+  console.log('[dev] Async image worker: tapcanvas-async-image')
+} else {
+  console.log('[dev] 检测到已运行的 Async image worker，复用现有 worker')
+}
 if (shouldStartHarnessWeb) {
   const harnessWebEnvironment = {
     ...process.env,
@@ -478,8 +556,10 @@ if (shouldStartHarnessWeb) {
     // Browsers or extensions can block loopback cross-port XHR. Keep the
     // business API behind the authenticated Harness origin in this local mode.
     TAPCANVAS_API_PROXY_TARGET: process.env.TAPCANVAS_API_PROXY_TARGET || 'http://127.0.0.1:8788',
+    ...(internalWorkerToken ? { INTERNAL_WORKER_TOKEN: internalWorkerToken } : {}),
   }
   const harnessService = startHarnessWebService(harnessWebEnvironment)
+  writeFileSync(harnessEnvironmentFingerprintFile, `${internalWorkerTokenFingerprint}\n`, 'utf8')
   harnessLaunchUrl = await harnessService.authenticatedUrl
   console.log(`[dev] Harness Web: ${harnessLaunchUrl}`)
 }

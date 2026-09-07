@@ -20,7 +20,7 @@ type WorkflowVariant = {
 	id: string;
 	name?: string;
 	capability?: string;
-	taskKind: "text_to_image" | "image_edit" | "text_to_video" | "image_to_video";
+	taskKind: "text_to_image" | "image_edit" | "text_to_video" | "image_to_video" | "text_to_audio";
 	referenceImageCount: number;
 	workflow: ComfyWorkflow;
 	promptNodeIds?: string[];
@@ -28,6 +28,9 @@ type WorkflowVariant = {
 	mediaLoaderNodeIds?: string[];
 	outputNodeIds?: string[];
 	outputMediaType?: "image" | "video" | "audio";
+	audioLoaderNodeIds?: string[];
+	emotionControlNodeIds?: string[];
+	audioEmotionMode?: "basic" | "vector" | "text";
 };
 
 type ComfyConfig = {
@@ -74,7 +77,7 @@ export function parseComfyUiWorkflowConfig(meta: unknown, modelKey: string): Com
 	for (const [index, raw] of meta.comfyui.workflowVariants.entries()) {
 		if (!isRecord(raw)) throw new AppError(`ComfyUI 工作流变体 ${index + 1} 配置无效`, { status: 500, code: "comfyui_workflow_config_invalid" });
 		const id = readString(raw.id);
-		const taskKind = raw.taskKind === "text_to_image" || raw.taskKind === "image_edit" || raw.taskKind === "text_to_video" || raw.taskKind === "image_to_video" ? raw.taskKind : null;
+		const taskKind = raw.taskKind === "text_to_image" || raw.taskKind === "image_edit" || raw.taskKind === "text_to_video" || raw.taskKind === "image_to_video" || raw.taskKind === "text_to_audio" ? raw.taskKind : null;
 		const count = typeof raw.referenceImageCount === "number" && Number.isInteger(raw.referenceImageCount) && raw.referenceImageCount >= 0 ? raw.referenceImageCount : null;
 		if (!id || !taskKind || count === null) throw new AppError(`ComfyUI 工作流变体 ${index + 1} 缺少 id/taskKind/referenceImageCount`, { status: 500, code: "comfyui_workflow_config_invalid" });
 		const promptNodeIds = Array.isArray(raw.promptNodeIds) ? raw.promptNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
@@ -83,7 +86,10 @@ export function parseComfyUiWorkflowConfig(meta: unknown, modelKey: string): Com
 		const outputNodeIds = Array.isArray(raw.outputNodeIds) ? raw.outputNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const capability = readString(raw.capability);
 		const outputMediaType = raw.outputMediaType === "image" || raw.outputMediaType === "video" || raw.outputMediaType === "audio" ? raw.outputMediaType : undefined;
-		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(mediaLoaderNodeIds?.length ? { mediaLoaderNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}), ...(outputMediaType ? { outputMediaType } : {}) });
+		const audioLoaderNodeIds = Array.isArray(raw.audioLoaderNodeIds) ? raw.audioLoaderNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
+		const emotionControlNodeIds = Array.isArray(raw.emotionControlNodeIds) ? raw.emotionControlNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
+		const audioEmotionMode = raw.audioEmotionMode === "basic" || raw.audioEmotionMode === "vector" || raw.audioEmotionMode === "text" ? raw.audioEmotionMode : undefined;
+		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(mediaLoaderNodeIds?.length ? { mediaLoaderNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}), ...(outputMediaType ? { outputMediaType } : {}), ...(audioLoaderNodeIds?.length ? { audioLoaderNodeIds } : {}), ...(emotionControlNodeIds?.length ? { emotionControlNodeIds } : {}), ...(audioEmotionMode ? { audioEmotionMode } : {}) });
 	}
 	return { workflowVariants: variants };
 }
@@ -92,7 +98,7 @@ export function selectComfyUiWorkflowVariant(
 	config: ComfyConfig,
 	input: { modelKey: string; taskKind: WorkflowVariant["taskKind"]; referenceImageCount?: number; mediaInputCount?: number; capability?: string },
 ): WorkflowVariant {
-	const matches = config.workflowVariants.filter((variant) => variant.taskKind === input.taskKind && (input.taskKind === "text_to_video" || input.taskKind === "image_to_video" ? true : variant.referenceImageCount === input.referenceImageCount) && (!input.capability || variant.capability === input.capability || variant.id === input.capability));
+	const matches = config.workflowVariants.filter((variant) => variant.taskKind === input.taskKind && (input.taskKind === "text_to_video" || input.taskKind === "image_to_video" || input.taskKind === "text_to_audio" ? true : variant.referenceImageCount === input.referenceImageCount) && (!input.capability || variant.capability === input.capability || variant.id === input.capability));
 	if (matches.length !== 1) throw new AppError(`ComfyUI 工作流无法唯一匹配：${input.modelKey}/${input.taskKind}${typeof input.referenceImageCount === "number" ? `/参考图${input.referenceImageCount}张` : typeof input.mediaInputCount === "number" ? `/媒体${input.mediaInputCount}项` : ""}`, { status: 400, code: "comfyui_workflow_route_not_unique", details: { modelKey: input.modelKey, taskKind: input.taskKind, referenceImageCount: input.referenceImageCount ?? null, mediaInputCount: input.mediaInputCount ?? null, matches: matches.map((variant) => variant.id) } });
 	return matches[0]!;
 }
@@ -149,7 +155,7 @@ export function applyComfyUiWorkflowInputs(
 		}
 	}
 	const promptIds = variant.promptNodeIds ?? discoverNodeIds(workflow, "prompt");
-	if (promptIds.length === 0) throw new AppError(`ComfyUI 工作流 ${variant.id} 未找到提示词节点`, { status: 500, code: "comfyui_prompt_node_missing" });
+	if (promptIds.length === 0 && variant.taskKind !== "text_to_audio") throw new AppError(`ComfyUI 工作流 ${variant.id} 未找到提示词节点`, { status: 500, code: "comfyui_prompt_node_missing" });
 	for (const id of promptIds) {
 		const inputs = workflow[id]?.inputs;
 		if (!inputs) throw new AppError(`ComfyUI 提示词节点 ${id} 不存在`, { status: 500, code: "comfyui_prompt_node_invalid" });
@@ -162,6 +168,36 @@ export function applyComfyUiWorkflowInputs(
 		];
 		for (const [extraKey, inputKey] of h3Fields) {
 			if (typeof extras[extraKey] === "string" || typeof extras[extraKey] === "number") inputs[inputKey] = extras[extraKey];
+		}
+	}
+	if (variant.taskKind === "text_to_audio") {
+		const extras = isRecord(request.extras) ? request.extras : {};
+		const audioLoaderIds = variant.audioLoaderNodeIds ?? Object.entries(workflow).filter(([, node]) => readString(node.class_type) === "XiaozhuguangAudioLoader").map(([id]) => id);
+		if (audioLoaderIds.length !== 1) throw new AppError(`ComfyUI 工作流 ${variant.id} 的音频加载节点必须唯一`, { status: 500, code: "comfyui_audio_loader_not_unique" });
+		const loaderInputs = workflow[audioLoaderIds[0]!]!.inputs;
+		if (!loaderInputs) throw new AppError(`ComfyUI 音频节点 ${audioLoaderIds[0]} 无 inputs`, { status: 500, code: "comfyui_audio_loader_invalid" });
+		const uploadedVoice = mediaInputs.find((item) => item.role === "reference" || item.role === "audio");
+		if (!uploadedVoice) throw new AppError("IndexTTS 需要 voiceReferenceUrl 音色参考音频", { status: 400, code: "comfyui_voice_reference_missing" });
+		if (Object.prototype.hasOwnProperty.call(loaderInputs, "音频")) loaderInputs["音频"] = uploadedVoice.filename;
+		else if (Object.prototype.hasOwnProperty.call(loaderInputs, "audio")) loaderInputs.audio = uploadedVoice.filename;
+		else throw new AppError(`ComfyUI 音频节点 ${audioLoaderIds[0]} 缺少音频输入字段`, { status: 500, code: "comfyui_audio_input_field_missing" });
+		const mode = variant.audioEmotionMode;
+		const controlIds = variant.emotionControlNodeIds ?? Object.entries(workflow).filter(([, node]) => readString(node.class_type) === "XZG_IndexTTS25_EmotionControl").map(([id]) => id);
+		if (mode && controlIds.length !== 1) throw new AppError(`ComfyUI 工作流 ${variant.id} 的情绪控制节点必须唯一`, { status: 500, code: "comfyui_emotion_control_not_unique" });
+		if (mode) {
+			const controlInputs = workflow[controlIds[0]!]!.inputs;
+			if (!controlInputs) throw new AppError(`ComfyUI 情绪控制节点 ${controlIds[0]} 无 inputs`, { status: 500, code: "comfyui_emotion_control_invalid" });
+			if (mode === "vector") {
+				const vector = extras.emotionVector;
+				if (!Array.isArray(vector) || vector.length !== 8 || vector.some((value) => typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)) throw new AppError("IndexTTS 情绪向量必须是 8 个 0 到 1 之间的数字", { status: 400, code: "comfyui_emotion_vector_invalid" });
+				["happy", "angry", "sad", "afraid", "disgusted", "melancholic", "surprised", "calm"].forEach((name, index) => { const key = `mode.${name}`; if (Object.prototype.hasOwnProperty.call(controlInputs, key)) controlInputs[key] = vector[index]!; });
+				if (Object.prototype.hasOwnProperty.call(controlInputs, "mode")) controlInputs.mode = "vector";
+			} else if (mode === "text") {
+				const emotionText = readString(extras.emotionText);
+				if (!emotionText) throw new AppError("IndexTTS 文本情绪不能为空", { status: 400, code: "comfyui_emotion_text_missing" });
+				if (Object.prototype.hasOwnProperty.call(controlInputs, "mode")) controlInputs.mode = "text";
+				if (Object.prototype.hasOwnProperty.call(controlInputs, "mode.emotion_text")) controlInputs["mode.emotion_text"] = emotionText;
+			} else if (Object.prototype.hasOwnProperty.call(controlInputs, "mode")) controlInputs.mode = "basic";
 		}
 	}
 	const imageIds = variant.imageNodeIds ?? discoverNodeIds(workflow, "image");
@@ -274,12 +310,14 @@ export async function runComfyUiTask(c: AppContext, req: TaskRequestDto): Promis
 			mediaInputs.push({ type: value.type, url: value.url.trim(), ...(role ? { role } : {}) });
 		}
 	}
-	const taskKind: WorkflowVariant["taskKind"] = req.kind === "text_to_video" || req.kind === "image_to_video" ? req.kind : mediaInputs.length > 0 ? "text_to_video" : references.length ? "image_edit" : "text_to_image";
+	const taskKind: WorkflowVariant["taskKind"] = req.kind === "text_to_video" || req.kind === "image_to_video" || req.kind === "text_to_audio" ? req.kind : mediaInputs.length > 0 ? "text_to_video" : references.length ? "image_edit" : "text_to_image";
 	const capability = readString(extras.workflowCapability) || readString(extras.libTvImagePresetKey) || undefined;
 	const variant = await resolveVariant(c, modelKey, taskKind, references.length, mediaInputs.length, capability);
 	const seed = resolveComfyUiSeed(req);
 	const uploadedNames: string[] = [];
 	for (let index = 0; index < references.length; index += 1) uploadedNames.push(await uploadReferenceImage(baseUrl, token, references[index]!, index));
+	const audioReferenceUrl = readString(extras.voiceReferenceUrl);
+	if (taskKind === "text_to_audio" && audioReferenceUrl) mediaInputs.push({ type: "audio", url: audioReferenceUrl, role: "reference" });
 	const uploadedMedia: UploadedComfyMedia[] = [];
 	for (let index = 0; index < mediaInputs.length; index += 1) uploadedMedia.push(await uploadComfyMedia(baseUrl, token, mediaInputs[index]!, index));
 	const workflow = applyComfyUiWorkflowInputs(variant, req, uploadedNames, seed, uploadedMedia);
@@ -290,7 +328,7 @@ export async function runComfyUiTask(c: AppContext, req: TaskRequestDto): Promis
 	const assets = [];
 	for (const file of files) {
 		const url = comfyUrl(baseUrl, `view?filename=${encodeURIComponent(file.filename)}&subfolder=${encodeURIComponent(file.subfolder)}&type=${encodeURIComponent(file.type)}`);
-		const type = variant.outputMediaType || (req.kind === "text_to_video" || req.kind === "image_to_video" ? "video" : "image");
+		const type = variant.outputMediaType || (req.kind === "text_to_video" || req.kind === "image_to_video" ? "video" : req.kind === "text_to_audio" ? "audio" : "image");
 		assets.push(TaskAssetSchema.parse({ type, url }));
 	}
 	return TaskResultSchema.parse({ id: submitted.promptId, kind: req.kind, status: "succeeded", assets, raw: { provider: "comfyui", modelKey, workflowVariant: variant.id, seed, promptId: submitted.promptId, mediaInputs: uploadedMedia.map(({ filename: _filename, ...media }) => media), response: submitted.response, history } });

@@ -1,5 +1,6 @@
 import { Queue } from "bullmq";
 
+import { loadLocalEnvFiles } from "../src/platform/node/local-env";
 import {
 	assertAsyncImageQueueReady,
 	type AsyncImageQueueJob,
@@ -7,6 +8,7 @@ import {
 import { makeQueueConnection, QUEUE_NAMES } from "../src/modules/task/queues";
 
 async function main(): Promise<void> {
+	loadLocalEnvFiles();
 	const connection = makeQueueConnection();
 	const queue = new Queue<AsyncImageQueueJob>(QUEUE_NAMES.asyncImage, { connection });
 	try {

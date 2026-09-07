@@ -43,6 +43,26 @@ describe("ComfyUI 工作流目录", () => {
 		const h3Variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id: "h3", taskKind: "text_to_video", referenceImageCount: 0, workflow: { "3": { class_type: "MiniMaxH3Easy", inputs: { prompt: "old" } }, "42": { class_type: "MiniMaxH3EasyMediaLoader", inputs: { media_state: "{}" } } } }] } }, "minimax-h3").workflowVariants[0]!;
 		expect(() => applyComfyUiWorkflowInputs(h3Variant, { kind: "text_to_video", prompt: "生成视频", extras: {} }, [], 1)).toThrow("缺少媒体输入");
 	});
+	it("IndexTTS 三种模式分别绑定音色参考和情绪控制", () => {
+		const makeVariant = (mode: "basic" | "vector" | "text") => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id: mode, capability: `emotion-${mode}`, taskKind: "text_to_audio", referenceImageCount: 0, audioLoaderNodeIds: ["4"], ...(mode !== "basic" ? { emotionControlNodeIds: ["5"], audioEmotionMode: mode } : {}), workflow: {
+				"2": { class_type: "XZG_IndexTTS25_Generate", inputs: { text: "old", speaker_audio: ["4", 0], ...(mode !== "basic" ? { emotion: ["5", 0] } : {}) } },
+				"4": { class_type: "XiaozhuguangAudioLoader", inputs: { "音频": "old.wav" } },
+				"5": { class_type: "XZG_IndexTTS25_EmotionControl", inputs: { mode: mode, "mode.happy": 0, "mode.angry": 0, "mode.sad": 0, "mode.afraid": 0, "mode.disgusted": 0, "mode.melancholic": 0, "mode.surprised": 0, "mode.calm": 0, "mode.emotion_text": "" } },
+			} }] } }, "indextts").workflowVariants[0]!;
+		const media = [{ type: "audio" as const, role: "reference" as const, url: "https://example.test/ref.wav", filename: "ref.wav" }];
+		const basic = applyComfyUiWorkflowInputs(makeVariant("basic"), { kind: "text_to_audio", prompt: "你好", extras: {} }, [], 1, media);
+		expect(basic["2"]?.inputs?.text).toBe("你好");
+		expect(basic["4"]?.inputs?.["音频"]).toBe("ref.wav");
+		const vector = applyComfyUiWorkflowInputs(makeVariant("vector"), { kind: "text_to_audio", prompt: "你好", extras: { emotionVector: [1, 0, 0, 0, 0, 0, 0, 0] } }, [], 1, media);
+		expect(vector["5"]?.inputs?.["mode.happy"]).toBe(1);
+		const text = applyComfyUiWorkflowInputs(makeVariant("text"), { kind: "text_to_audio", prompt: "你好", extras: { emotionText: "克制而紧张" } }, [], 1, media);
+		expect(text["5"]?.inputs?.["mode.emotion_text"]).toBe("克制而紧张");
+	});
+
+	it("IndexTTS 情绪输入缺失时显式失败", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id: "vector", taskKind: "text_to_audio", referenceImageCount: 0, audioLoaderNodeIds: ["4"], emotionControlNodeIds: ["5"], audioEmotionMode: "vector", workflow: { "2": { class_type: "XZG_IndexTTS25_Generate", inputs: { text: "old" } }, "4": { class_type: "XiaozhuguangAudioLoader", inputs: { "音频": "old.wav" } }, "5": { class_type: "XZG_IndexTTS25_EmotionControl", inputs: { mode: "vector" } } } }] } }, "indextts").workflowVariants[0]!;
+		expect(() => applyComfyUiWorkflowInputs(variant, { kind: "text_to_audio", prompt: "你好", extras: {} }, [], 1, [{ type: "audio", role: "reference", url: "https://example.test/ref.wav", filename: "ref.wav" }])).toThrow("情绪向量");
+	});
 	it("解析并按任务类型和参考图数量唯一选择变体", () => {
 		const config = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [
 			{ id: "txt", taskKind: "text_to_image", referenceImageCount: 0, workflow },

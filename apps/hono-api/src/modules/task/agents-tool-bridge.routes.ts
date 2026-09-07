@@ -358,6 +358,7 @@ export const AgentsToolExecuteRequestSchema = z.object({
     "finalize",
   ]),
   args: z.record(z.string(), z.unknown()).default({}),
+  vendor: z.enum(["comfyui", "newapi"]).optional(),
   toolCallId: z.string().min(1).optional(),
   canvasProjectId: z.string().min(1).optional(),
   canvasFlowId: z.string().min(1).optional(),
@@ -5104,6 +5105,7 @@ export function registerPublicAgentsToolBridgeRoutes(publicApiRouter: OpenAPIHon
         flowId,
         row,
         bodyArgs: imageGenerateArgs,
+        ...(body.vendor ? { vendor: body.vendor } : {}),
         ...(chapterCanvasId ? { chapterId: chapterCanvasId } : {}),
         ...(body.toolCallId ? { toolCallId: body.toolCallId } : {}),
       });

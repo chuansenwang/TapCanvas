@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 export interface TapCanvasScope {
+  readonly userId?: string | null
   readonly projectId: string | null
   readonly projectName: string | null
   readonly flowId: string | null
@@ -68,16 +69,21 @@ export function resolveTapCanvasParentOrigin(
   referrer: string,
   ownOrigin: string,
   embedded: boolean,
+  ancestorOrigin?: string,
+  explicitParentOrigin?: string,
 ): string | null {
   if (!embedded) return ownOrigin
-  const trimmed = referrer.trim()
-  if (trimmed === '') return null
-  try {
-    const origin = new URL(trimmed).origin
-    return origin === 'null' ? null : origin
-  } catch {
-    return null
+  const candidates = [explicitParentOrigin?.trim() ?? '', referrer.trim(), ancestorOrigin?.trim() ?? '']
+  for (const candidate of candidates) {
+    if (candidate === '') continue
+    try {
+      const origin = new URL(candidate).origin
+      if (origin !== 'null') return origin
+    } catch {
+      // Try the browser-provided ancestor origin when referrer is malformed.
+    }
   }
+  return null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -129,6 +135,7 @@ export function parseTapCanvasScope(value: unknown): TapCanvasScope | null {
   if (!isRecord(value)) return null
   const scope = isRecord(value.scope) ? value.scope : value
   return {
+    userId: nullableString(scope.userId),
     projectId: nullableString(scope.projectId),
     projectName: nullableString(scope.projectName),
     flowId: nullableString(scope.flowId),
@@ -187,10 +194,13 @@ export function useTapCanvasScope(): TapCanvasScope | null {
   const [scope, setScope] = useState<TapCanvasScope | null>(null)
 
   useEffect(() => {
+    const explicitParentOrigin = new URLSearchParams(window.location.search).get('parentOrigin') ?? ''
     const parentOrigin = resolveTapCanvasParentOrigin(
       document.referrer,
       window.location.origin,
       window.parent !== window,
+      window.location.ancestorOrigins?.[0],
+      explicitParentOrigin,
     )
     const onMessage = (event: MessageEvent<unknown>): void => {
       if (event.source !== window.parent) return

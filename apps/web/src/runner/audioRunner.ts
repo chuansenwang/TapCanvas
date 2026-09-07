@@ -1,6 +1,6 @@
 import type { Edge, Node } from '@xyflow/react'
 import { toast } from '../ui/toast'
-import { generateMusicAudio, synthesizeSpeechAudio } from '../api/server'
+import { generateMusicAudio, runPublicTaskWithAuth, synthesizeSpeechAudio, type TaskRequestDto } from '../api/server'
 
 function nowLabel() {
   return new Date().toLocaleTimeString()
@@ -12,6 +12,12 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function pickText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function readEmotionVector(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null
+  if (value.length !== 8 || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) return null
+  return value.map((item) => Number(item))
 }
 
 /**
@@ -172,6 +178,30 @@ export async function runNodeAudio(
       resultDuration = result.durationSec
       resultModel = result.model
     } else {
+      const audioVendor = pickText(data.audioModelVendor)
+      if (audioVendor === 'comfyui') {
+        const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
+        const voiceReferenceUrl = refs.referenceAudioUrls[0] || pickText(data.voiceReferenceUrl)
+        if (!voiceReferenceUrl) throw new Error('IndexTTS 缺少音色参考音频，请连接上游音频节点')
+        const emotionMode = data.indexttsEmotionMode === 'vector' || data.indexttsEmotionMode === 'text' ? data.indexttsEmotionMode : 'basic'
+        const request: TaskRequestDto = {
+          kind: 'text_to_audio',
+          prompt: text,
+          extras: {
+            nodeId: id,
+            modelKey: audioModel,
+            workflowCapability: `emotion-${emotionMode}`,
+            voiceReferenceUrl,
+            ...(emotionMode === 'text' ? { emotionText: pickText(data.indexttsEmotionText) } : {}),
+            ...(emotionMode === 'vector' ? { emotionVector: readEmotionVector(data.indexttsEmotionVector) } : {}),
+          },
+        }
+        const response = await runPublicTaskWithAuth({ vendor: audioVendor, request })
+        const asset = response.result.assets.find((item) => item.type === 'audio' && item.url.trim())
+        if (!asset) throw new Error('IndexTTS 工作流未返回音频资产')
+        resultUrl = asset.url
+        resultModel = audioModel
+      } else {
       const isDoubao = audioModel.toLowerCase().startsWith('doubao-seed-audio')
       if (isDoubao) {
         const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
@@ -202,6 +232,7 @@ export async function runNodeAudio(
         resultUrl = result.url
         resultDuration = result.durationSec
         resultModel = result.model
+      }
       }
     }
     if (isCanceled(id)) {

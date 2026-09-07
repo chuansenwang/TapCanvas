@@ -791,6 +791,7 @@ export type ProfileKind =
   | 'image_to_prompt'
   | 'image_to_video'
   | 'text_to_video'
+  | 'text_to_audio'
   | 'image_edit'
 
 export type ModelProfileDto = {
@@ -9690,6 +9691,7 @@ export type TaskKind =
   | 'image_to_prompt'
   | 'image_to_video'
   | 'text_to_video'
+  | 'text_to_audio'
   | 'image_edit'
   | 'image_to_3d'
   | 'video_enhance'

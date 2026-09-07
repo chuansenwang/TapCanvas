@@ -1532,6 +1532,58 @@ describe("generateImageToCanvas", () => {
     });
   });
 
+  it("passes an explicit comfyui vendor to the public task executor", async () => {
+    const row: FlowRow = {
+      id: "flow-local-image",
+      name: "Flow",
+      data: JSON.stringify({ nodes: [], edges: [] }),
+      owner_id: "user-1",
+      project_id: "project-1",
+      created_at: "2026-03-26T00:00:00.000Z",
+      updated_at: "2026-03-26T00:00:00.000Z",
+    };
+    mockedRunPublicTask.mockResolvedValueOnce({
+      vendor: "comfyui",
+      result: {
+        id: "prompt-local-1",
+        status: "succeeded",
+        assets: [{ type: "image", url: "http://127.0.0.1:8188/view?filename=dog.png" }],
+      },
+    });
+    mockedUpdateFlow.mockImplementationOnce(async (_db, input) => ({
+      id: input.id,
+      name: input.name,
+      data: input.data,
+      owner_id: "user-1",
+      project_id: "project-1",
+      created_at: row.created_at,
+      updated_at: input.nowIso,
+    }));
+    mockedCreateFlowVersion.mockResolvedValueOnce(undefined);
+
+    await generateImageToCanvas({
+      c: { env: { DB: {} } } as AppContext,
+      requestUserId: "user-1",
+      devBypass: false,
+      flowId: row.id,
+      row,
+      vendor: "comfyui",
+      bodyArgs: {
+        node: {
+          type: "taskNode",
+          position: { x: 0, y: 0 },
+          data: { kind: "imageEdit", prompt: "基于参考图生成小狗场景变体" },
+        },
+      },
+    });
+
+    expect(mockedRunPublicTask).toHaveBeenCalledWith(
+      expect.any(Object),
+      "user-1",
+      expect.objectContaining({ vendor: "comfyui" }),
+    );
+  });
+
 	it("ends the parent delivery boundary after persisting an accepted image task", async () => {
 		const row: FlowRow = {
 			id: "flow-async-image",

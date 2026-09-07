@@ -10,6 +10,7 @@ describe('TapCanvas scope bridge', () => {
     expect(parseTapCanvasScopeMessage({
       type: 'tapcanvas:scope',
       scope: {
+        userId: 'user-1',
         projectId: ' project-1 ',
         projectName: '项目一',
         flowId: '',
@@ -25,6 +26,7 @@ describe('TapCanvas scope bridge', () => {
     })).toEqual({
       type: 'tapcanvas:scope',
       scope: {
+        userId: 'user-1',
         projectId: 'project-1',
         projectName: '项目一',
         flowId: null,
@@ -62,5 +64,24 @@ describe('TapCanvas scope bridge', () => {
   it('fails closed when an embedded page has no valid referrer origin', () => {
     expect(resolveTapCanvasParentOrigin('', 'http://127.0.0.1:3080', true)).toBeNull()
     expect(resolveTapCanvasParentOrigin('not a URL', 'http://127.0.0.1:3080', true)).toBeNull()
+  })
+
+  it('uses the browser ancestor origin when referrer metadata is unavailable', () => {
+    expect(resolveTapCanvasParentOrigin(
+      '',
+      'http://127.0.0.1:3080',
+      true,
+      'http://127.0.0.1:5175',
+    )).toBe('http://127.0.0.1:5175')
+  })
+
+  it('prefers an explicit parent origin supplied by the embedding shell', () => {
+    expect(resolveTapCanvasParentOrigin(
+      'http://127.0.0.1:9999/studio',
+      'http://127.0.0.1:3080',
+      true,
+      'http://127.0.0.1:9999',
+      'http://127.0.0.1:5175',
+    )).toBe('http://127.0.0.1:5175')
   })
 })

@@ -5938,10 +5938,18 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
   )
   const activeAudioModelOptions = audioType === 'music' ? audioMusicModelOptions : audioSpeechModelOptions
   React.useEffect(() => {
+    if (!isAudioNode || !storedAudioModel || modelListLoading || modelListError) return
+    const selected = findModelOptionByIdentifier(activeAudioModelOptions, storedAudioModel)
+    if (selected?.vendor && (data as Record<string, unknown>).audioModelVendor !== selected.vendor) {
+      updateNodeData(id, { audioModelVendor: selected.vendor })
+    }
+  }, [activeAudioModelOptions, data, id, isAudioNode, modelListError, modelListLoading, storedAudioModel, updateNodeData])
+  React.useEffect(() => {
     if (!isAudioNode || viewOnly || modelListLoading || modelListError || storedAudioModel) return
     const firstValue = String(activeAudioModelOptions[0]?.value || '').trim()
     if (!firstValue) return
-    updateNodeData(id, { audioModel: firstValue })
+    const firstOption = activeAudioModelOptions[0]
+    updateNodeData(id, { audioModel: firstValue, audioModelVendor: firstOption?.vendor || null })
   }, [
     activeAudioModelOptions,
     id,
@@ -5988,6 +5996,9 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
         : 'instrumental'
 
     const modelOptions = activeAudioModelOptions
+    const audioDataRecord = data as Record<string, unknown>
+    const isComfyAudio = selectedAudioOption?.vendor === 'comfyui'
+    const indexttsEmotionMode = audioDataRecord.indexttsEmotionMode === 'vector' || audioDataRecord.indexttsEmotionMode === 'text' ? audioDataRecord.indexttsEmotionMode : 'basic'
 
     const controls: AudioControl[] = [
       {
@@ -6021,11 +6032,46 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
             toast(`音频模型 ${value} 不在当前系统模型目录中`, 'error')
             return
           }
-          updateNodeData(id, { audioModel: value })
+          const selected = findModelOptionByIdentifier(modelOptions, value)
+          updateNodeData(id, { audioModel: value, audioModelVendor: selected?.vendor || null })
         },
       },
     ]
     if (audioType === 'speech') {
+      if (isComfyAudio) {
+        const vectorValue = Array.isArray(audioDataRecord.indexttsEmotionVector) ? JSON.stringify(audioDataRecord.indexttsEmotionVector) : '[0,0,0,0,0,0,0,0]'
+        controls.push({
+          key: 'indexttsEmotionMode',
+          title: '情感控制',
+          summary: indexttsEmotionMode === 'vector' ? '音频向量' : indexttsEmotionMode === 'text' ? '文本情感' : '基础情感',
+          options: [
+            { value: 'basic', label: '基础情感' },
+            { value: 'vector', label: '音频向量' },
+            { value: 'text', label: '文本情感' },
+          ],
+          onChange: (value) => updateNodeData(id, { indexttsEmotionMode: value }),
+        })
+        if (indexttsEmotionMode === 'text') {
+          controls.push({
+            key: 'indexttsEmotionText',
+            title: '情感文本',
+            summary: String(audioDataRecord.indexttsEmotionText || '').trim() || '未填写',
+            options: [],
+            onChange: () => {},
+            render: <TextInput className="task-node-audio-emotion-text" size="xs" placeholder="例如：克制但带有紧张感" value={String(audioDataRecord.indexttsEmotionText || '')} onChange={(event) => updateNodeData(id, { indexttsEmotionText: event.currentTarget.value })} />,
+          })
+        }
+        if (indexttsEmotionMode === 'vector') {
+          controls.push({
+            key: 'indexttsEmotionVector',
+            title: '情感向量',
+            summary: vectorValue,
+            options: [],
+            onChange: () => {},
+            render: <TextInput className="task-node-audio-emotion-vector" size="xs" placeholder="8个0到1的数字(JSON)" defaultValue={vectorValue} onBlur={(event) => { try { const parsed: unknown = JSON.parse(event.currentTarget.value); if (Array.isArray(parsed)) updateNodeData(id, { indexttsEmotionVector: parsed }) } catch { /* 后端会在提交时报告无效向量 */ } }} />,
+          })
+        }
+      }
       if (isDoubao) {
         // 豆包语音：富音色选择器（render）+ 语速/音调/响度
         controls.push(

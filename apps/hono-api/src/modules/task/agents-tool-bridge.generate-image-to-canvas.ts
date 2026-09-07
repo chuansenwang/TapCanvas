@@ -500,6 +500,8 @@ type ImageGenInput = {
   flowId: string;
   row: FlowRow;
   bodyArgs: unknown;
+  /** Function 显式选择的图片执行器；省略时沿用 new-api。 */
+  vendor?: "comfyui" | "newapi";
   // When set, the result node is written into this chapter's canvas
   // (`chapters.canvas_flow`) instead of the flows table. `row` is then a
   // synthetic FlowRow carrying the chapter canvas graph (for group-config reads).
@@ -1874,6 +1876,7 @@ async function generateSingleImageNode(
   try {
     created = await runPublicTask(input.c, input.requestUserId, {
       request: taskRequest,
+      ...(input.vendor ? { vendor: input.vendor } : {}),
     });
   } finally {
     imageGlobalSemaphore.release();

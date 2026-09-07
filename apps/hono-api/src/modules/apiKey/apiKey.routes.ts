@@ -2347,7 +2347,8 @@ function isPublicTaskKindSupported(kind: string): boolean {
 			 k === "video_edit" ||
 		k === "chat" ||
 		k === "prompt_refine" ||
-		k === "image_to_prompt"
+		k === "image_to_prompt" ||
+		k === "text_to_audio"
 	);
 }
 
@@ -2707,12 +2708,13 @@ function filterVendorsByEnabledSystemConfig(
 
 function resolveCatalogKindForTaskKind(
 	taskKind: string | null | undefined,
-): "text" | "image" | "video" | null {
+	): "text" | "image" | "video" | "audio" | null {
 	const k = (taskKind || "").trim();
 	if (!k) return null;
 	if (k === "chat" || k === "prompt_refine" || k === "image_to_prompt") return "text";
 	if (k === "text_to_image" || k === "image_edit") return "image";
 	if (k === "text_to_video" || k === "image_to_video" || k === "video_edit") return "video";
+	if (k === "text_to_audio") return "audio";
 	return null;
 }
 
@@ -3299,9 +3301,10 @@ export async function runPublicTask(
 		request.kind !== "text_to_image" &&
 		request.kind !== "image_edit" &&
 		request.kind !== "text_to_video" &&
-		request.kind !== "image_to_video"
+		request.kind !== "image_to_video" &&
+		request.kind !== "text_to_audio"
 	) {
-		throw new AppError("本地 ComfyUI 执行器当前仅支持图片和 H3 视频任务", {
+		throw new AppError("本地 ComfyUI 执行器当前支持图片、H3 视频和 IndexTTS 音频任务", {
 			status: 400,
 			code: "unsupported_comfyui_task_kind",
 			details: { vendor: requestedVendor, taskKind: request.kind },

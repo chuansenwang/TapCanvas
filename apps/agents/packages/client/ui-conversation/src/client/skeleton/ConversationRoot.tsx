@@ -155,6 +155,12 @@ export function ConversationRoot({
     || new URLSearchParams(window.location.search).get('embedded') === '1'
   useEffect(() => {
     if (tapCanvasScope === null) return
+    // The first embedded render can precede the Host session baseline. Until
+    // that snapshot is ready, `sessionId` may be temporarily undefined even
+    // when a persisted canvas session is about to be restored. Syncing here
+    // would mistake that transient gap for an empty canvas and create another
+    // session.
+    if (sessionList.phase !== 'ready') return
     if (tapCanvasScopeSync === undefined) {
       console.error('[tapcanvas] 原生 Harness 作用域同步失败：连接能力未注入')
       return
@@ -162,7 +168,7 @@ export function ConversationRoot({
     void tapCanvasScopeSync(sessionId, tapCanvasScope).catch((error: unknown) => {
       console.error('[tapcanvas] 原生 Harness 作用域同步失败:', error)
     })
-  }, [sessionId, tapCanvasScope, tapCanvasScopeSync])
+  }, [sessionId, sessionList.phase, tapCanvasScope, tapCanvasScopeSync])
   // A plugin this package cannot import (ui-model-selection) says this session cannot
   // send; its reason is already localized by whoever raised it.
   const composerBlock = useComposerBlock(block => block)

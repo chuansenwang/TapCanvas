@@ -2,6 +2,7 @@ import React from 'react'
 import { ActionIcon } from '@mantine/core'
 import { IconX } from '@tabler/icons-react'
 import { useUIStore } from './uiStore'
+import { useAuth } from '../auth/store'
 import { isCanvasNodeDragActive, useRFStore } from '../canvas/store'
 import { listNewApiModels } from '../api/server'
 import './NativeAgentWorkspaceModal.css'
@@ -9,6 +10,7 @@ import './NativeAgentWorkspaceModal.css'
 type TapCanvasScopeMessage = {
   type: 'tapcanvas:scope'
   scope: {
+    userId?: string | null
     projectId: string | null
     projectName: string | null
     flowId: string | null
@@ -63,6 +65,7 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
   const project = useUIStore((state) => state.currentProject)
   const flow = useUIStore((state) => state.currentFlow)
   const chapter = useUIStore((state) => state.currentChapter)
+  const userId = useAuth((state) => state.user?.sub == null ? null : String(state.user.sub))
   const selectedNodeIds = useRFStore(selectSelectedNodeIds, areStringArraysEqual)
   const canvasSource = useRFStore((state) => ({ nodes: state.nodes, edges: state.edges }), (left, right) =>
     left.nodes === right.nodes && left.edges === right.edges)
@@ -92,6 +95,10 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
     for (const [key, value] of new URLSearchParams(window.location.search)) {
       url.searchParams.append(key, value)
     }
+    // Referrer metadata may be stripped for the cross-port embedded Agent;
+    // provide the owning shell origin explicitly while the child still
+    // validates both message source and origin.
+    url.searchParams.set('parentOrigin', window.location.origin)
     url.searchParams.set('embedded', '1')
     return url
   }, [])
@@ -104,6 +111,7 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
   const scopeMessage = React.useMemo<TapCanvasScopeMessage>(() => ({
     type: 'tapcanvas:scope',
     scope: {
+      userId,
       projectId: project?.id ? String(project.id).trim() : null,
       projectName: project?.name ? String(project.name).trim() : null,
       flowId: flow?.id ? String(flow.id).trim() : null,
@@ -113,7 +121,7 @@ export function NativeAgentWorkspaceModal(): JSX.Element | null {
       selectedNodeIds: [...selectedNodeIds],
       canvas,
     },
-  }), [canvas, chapter, flow, project, selectedNodeIds])
+  }), [canvas, chapter, flow, project, selectedNodeIds, userId])
 
   const publishScope = React.useCallback(() => {
     const frame = iframeRef.current

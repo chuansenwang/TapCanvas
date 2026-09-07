@@ -41,7 +41,7 @@ Range.prototype.getBoundingClientRect = () => ({
 
 function fakeWiring() {
   const sink = vi.fn(() => Promise.resolve({ kind: 'success' as const }))
-  const shell = new SessionInputShell({ actx: {} as Context, defaultSink: sink, commandImages: { serialize: () => Promise.resolve([]), release: () => {}, unsupportedNotice: (token: string) => `${token.trim()} images-unsupported` } })
+  const shell = new SessionInputShell({ actx: {} as Context, defaultSink: sink, commandAttachments: { serialize: () => Promise.resolve([]), release: () => {}, unsupportedNotice: (token: string) => `${token.trim()} attachments-unsupported` } })
   return { wiring: shell, sink, shell }
 }
 
@@ -122,6 +122,11 @@ function mount(
     composerBlock?: { reason: string }
     /** Mutable view ledger used by registration-order regressions. */
     viewTabs?: ViewTab[]
+    /** Simulate the Host session baseline arriving after the embedded scope. */
+    sessionPhase?: SessionListState['phase']
+    /** Simulate the current session id being restored after the baseline. */
+    sessionId?: SessionId | null
+    tapCanvasScopeSync?: ConversationRootProps['tapCanvasScopeSync']
   } = {},
 ) {
   const root = sid('root')
@@ -147,7 +152,7 @@ function mount(
       ...listed && { [SID]: childRow },
     },
     current: SID,
-    phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
+    phase: options.sessionPhase ?? 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
   })
   const workspaces = createSnapshotStore<WorkspaceSnapshot>(workspaceState(workspaceRows))
   const session = createSnapshotStore<SessionSnapshot>(snapshot)
@@ -250,9 +255,11 @@ function mount(
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
-          addImages={() => null}
-          removeImage={() => {}}
-          draftImages={() => []}
+          addFiles={() => null}
+          useFileUploads={bindSnapshotSelector(createSnapshotStore({}))}
+          retryFileUpload={undefined}
+          removeAttachment={() => {}}
+          resolveDraftAttachments={() => []}
           resolveSubmitMode={() => 'queue'}
           toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
@@ -286,7 +293,7 @@ function mount(
       : (opts?.fallback ?? null)
   )) as ConversationRootProps['renderSlotChain']
   const props: ConversationRootProps = {
-    sessionId: SID,
+    sessionId: options.sessionId === null ? undefined : options.sessionId ?? SID,
     SessionProvider: ({ children }) => children,
     useSession,
     useConversation,
@@ -301,11 +308,12 @@ function mount(
     renderSlotChain,
     selectWorkspace: retargetWorkspace,
     openSession: open,
+    tapCanvasScopeSync: options.tapCanvasScopeSync,
     t,
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, store, wiring, sink, retargetWorkspace, session, conversation, slotCalls, lineageOwners, seatOwners, open,
+    view, store, wiring, sink, retargetWorkspace, session, conversation, sessions, slotCalls, lineageOwners, seatOwners, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -337,6 +345,45 @@ describe('Hero chrome', () => {
 })
 
 describe('ConversationRoot resident composer', () => {
+  it('waits for the session baseline before syncing the canvas scope', async () => {
+    const sync = vi.fn<NonNullable<ConversationRootProps['tapCanvasScopeSync']>>(
+      async () => {},
+    )
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      sessionPhase: 'pending',
+      sessionId: null,
+      tapCanvasScopeSync: sync,
+    })
+    const scope = {
+      projectId: 'project-1',
+      projectName: 'Project 1',
+      flowId: 'flow-1',
+      chapterId: null,
+      chapterTitle: null,
+      bookId: null,
+      selectedNodeIds: [],
+      canvas: null,
+    }
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window,
+        origin: window.location.origin,
+        data: { type: 'tapcanvas:scope', scope },
+      }))
+      await Promise.resolve()
+    })
+    expect(sync).not.toHaveBeenCalled()
+
+    act(() => {
+      const current = b.sessions.getSnapshot()
+      b.sessions.set({ ...current, phase: 'ready' })
+    })
+
+    expect(sync).toHaveBeenCalledOnce()
+    expect(sync).toHaveBeenCalledWith(undefined, expect.objectContaining({ projectId: 'project-1' }))
+  })
+
   it('opens a canvas-scoped history dialog and restores the selected session', () => {
     const b = mount(sessionSnapshotOf())
     fireEvent.click(b.view.getByRole('button', { name: '历史会话' }))

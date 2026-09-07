@@ -22,6 +22,9 @@ function variant(id, fileName, taskKind, referenceImageCount, options = {}) {
     ...(options.outputNodeIds ? { outputNodeIds: options.outputNodeIds } : {}),
     ...(options.mediaLoaderNodeIds ? { mediaLoaderNodeIds: options.mediaLoaderNodeIds } : {}),
     ...(options.outputMediaType ? { outputMediaType: options.outputMediaType } : {}),
+    ...(options.audioLoaderNodeIds ? { audioLoaderNodeIds: options.audioLoaderNodeIds } : {}),
+    ...(options.emotionControlNodeIds ? { emotionControlNodeIds: options.emotionControlNodeIds } : {}),
+    ...(options.audioEmotionMode ? { audioEmotionMode: options.audioEmotionMode } : {}),
   };
 }
 
@@ -33,6 +36,17 @@ const imageOptions = {
 };
 
 const models = [
+  {
+    modelKey: "indextts-2.5",
+    modelAlias: "indextts-2.5",
+    labelZh: "IndexTTS 2.5（本地 ComfyUI）",
+    kind: "audio",
+    variants: [
+      variant("emotion-basic", "INDEX2.5音频基础.json", "text_to_audio", 0, { capability: "emotion-basic", audioLoaderNodeIds: ["4"], outputNodeIds: ["3"], outputMediaType: "audio" }),
+      variant("emotion-vector", "INDEX2.5音频情感向量模式.json", "text_to_audio", 0, { capability: "emotion-vector", audioLoaderNodeIds: ["5"], emotionControlNodeIds: ["4"], audioEmotionMode: "vector", outputNodeIds: ["1"], outputMediaType: "audio" }),
+      variant("emotion-text", "INDEX2.5音频文本情感.json", "text_to_audio", 0, { capability: "emotion-text", audioLoaderNodeIds: ["1"], emotionControlNodeIds: ["5"], audioEmotionMode: "text", outputNodeIds: ["4"], outputMediaType: "audio" }),
+    ],
+  },
   {
     modelKey: "klein-9b",
     modelAlias: "klein-9b",
@@ -110,7 +124,7 @@ const models = [
   labelZh: model.labelZh,
   kind: model.kind || "image",
   enabled: true,
-  meta: { ...(model.kind === "video" ? { videoOptions: model.videoOptions } : { imageOptions }), comfyui: { workflowVariants: model.variants } },
+  meta: { ...(model.kind === "video" ? { videoOptions: model.videoOptions } : model.kind === "audio" ? { tags: ["tapcanvas:audio-type=speech"] } : { imageOptions }), comfyui: { workflowVariants: model.variants } },
   pricing: { cost: 0, enabled: true, specCosts: [] },
 }));
 
