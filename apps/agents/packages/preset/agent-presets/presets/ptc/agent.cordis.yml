@@ -99,6 +99,10 @@
 # carries whatever the deployment registered globally (repository plugins).
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    # Native TapCanvas sessions use only the explicitly bundled runtime skills.
+    includeDefaultRoots: false
+    bundledSkillDir: !!js process.env.DSH_BUNDLED_SKILL_DIR || process.getBuiltinModule('node:url').fileURLToPath(new URL('../../../../../.agents/skills/', baseUrl))
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'

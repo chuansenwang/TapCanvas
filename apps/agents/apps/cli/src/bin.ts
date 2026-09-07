@@ -11,6 +11,12 @@ import { fileURLToPath } from 'node:url'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
 
+// Native TapCanvas skills live beside the harness installation. Set this
+// explicit root before preset YAML is evaluated so direct CLI launches keep
+// the native catalog without inheriting project or user skill roots.
+const nativeSkillDir = fileURLToPath(new URL('../../../.agents/skills/', import.meta.url))
+if (process.env.DSH_BUNDLED_SKILL_DIR === undefined) process.env.DSH_BUNDLED_SKILL_DIR = nativeSkillDir
+
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the checked-in manifest resolves with the
 // same relative hop from either artifact.

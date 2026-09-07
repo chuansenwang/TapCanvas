@@ -255,6 +255,9 @@
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:
+    # Native TapCanvas sessions use only explicit bundled/preset skill roots.
+    includeDefaultRoots: false
+    bundledSkillDir: !!js process.env.DSH_BUNDLED_SKILL_DIR || process.getBuiltinModule('node:url').fileURLToPath(new URL('../../../../../.agents/skills/', baseUrl))
     customSkillDirs:
       - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
 

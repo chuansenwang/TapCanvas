@@ -412,7 +412,7 @@ describe('the shipped Web composition', () => {
     expect((await readFile(skill, 'utf8')).startsWith('---\nname: editing-cordis-compositions')).toBe(true)
   })
 
-  it('merges the global skill layer into a preset agent\'s catalog, keeping local discovery preset-side', async () => {
+  it('keeps global and native skills while excluding project roots', async () => {
     const proj = await mkdtemp(join(tmpdir(), 'dsh-preset-skill-proj-'))
     await mkdir(join(proj, '.dsh', 'skills', 'project-proof'), { recursive: true })
     await writeFile(join(proj, '.dsh', 'skills', 'project-proof', 'SKILL.md'), [
@@ -436,11 +436,12 @@ describe('the shipped Web composition', () => {
       // local discovery moved behind the presets with `skill-filesystem`.
       expect((await ctx.skills.list({ cwd: proj })).map(skill => skill.name)).toEqual(['dsh-badge'])
 
-      // The standard agent's view merges the global layer with its preset's
-      // own local discovery over the session cwd.
+      // The standard agent's view merges the global layer with the explicitly
+      // bundled TapCanvas skills; project and user roots are disabled here.
       const scoped = (await ctx.skills.list({ cwd: proj, scope: handle.agent })).map(skill => skill.name)
       expect(scoped).toContain('dsh-badge')
-      expect(scoped).toContain('project-proof')
+      expect(scoped).toContain('tapcanvas-api')
+      expect(scoped).not.toContain('project-proof')
 
       // The preset's own loader tool resolves the global-layer skill.
       const loaded = await ctx.tools.execute({

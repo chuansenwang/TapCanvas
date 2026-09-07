@@ -549,6 +549,9 @@ if (shouldStartHarnessWeb) {
   const harnessWebEnvironment = {
     ...process.env,
     DSH_HOME: harnessHomeDirectory,
+    // Native Harness skills are explicit runtime assets; do not let the
+    // repository root .agents/skills directory become a project skill root.
+    DSH_BUNDLED_SKILL_DIR: resolve(harnessDirectory, '.agents', 'skills'),
     // Harness 注册 /agent/ 嵌入路由所需的静态入口；开发主页面仍由 5175
     // 的 Vite dev server 提供，这里只保留 Agent iframe 的路由能力。
     TAPCANVAS_CANVAS_MODE: '1',
