@@ -1,5 +1,16 @@
+import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { FILM_FUNCTION_NAMES, parseFilmImageGenArguments, tapCanvasWorkspaceKey, type TapCanvasScope } from '../src/tapcanvas-scope.ts'
+import {
+  FILM_FUNCTION_NAMES,
+  parseFilmImageGenArguments,
+  registerTapCanvasRuntime,
+  tapCanvasWorkspaceKey,
+  type TapCanvasScope,
+} from '../src/tapcanvas-scope.ts'
 
 const scope = (overrides: Partial<TapCanvasScope> = {}): TapCanvasScope => ({
   projectId: 'project-1',
@@ -25,6 +36,58 @@ describe('TapCanvas 工作区绑定', () => {
       .not.toBe(tapCanvasWorkspaceKey(scope()))
     expect(tapCanvasWorkspaceKey(scope({ flowId: 'flow-2' })))
       .not.toBe(tapCanvasWorkspaceKey(scope()))
+  })
+
+  it('切换画布作用域时不会将当前旧会话附加到新工作区', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'tapcanvas-scope-'))
+    const originalDshHome = process.env.DSH_HOME
+    process.env.DSH_HOME = dshHome
+    let attachCalls = 0
+    const handlers = new Map<string, (endpoint: string, payload: unknown) => Promise<unknown>>()
+    const workspace = {
+      id: 'new-canvas-workspace',
+      attachSession: async (_sessionId: string): Promise<void> => { attachCalls += 1 },
+    }
+    const ctx = {
+      connection: {
+        rpc: {
+          handle: (path: string, handler: (endpoint: string, payload: unknown) => Promise<unknown>): (() => void) => {
+            handlers.set(path, handler)
+            return () => { handlers.delete(path) }
+          },
+        },
+      },
+      sessions: { get: (_sessionId: string): object => ({}) },
+      get: (name: string): unknown => name === 'workspaceRegistry'
+        ? { create: async (): Promise<typeof workspace> => workspace, get: (_id: string): typeof workspace => workspace }
+        : undefined,
+      systemPrompt: {
+        context: (_entry: unknown): void => {},
+        getContextOrder: (_name: string): number => 0,
+        section: (_entry: unknown): void => {},
+        getSectionOrder: (_name: string): number => 0,
+      },
+      tools: { register: (_tool: unknown): void => {} },
+    } as unknown as Context
+
+    try {
+      registerTapCanvasRuntime(ctx)
+      const handler = handlers.get('/tapcanvas')
+      if (handler === undefined) throw new Error('TapCanvas scope RPC handler 未注册')
+      const result = await handler('scope', {
+        args: {
+          sessionId: 'old-canvas-session',
+          scope: scope({ projectId: `project-${randomUUID()}` }),
+        },
+      })
+
+      expect(result).toMatchObject({ ok: true })
+      expect(attachCalls).toBe(0)
+    } finally {
+      if (originalDshHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = originalDshHome
+      await rm(dshHome, { recursive: true, force: true })
+    }
   })
 })
 

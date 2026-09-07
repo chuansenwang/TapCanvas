@@ -361,6 +361,8 @@ function CanvasApp({
     useRFStore.getState().reset()
     useUIStore.setState({
       currentFlow: { id: null, name: '未命名', source: 'local', ownerType: null, ownerId: null },
+      currentChapter: null,
+      currentChapterCreativeOverride: null,
       restoreViewport: null,
       canvasViewport: null,
       creationSession: null,

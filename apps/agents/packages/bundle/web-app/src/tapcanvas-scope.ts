@@ -44,12 +44,10 @@ interface ScopeRecord {
 
 interface WorkspaceLike {
   readonly id: string
-  attachSession(sessionId: string): Promise<void>
 }
 
 interface WorkspaceRegistryLike {
   create(path: string, title?: string): Promise<WorkspaceLike>
-  get(id: string): WorkspaceLike | undefined
 }
 
 export interface TapCanvasScopeBinding {
@@ -473,19 +471,6 @@ export function registerTapCanvasRuntime(ctx: Context): void {
       return failure('tapcanvas/invalid-scope', 'TapCanvas 作用域消息缺少有效的画布标识')
     }
     const binding = await ensureWorkspace(ctx, parsed.scope)
-    const sessionId = parsed.sessionId
-    const session = sessionId === undefined
-      ? undefined
-      : ctx.sessions.get(sessionId as Parameters<typeof ctx.sessions.get>[0])
-    if (sessionId !== undefined && session !== undefined) {
-      const registry = ctx.get('workspaceRegistry') as unknown as WorkspaceRegistryLike | undefined
-      if (registry === undefined) throw new Error('TapCanvas 画布会话绑定失败：Workspace Registry 未加载')
-      const workspace = registry.get(binding.workspaceId)
-      if (workspace === undefined) {
-        throw new Error(`TapCanvas 画布会话绑定失败：Workspace ${binding.workspaceId} 不存在`)
-      }
-      await workspace.attachSession(sessionId)
-    }
     if (parsed.sessionId !== undefined) scopes.set(parsed.sessionId, parsed.scope)
     scopesByWorkspacePath.set(binding.workspacePath, parsed.scope)
     return success({ accepted: true, ...binding })
