@@ -131,12 +131,17 @@ function resolveH3InputMode(
 	const firstFrames = mediaInputs.filter((item) => item.role === "first_frame");
 	const lastFrames = mediaInputs.filter((item) => item.role === "last_frame");
 	const keyframeCount = firstFrames.length + lastFrames.length;
-	if (keyframeCount > 0 && keyframeCount !== mediaInputs.length) throw new AppError("MiniMax H3 不能混用首尾帧与普通参考素材；请明确使用全参考模式", { status: 400, code: "comfyui_h3_mixed_input_unsupported" });
+	if (keyframeCount > 0 && keyframeCount !== mediaInputs.length) throw new AppError("MiniMax H3 不能同时提交首帧/尾帧和普通参考素材；请二选一：移除首尾帧进入全参考模式，或移除普通参考素材仅使用首帧/尾帧模式", { status: 400, code: "comfyui_h3_mixed_input_unsupported", details: { keyframeCount, mediaInputCount: mediaInputs.length } });
 	if (keyframeCount === 0) return "reference";
 	if (mediaInputs.some((item) => item.type !== "image") || firstFrames.length > 1 || lastFrames.length > 1) throw new AppError("MiniMax H3 的首帧和尾帧各只能提供一张图片", { status: 400, code: "comfyui_h3_keyframe_count_invalid" });
 	if (firstFrames.length === 1 && lastFrames.length === 1) return "first_last_frame";
 	if (firstFrames.length === 1) return "first_frame";
 	return "last_frame";
+}
+
+function normalizeH3Resolution(value: string): string {
+	const trimmed = value.trim();
+	return trimmed.toLowerCase() === "custom" ? "custom" : trimmed.toUpperCase();
 }
 
 export function selectComfyUiWorkflowVariant(
@@ -225,7 +230,11 @@ export function applyComfyUiWorkflowInputs(
 			["durationSeconds", "seconds"], ["fps", "fps"], ["keyframeRole", "keyframe_role"],
 		];
 		for (const [extraKey, inputKey] of h3Fields) {
-			if (typeof extras[extraKey] === "string" || typeof extras[extraKey] === "number") inputs[inputKey] = extras[extraKey];
+			if (typeof extras[extraKey] === "string" || typeof extras[extraKey] === "number") {
+				inputs[inputKey] = inputKey === "resolution" && typeof extras[extraKey] === "string"
+					? normalizeH3Resolution(extras[extraKey])
+					: extras[extraKey];
+			}
 		}
 	}
 	if (variant.h3Mode) {
@@ -272,12 +281,16 @@ export function applyComfyUiWorkflowInputs(
 			} else if (Object.prototype.hasOwnProperty.call(controlInputs, "mode")) controlInputs.mode = "basic";
 		}
 	}
-	const imageIds = variant.imageNodeIds ?? discoverNodeIds(workflow, "image");
-	if (imageIds.length !== uploadedNames.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 的参考图节点数与输入不一致`, { status: 400, code: "comfyui_reference_node_mismatch", details: { expected: imageIds.length, received: uploadedNames.length } });
-	for (let index = 0; index < imageIds.length; index += 1) {
-		const inputs = workflow[imageIds[index]!]!.inputs;
-		if (!inputs) throw new AppError(`ComfyUI 图片节点 ${imageIds[index]} 无 inputs`, { status: 500, code: "comfyui_image_node_invalid" });
-		inputs.image = uploadedNames[index]!;
+	// H3 的所有图片/视频/音频都通过 MiniMaxH3EasyMediaLoader 的 media_state
+	// 传入，不使用传统 LoadImage 节点；因此不能再用参考图节点数量校验拦截 H3。
+	if (!variant.h3InputMode) {
+		const imageIds = variant.imageNodeIds ?? discoverNodeIds(workflow, "image");
+		if (imageIds.length !== uploadedNames.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 的参考图节点数与输入不一致`, { status: 400, code: "comfyui_reference_node_mismatch", details: { expected: imageIds.length, received: uploadedNames.length } });
+		for (let index = 0; index < imageIds.length; index += 1) {
+			const inputs = workflow[imageIds[index]!]!.inputs;
+			if (!inputs) throw new AppError(`ComfyUI 图片节点 ${imageIds[index]} 无 inputs`, { status: 500, code: "comfyui_image_node_invalid" });
+			inputs.image = uploadedNames[index]!;
+		}
 	}
 	const mediaLoaderIds = variant.mediaLoaderNodeIds ?? Object.entries(workflow).filter(([, node]) => readString(node.class_type) === "MiniMaxH3EasyMediaLoader").map(([id]) => id);
 	if (mediaLoaderIds.length > 0) {
@@ -303,7 +316,13 @@ export function applyComfyUiWorkflowInputs(
 
 async function uploadComfyMedia(baseUrl: string, token: string, media: ComfyMediaInput, index: number): Promise<UploadedComfyMedia> {
 	const url = media.url.trim();
-	const source = await fetch(url);
+	let source: Response;
+	try {
+		source = await fetch(url);
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new AppError(`ComfyUI 媒体源拉取失败：${reason}`, { status: 502, code: "comfyui_media_fetch_failed", details: { type: media.type, sourceUrl: url, cause: reason } });
+	}
 	if (!source.ok) throw new AppError(`ComfyUI 媒体下载失败：${source.status}`, { status: 502, code: "comfyui_media_fetch_failed", details: { type: media.type, url } });
 	const blob = await source.blob();
 	const form = new FormData();
@@ -312,7 +331,14 @@ async function uploadComfyMedia(baseUrl: string, token: string, media: ComfyMedi
 	const filename = `tapcanvas-${media.type}-${index + 1}.${ext}`;
 	form.append("image", blob, filename);
 	form.append("overwrite", "true");
-	const response = await fetch(comfyUrl(baseUrl, "upload/image"), { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : undefined, body: form });
+	const uploadUrl = comfyUrl(baseUrl, "upload/image");
+	let response: Response;
+	try {
+		response = await fetch(uploadUrl, { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : undefined, body: form });
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new AppError(`ComfyUI 媒体上传连接失败：${reason}`, { status: 502, code: "comfyui_upload_failed", details: { type: media.type, endpoint: uploadUrl, cause: reason } });
+	}
 	if (!response.ok) throw new AppError(`ComfyUI 媒体上传失败：${response.status}`, { status: 502, code: "comfyui_upload_failed", details: { type: media.type, url } });
 	const payload: unknown = await response.json();
 	if (!isRecord(payload) || !readString(payload.name)) throw new AppError("ComfyUI 上传响应缺少 name", { status: 502, code: "comfyui_upload_response_invalid" });
@@ -324,7 +350,14 @@ async function uploadReferenceImage(baseUrl: string, token: string, url: string,
 }
 
 async function runComfyRequest(baseUrl: string, token: string, workflow: ComfyWorkflow): Promise<{ promptId: string; response: unknown }> {
-	const response = await fetch(comfyUrl(baseUrl, "prompt"), { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ prompt: workflow, client_id: `tapcanvas-${crypto.randomUUID()}` }) });
+	const promptUrl = comfyUrl(baseUrl, "prompt");
+	let response: Response;
+	try {
+		response = await fetch(promptUrl, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ prompt: workflow, client_id: `tapcanvas-${crypto.randomUUID()}` }) });
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new AppError(`ComfyUI 提交连接失败：${reason}`, { status: 502, code: "comfyui_prompt_failed", details: { endpoint: promptUrl, cause: reason } });
+	}
 	const payload: unknown = await response.json();
 	if (!response.ok) throw new AppError(`ComfyUI 提交失败：${response.status}`, { status: 502, code: "comfyui_prompt_failed", details: { response: payload } });
 	if (!isRecord(payload) || !readString(payload.prompt_id)) throw new AppError("ComfyUI 提交响应缺少 prompt_id", { status: 502, code: "comfyui_prompt_response_invalid" });
@@ -334,7 +367,14 @@ async function runComfyRequest(baseUrl: string, token: string, workflow: ComfyWo
 async function waitForComfyHistory(baseUrl: string, token: string, promptId: string, timeoutMs: number): Promise<JsonRecord> {
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
-		const response = await fetch(comfyUrl(baseUrl, `history/${encodeURIComponent(promptId)}`), { headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+		const historyUrl = comfyUrl(baseUrl, `history/${encodeURIComponent(promptId)}`);
+		let response: Response;
+		try {
+			response = await fetch(historyUrl, { headers: { Accept: "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) } });
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			throw new AppError(`ComfyUI 历史查询连接失败：${reason}`, { status: 502, code: "comfyui_history_failed", details: { endpoint: historyUrl, promptId, cause: reason } });
+		}
 		if (!response.ok) throw new AppError(`ComfyUI 历史查询失败：${response.status}`, { status: 502, code: "comfyui_history_failed" });
 		const payload: unknown = await response.json();
 		if (isRecord(payload) && isRecord(payload[promptId])) return payload[promptId] as JsonRecord;
@@ -396,7 +436,7 @@ export async function runComfyUiTask(c: AppContext, req: TaskRequestDto): Promis
 	for (let index = 0; index < mediaInputs.length; index += 1) uploadedMedia.push(await uploadComfyMedia(baseUrl, token, mediaInputs[index]!, index));
 	const workflow = applyComfyUiWorkflowInputs(variant, req, uploadedNames, seed, uploadedMedia);
 	const submitted = await runComfyRequest(baseUrl, token, workflow);
-	const history = await waitForComfyHistory(baseUrl, token, submitted.promptId, Number(readEnv(c, "COMFYUI_POLL_TIMEOUT_MS")) || 600000);
+	const history = await waitForComfyHistory(baseUrl, token, submitted.promptId, Number(readEnv(c, "COMFYUI_POLL_TIMEOUT_MS")) || 1_800_000);
 	const files = extractOutputFiles(history, variant, workflow);
 	if (!files.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 未产出媒体`, { status: 502, code: "comfyui_output_missing", details: { promptId: submitted.promptId } });
 	const assets = [];

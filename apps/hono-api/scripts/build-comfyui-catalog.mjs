@@ -110,9 +110,10 @@ const models = [
     ],
     videoOptions: {
       defaultDurationSeconds: 4,
-      defaultResolution: "360P",
-      durationOptions: [4],
-      resolutionOptions: ["360P"],
+      defaultResolution: "720P",
+      // MiniMax H3 支持 1–15 秒，4 秒仅作为界面默认值，不是唯一档位。
+      durationOptions: Array.from({ length: 15 }, (_, index) => index + 1),
+      resolutionOptions: ["360P", "416P", "480P", "540P", "640P", "720P", "768P", "832P", "928P", "1024P", "1080P", "custom"],
       sizeOptions: ["2:3", "16:9", "9:16"],
       supportsMultimodalReferences: true,
       supportsFirstLastFrame: true,

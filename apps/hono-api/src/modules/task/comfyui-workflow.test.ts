@@ -73,6 +73,38 @@ describe("ComfyUI 工作流目录", () => {
 		expect(JSON.parse(String(result["42"]?.inputs?.media_state))).toEqual({ images: [], audios: [], videos: [] });
 	});
 
+	it("H3 全参考模式使用 media_state，不要求传统 LoadImage 节点与参考图数量相等", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "reference", h3Mode: "reference", h3InputMode: "reference", taskKind: "image_to_video", referenceImageCount: 0,
+			workflow: {
+				"3": { class_type: "MiniMaxH3Easy", inputs: { mode: "reference", prompt: "old" } },
+				"42": { class_type: "MiniMaxH3EasyMediaLoader", inputs: { media_state: "{}" } },
+			},
+		}] } }, "minimax-h3").workflowVariants[0]!;
+		const result = applyComfyUiWorkflowInputs(
+			variant,
+			{ kind: "image_to_video", prompt: "全参考", extras: {} },
+			["ref-1.png", "ref-2.png"],
+			1,
+			[
+				{ type: "image", role: "reference", url: "https://example.test/1.png", filename: "ref-1.png" },
+				{ type: "image", role: "reference", url: "https://example.test/2.png", filename: "ref-2.png" },
+			],
+		);
+		expect(JSON.parse(String(result["42"]?.inputs?.media_state))).toEqual({
+			images: [{ filename: "ref-1.png" }, { filename: "ref-2.png" }], audios: [], videos: [],
+		});
+	});
+
+	it("H3 将分辨率规范化为 ComfyUI 大写枚举", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "text", h3Mode: "image", h3InputMode: "text", taskKind: "text_to_video", referenceImageCount: 0,
+			workflow: { "3": { class_type: "MiniMaxH3Easy", inputs: { mode: "image", prompt: "old", resolution: "360P" } } },
+		}] } }, "minimax-h3").workflowVariants[0]!;
+		const result = applyComfyUiWorkflowInputs(variant, { kind: "text_to_video", prompt: "测试", extras: { resolution: "720p" } }, [], 1);
+		expect(result["3"]?.inputs?.resolution).toBe("720P");
+	});
+
 	it("H3 区分尾帧、全参考和显式数字人合同", () => {
 		const makeVariant = (id: string, h3Mode: "image" | "reference" | "digital_human", h3InputMode: "last_frame" | "reference" | "digital_human") => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id, h3Mode, h3InputMode, taskKind: "image_to_video", referenceImageCount: 0, workflow: {
 			"3": { class_type: "MiniMaxH3Easy", inputs: { mode: "image", prompt: "old", keyframe_role: "first" } },

@@ -39,4 +39,4 @@
         failOnStartupError: true
         reconnect:
           enabled: false
-        toolCallTimeoutMs: 600000
+        toolCallTimeoutMs: 1800000

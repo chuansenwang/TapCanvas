@@ -814,8 +814,14 @@ async function awaitVideoResult(input: {
   }
 
   if ((status === "queued" || status === "running") && taskId) {
+    const localComfyUiTimeoutMs = Number(input.c.env.COMFYUI_POLL_TIMEOUT_MS);
+    const pollTimeoutMs = currentVendor === "comfyui"
+      ? Number.isFinite(localComfyUiTimeoutMs) && localComfyUiTimeoutMs > 0
+        ? Math.min(1_800_000, Math.max(5_000, Math.floor(localComfyUiTimeoutMs)))
+        : 1_800_000
+      : 600_000;
     const settled = await pollUntilSettled({
-      timeoutMs: 600_000,
+      timeoutMs: pollTimeoutMs,
       intervalMs: 3_000,
       pollOnce: async () =>
         fetchTaskResultForPolling(input.c, input.userId, {
