@@ -1603,6 +1603,10 @@ export async function generateVideoToCanvas(input: {
   let lastFrameUrl =
     readTrimmedString(nodeData.lastFrameUrl) ||
     readTrimmedString(nodeData.veoLastFrameUrl);
+  const firstFrameImageNodeId = readTrimmedString(nodeData.firstFrameImageNodeId);
+  const lastFrameImageNodeId = readTrimmedString(nodeData.lastFrameImageNodeId);
+  const firstFrameAssetId = readTrimmedString(nodeData.firstFrameAssetId);
+  const lastFrameAssetId = readTrimmedString(nodeData.lastFrameAssetId);
   // 上一镜成片视频 URL：作统一的「视频续写」输入（→ extras.upstreamVideoUrl → task.service 分支3
   // metadata.content[{type:"video_url"}]）。这是 hono→new-api 的统一参数；各渠道续写格式由
   // new-api adaptor 自行闭环（doubao 补 reference_video role 发 ARK；apimart 转各自续写参数），
@@ -1683,11 +1687,31 @@ export async function generateVideoToCanvas(input: {
     c: input.c,
     ownerId: input.requestUserId,
     row: input.row,
-    nodeIds: readTrimmedString(nodeData.clipRunId)
-      ? nodeData.videoReferenceNodeIds
-      : nodeData.referenceImageNodeIds,
-    assetIds: nodeData.referenceAssetIds,
+    nodeIds: [
+      ...(readTrimmedString(nodeData.clipRunId)
+        ? normalizeStringList(nodeData.videoReferenceNodeIds)
+        : normalizeStringList(nodeData.referenceImageNodeIds)),
+      ...(firstFrameImageNodeId ? [firstFrameImageNodeId] : []),
+      ...(lastFrameImageNodeId ? [lastFrameImageNodeId] : []),
+    ],
+    assetIds: [
+      ...normalizeStringList(nodeData.referenceAssetIds),
+      ...(firstFrameAssetId ? [firstFrameAssetId] : []),
+      ...(lastFrameAssetId ? [lastFrameAssetId] : []),
+    ],
   });
+  const firstFrameReference = resolvedIdReferences.find(
+    (reference) =>
+      reference.nodeId === firstFrameImageNodeId ||
+      reference.assetId === firstFrameAssetId,
+  );
+  const lastFrameReference = resolvedIdReferences.find(
+    (reference) =>
+      reference.nodeId === lastFrameImageNodeId ||
+      reference.assetId === lastFrameAssetId,
+  );
+  if (!firstFrameUrl && firstFrameReference) firstFrameUrl = firstFrameReference.url;
+  if (!lastFrameUrl && lastFrameReference) lastFrameUrl = lastFrameReference.url;
   if (resolvedIdReferences.length > 0) {
     const resolvedUrls = resolvedIdReferences.map((reference) => reference.url);
     // 编排 clip 的 content[] 顺序是确定性合同：storyboard/frame → business refs。
@@ -2156,13 +2180,13 @@ export async function generateVideoToCanvas(input: {
   });
 
   const assetInputs = normalizeAssetInputs(nodeData.assetInputs);
-  const firstFrameAssetId = readTrimmedString(nodeData.firstFrameAssetId);
-  const lastFrameAssetId = readTrimmedString(nodeData.lastFrameAssetId);
   const hasReferenceInputs =
     Boolean(firstFrameUrl) ||
     Boolean(lastFrameUrl) ||
     Boolean(firstFrameAssetId) ||
     Boolean(lastFrameAssetId) ||
+    Boolean(sourceVideoUrl) ||
+    referenceAudioUrls.length > 0 ||
     referenceImages.length > 0 ||
     assetInputs.length > 0;
   const taskKind: TaskRequestDto["kind"] = hasReferenceInputs
@@ -2183,6 +2207,21 @@ export async function generateVideoToCanvas(input: {
           : {}),
       }
     : null;
+  const mediaInputs = [
+    ...(firstFrameUrl
+      ? [{ type: "image" as const, url: firstFrameUrl, role: "first_frame" as const }]
+      : []),
+    ...(lastFrameUrl
+      ? [{ type: "image" as const, url: lastFrameUrl, role: "last_frame" as const }]
+      : []),
+    ...referenceImages
+      .filter((url) => url !== firstFrameUrl && url !== lastFrameUrl)
+      .map((url) => ({ type: "image" as const, url, role: "reference" as const })),
+    ...(sourceVideoUrl
+      ? [{ type: "video" as const, url: sourceVideoUrl, role: "video" as const }]
+      : []),
+    ...referenceAudioUrls.map((url) => ({ type: "audio" as const, url, role: "audio" as const })),
+  ];
   const taskRequest: TaskRequestDto = {
     kind: taskKind,
     prompt,
@@ -2206,6 +2245,7 @@ export async function generateVideoToCanvas(input: {
       ...(videoReferType ? { videoReferType } : {}),
       ...(keepOriginalSound ? { keepOriginalSound } : {}),
       ...(referenceImages.length ? { referenceImages } : {}),
+      ...(mediaInputs.length ? { mediaInputs } : {}),
       ...(referenceAudioUrls.length ? { referenceAudioUrls } : {}),
       ...(typeof nodeData.generateAudio === "boolean"
         ? { generateAudio: nodeData.generateAudio }

@@ -39,9 +39,60 @@ describe("ComfyUI 工作流目录", () => {
 		expect(JSON.parse(String(result["42"]?.inputs?.media_state))).toEqual({ images: [{ filename: "i.png" }], audios: [{ filename: "a.mp3" }], videos: [{ filename: "v.mp4" }] });
 	});
 
-	it("H3 工作流没有媒体时显式失败", () => {
-		const h3Variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id: "h3", taskKind: "text_to_video", referenceImageCount: 0, workflow: { "3": { class_type: "MiniMaxH3Easy", inputs: { prompt: "old" } }, "42": { class_type: "MiniMaxH3EasyMediaLoader", inputs: { media_state: "{}" } } } }] } }, "minimax-h3").workflowVariants[0]!;
-		expect(() => applyComfyUiWorkflowInputs(h3Variant, { kind: "text_to_video", prompt: "生成视频", extras: {} }, [], 1)).toThrow("缺少媒体输入");
+	it("H3 按任务和媒体角色选择文生、首尾帧、多图参考模式", () => {
+		const baseWorkflow = {
+			"3": { class_type: "MiniMaxH3Easy", inputs: { mode: "reference", prompt: "old", keyframe_role: "first" } },
+			"42": { class_type: "MiniMaxH3EasyMediaLoader", inputs: { media_state: "{}" } },
+			"21": { class_type: "SaveVideo", inputs: {} },
+		};
+		const config = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [
+			{ id: "text", h3Mode: "image", h3InputMode: "text", taskKind: "text_to_video", referenceImageCount: 0, workflow: baseWorkflow },
+			{ id: "first-frame", h3Mode: "image", h3InputMode: "first_frame", taskKind: "image_to_video", referenceImageCount: 0, workflow: baseWorkflow },
+			{ id: "keyframes", h3Mode: "image", h3InputMode: "first_last_frame", taskKind: "image_to_video", referenceImageCount: 0, workflow: baseWorkflow },
+			{ id: "reference", h3Mode: "reference", h3InputMode: "reference", taskKind: "image_to_video", referenceImageCount: 0, workflow: baseWorkflow },
+		] } }, "minimax-h3");
+		const first = { type: "image" as const, role: "first_frame" as const, url: "https://example.test/first.png" };
+		const last = { type: "image" as const, role: "last_frame" as const, url: "https://example.test/last.png" };
+		const reference = { type: "image" as const, role: "reference" as const, url: "https://example.test/ref.png" };
+		expect(selectComfyUiWorkflowVariant(config, { modelKey: "minimax-h3", taskKind: "text_to_video", referenceImageCount: 0 }).id).toBe("text");
+		expect(selectComfyUiWorkflowVariant(config, { modelKey: "minimax-h3", taskKind: "text_to_video", referenceImageCount: 1, mediaInputs: [first] }).id).toBe("first-frame");
+		expect(selectComfyUiWorkflowVariant(config, { modelKey: "minimax-h3", taskKind: "image_to_video", referenceImageCount: 0, mediaInputs: [first, last] }).id).toBe("keyframes");
+		expect(selectComfyUiWorkflowVariant(config, { modelKey: "minimax-h3", taskKind: "image_to_video", referenceImageCount: 0, mediaInputs: [reference] }).id).toBe("reference");
+		const keyframeVariant = config.workflowVariants.find((variant) => variant.id === "keyframes")!;
+		const patched = applyComfyUiWorkflowInputs(keyframeVariant, { kind: "image_to_video", prompt: "首尾帧", extras: {} }, [], 1, [
+			{ ...first, filename: "first.png" }, { ...last, filename: "last.png" },
+		]);
+		expect(patched["3"]?.inputs?.mode).toBe("image");
+		expect(patched["3"]?.inputs?.keyframe_role).toBe("first");
+	});
+
+	it("H3 文生视频没有媒体时使用 text 合同", () => {
+		const h3Variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id: "h3", h3Mode: "image", h3InputMode: "text", taskKind: "text_to_video", referenceImageCount: 0, workflow: { "3": { class_type: "MiniMaxH3Easy", inputs: { mode: "reference", prompt: "old" } }, "42": { class_type: "MiniMaxH3EasyMediaLoader", inputs: { media_state: "{}" } } } }] } }, "minimax-h3").workflowVariants[0]!;
+		const result = applyComfyUiWorkflowInputs(h3Variant, { kind: "text_to_video", prompt: "生成视频", extras: {} }, [], 1);
+		expect(result["3"]?.inputs?.mode).toBe("image");
+		expect(JSON.parse(String(result["42"]?.inputs?.media_state))).toEqual({ images: [], audios: [], videos: [] });
+	});
+
+	it("H3 区分尾帧、全参考和显式数字人合同", () => {
+		const makeVariant = (id: string, h3Mode: "image" | "reference" | "digital_human", h3InputMode: "last_frame" | "reference" | "digital_human") => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id, h3Mode, h3InputMode, taskKind: "image_to_video", referenceImageCount: 0, workflow: {
+			"3": { class_type: "MiniMaxH3Easy", inputs: { mode: "image", prompt: "old", keyframe_role: "first" } },
+			"42": { class_type: "MiniMaxH3EasyMediaLoader", inputs: { media_state: "{}" } },
+		} }] } }, "minimax-h3").workflowVariants[0]!;
+		const last = { type: "image" as const, role: "last_frame" as const, url: "https://example.test/last.png", filename: "last.png" };
+		const lastVariant = makeVariant("last", "image", "last_frame");
+		expect(selectComfyUiWorkflowVariant({ workflowVariants: [lastVariant] }, { modelKey: "minimax-h3", taskKind: "image_to_video", mediaInputs: [last] }).id).toBe("last");
+		expect(applyComfyUiWorkflowInputs(lastVariant, { kind: "image_to_video", prompt: "尾帧", extras: {} }, [], 1, [last])["3"]?.inputs?.keyframe_role).toBe("last");
+
+		const referenceVariant = makeVariant("reference", "reference", "reference");
+		const reference = { type: "video" as const, role: "video" as const, url: "https://example.test/ref.mp4", filename: "ref.mp4" };
+		expect(selectComfyUiWorkflowVariant({ workflowVariants: [referenceVariant] }, { modelKey: "minimax-h3", taskKind: "image_to_video", mediaInputs: [reference] }).id).toBe("reference");
+		expect(() => selectComfyUiWorkflowVariant({ workflowVariants: [referenceVariant] }, { modelKey: "minimax-h3", taskKind: "image_to_video", mediaInputs: [{ ...last, role: "last_frame" }], h3InputMode: "reference" })).toThrow("不能携带首帧或尾帧");
+
+		const digitalVariant = makeVariant("digital", "digital_human", "digital_human");
+		const portrait = { type: "image" as const, role: "reference" as const, url: "https://example.test/person.png", filename: "person.png" };
+		const audio = { type: "audio" as const, role: "audio" as const, url: "https://example.test/drive.wav", filename: "drive.wav" };
+		expect(selectComfyUiWorkflowVariant({ workflowVariants: [digitalVariant] }, { modelKey: "minimax-h3", taskKind: "image_to_video", mediaInputs: [portrait, audio], h3InputMode: "digital_human" }).id).toBe("digital");
+		expect(() => selectComfyUiWorkflowVariant({ workflowVariants: [digitalVariant] }, { modelKey: "minimax-h3", taskKind: "image_to_video", mediaInputs: [portrait], h3InputMode: "digital_human" })).toThrow("需要至少一张人物图片和一段驱动音频");
 	});
 	it("IndexTTS 三种模式分别绑定音色参考和情绪控制", () => {
 		const makeVariant = (mode: "basic" | "vector" | "text") => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{ id: mode, capability: `emotion-${mode}`, taskKind: "text_to_audio", referenceImageCount: 0, audioLoaderNodeIds: ["4"], ...(mode !== "basic" ? { emotionControlNodeIds: ["5"], audioEmotionMode: mode } : {}), workflow: {

@@ -1566,6 +1566,44 @@ function pickModelKey(
 	return undefined;
 }
 
+/**
+ * Resolve the executor for requests that omit `vendor`.
+ *
+ * A local ComfyUI model is executable only when its enabled catalog row exists;
+ * the catalog is therefore the sole source for implicit local routing. Explicit
+ * vendor values remain authoritative and are validated by the public task entry.
+ */
+export async function resolveTaskExecutionVendor(
+	c: AppContext,
+	requestedVendor: string | null | undefined,
+	req: TaskRequestDto,
+): Promise<string> {
+	const explicit = typeof requestedVendor === "string" ? requestedVendor.trim().toLowerCase() : "";
+	if (explicit) return explicit === "auto" ? "newapi" : explicit;
+
+	const modelKey = pickModelKey(req, { modelKey: undefined });
+	if (!modelKey) return "newapi";
+
+	await ensureModelCatalogSchema(c.env.DB);
+	const rows = await getPrismaClient().model_catalog_models.findMany({
+		where: {
+			vendor_key: "comfyui",
+			enabled: 1,
+			kind: "video",
+			OR: [{ model_key: modelKey }, { model_alias: modelKey }],
+		},
+		select: { model_key: true },
+	});
+	if (rows.length > 1) {
+		throw new AppError(`模型 ${modelKey} 的 ComfyUI 目录匹配不唯一`, {
+			status: 400,
+			code: "comfyui_model_not_unique",
+			details: { modelKey, matches: rows.map((row) => row.model_key) },
+		});
+	}
+	return rows.length === 1 ? "comfyui" : "newapi";
+}
+
 export function canonicalizeNewApiModelKey(
 	vendorKey: string,
 	modelKey: string,

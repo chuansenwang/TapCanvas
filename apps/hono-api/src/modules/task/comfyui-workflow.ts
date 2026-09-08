@@ -16,10 +16,20 @@ export type ComfyMediaInput = {
 
 export type UploadedComfyMedia = ComfyMediaInput & { filename: string };
 
+type H3InputMode =
+	| "text"
+	| "first_frame"
+	| "last_frame"
+	| "first_last_frame"
+	| "reference"
+	| "digital_human";
+
 type WorkflowVariant = {
 	id: string;
 	name?: string;
 	capability?: string;
+	h3Mode?: "image" | "reference" | "digital_human";
+	h3InputMode?: H3InputMode;
 	taskKind: "text_to_image" | "image_edit" | "text_to_video" | "image_to_video" | "text_to_audio";
 	referenceImageCount: number;
 	workflow: ComfyWorkflow;
@@ -85,31 +95,79 @@ export function parseComfyUiWorkflowConfig(meta: unknown, modelKey: string): Com
 		const mediaLoaderNodeIds = Array.isArray(raw.mediaLoaderNodeIds) ? raw.mediaLoaderNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const outputNodeIds = Array.isArray(raw.outputNodeIds) ? raw.outputNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const capability = readString(raw.capability);
+		const h3Mode = raw.h3Mode === "image" || raw.h3Mode === "reference" || raw.h3Mode === "digital_human" ? raw.h3Mode : undefined;
+		const h3InputMode = raw.h3InputMode === "text" || raw.h3InputMode === "first_frame" || raw.h3InputMode === "last_frame" || raw.h3InputMode === "first_last_frame" || raw.h3InputMode === "reference" || raw.h3InputMode === "digital_human" ? raw.h3InputMode : undefined;
+		if (h3Mode && !h3InputMode) throw new AppError(`ComfyUI 工作流变体 ${id} 缺少 h3InputMode`, { status: 500, code: "comfyui_h3_input_mode_missing" });
+		if (h3Mode === "image" && h3InputMode === "reference") throw new AppError(`ComfyUI 工作流变体 ${id} 的 h3Mode 与 h3InputMode 不一致`, { status: 500, code: "comfyui_h3_input_mode_invalid" });
+		if (h3Mode === "reference" && h3InputMode !== "reference") throw new AppError(`ComfyUI 工作流变体 ${id} 的 h3Mode 与 h3InputMode 不一致`, { status: 500, code: "comfyui_h3_input_mode_invalid" });
+		if (h3Mode === "digital_human" && h3InputMode !== "digital_human") throw new AppError(`ComfyUI 工作流变体 ${id} 的 h3Mode 与 h3InputMode 不一致`, { status: 500, code: "comfyui_h3_input_mode_invalid" });
 		const outputMediaType = raw.outputMediaType === "image" || raw.outputMediaType === "video" || raw.outputMediaType === "audio" ? raw.outputMediaType : undefined;
 		const audioLoaderNodeIds = Array.isArray(raw.audioLoaderNodeIds) ? raw.audioLoaderNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const emotionControlNodeIds = Array.isArray(raw.emotionControlNodeIds) ? raw.emotionControlNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const audioEmotionMode = raw.audioEmotionMode === "basic" || raw.audioEmotionMode === "vector" || raw.audioEmotionMode === "text" ? raw.audioEmotionMode : undefined;
-		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(mediaLoaderNodeIds?.length ? { mediaLoaderNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}), ...(outputMediaType ? { outputMediaType } : {}), ...(audioLoaderNodeIds?.length ? { audioLoaderNodeIds } : {}), ...(emotionControlNodeIds?.length ? { emotionControlNodeIds } : {}), ...(audioEmotionMode ? { audioEmotionMode } : {}) });
+		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), ...(h3Mode ? { h3Mode } : {}), ...(h3InputMode ? { h3InputMode } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(mediaLoaderNodeIds?.length ? { mediaLoaderNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}), ...(outputMediaType ? { outputMediaType } : {}), ...(audioLoaderNodeIds?.length ? { audioLoaderNodeIds } : {}), ...(emotionControlNodeIds?.length ? { emotionControlNodeIds } : {}), ...(audioEmotionMode ? { audioEmotionMode } : {}) });
 	}
 	return { workflowVariants: variants };
 }
 
+function resolveH3InputMode(
+	mediaInputs: readonly ComfyMediaInput[],
+	requestedMode?: H3InputMode,
+): H3InputMode {
+	if (requestedMode === "digital_human") {
+		const hasPortrait = mediaInputs.some((item) => item.type === "image");
+		const hasAudio = mediaInputs.some((item) => item.type === "audio");
+		if (!hasPortrait || !hasAudio) throw new AppError("MiniMax H3 数字人模式需要至少一张人物图片和一段驱动音频", { status: 400, code: "comfyui_h3_digital_human_input_missing" });
+		if (mediaInputs.some((item) => item.role === "first_frame" || item.role === "last_frame")) throw new AppError("MiniMax H3 数字人模式不能携带首帧或尾帧角色", { status: 400, code: "comfyui_h3_digital_human_keyframe_conflict" });
+		return requestedMode;
+	}
+	if (requestedMode) {
+		if (requestedMode !== "reference") throw new AppError(`MiniMax H3 输入模式 ${requestedMode} 与实际媒体输入不一致`, { status: 400, code: "comfyui_h3_input_mode_conflict" });
+		if (mediaInputs.length === 0) throw new AppError("MiniMax H3 全参考模式至少需要一项媒体", { status: 400, code: "comfyui_h3_reference_input_missing" });
+		if (mediaInputs.some((item) => item.role === "first_frame" || item.role === "last_frame")) throw new AppError("MiniMax H3 全参考模式不能携带首帧或尾帧角色", { status: 400, code: "comfyui_h3_reference_keyframe_conflict" });
+		return requestedMode;
+	}
+	if (mediaInputs.length === 0) return "text";
+	const firstFrames = mediaInputs.filter((item) => item.role === "first_frame");
+	const lastFrames = mediaInputs.filter((item) => item.role === "last_frame");
+	const keyframeCount = firstFrames.length + lastFrames.length;
+	if (keyframeCount > 0 && keyframeCount !== mediaInputs.length) throw new AppError("MiniMax H3 不能混用首尾帧与普通参考素材；请明确使用全参考模式", { status: 400, code: "comfyui_h3_mixed_input_unsupported" });
+	if (keyframeCount === 0) return "reference";
+	if (mediaInputs.some((item) => item.type !== "image") || firstFrames.length > 1 || lastFrames.length > 1) throw new AppError("MiniMax H3 的首帧和尾帧各只能提供一张图片", { status: 400, code: "comfyui_h3_keyframe_count_invalid" });
+	if (firstFrames.length === 1 && lastFrames.length === 1) return "first_last_frame";
+	if (firstFrames.length === 1) return "first_frame";
+	return "last_frame";
+}
+
 export function selectComfyUiWorkflowVariant(
 	config: ComfyConfig,
-	input: { modelKey: string; taskKind: WorkflowVariant["taskKind"]; referenceImageCount?: number; mediaInputCount?: number; capability?: string },
+	input: { modelKey: string; taskKind: WorkflowVariant["taskKind"]; referenceImageCount?: number; mediaInputCount?: number; mediaInputs?: readonly ComfyMediaInput[]; capability?: string; h3InputMode?: H3InputMode },
 ): WorkflowVariant {
-	const matches = config.workflowVariants.filter((variant) => variant.taskKind === input.taskKind && (input.taskKind === "text_to_video" || input.taskKind === "image_to_video" || input.taskKind === "text_to_audio" ? true : variant.referenceImageCount === input.referenceImageCount) && (!input.capability || variant.capability === input.capability || variant.id === input.capability));
-	if (matches.length !== 1) throw new AppError(`ComfyUI 工作流无法唯一匹配：${input.modelKey}/${input.taskKind}${typeof input.referenceImageCount === "number" ? `/参考图${input.referenceImageCount}张` : typeof input.mediaInputCount === "number" ? `/媒体${input.mediaInputCount}项` : ""}`, { status: 400, code: "comfyui_workflow_route_not_unique", details: { modelKey: input.modelKey, taskKind: input.taskKind, referenceImageCount: input.referenceImageCount ?? null, mediaInputCount: input.mediaInputCount ?? null, matches: matches.map((variant) => variant.id) } });
+	const mediaInputs = input.mediaInputs ?? [];
+	const requestedH3InputMode = input.h3InputMode;
+	const resolvedH3InputMode = config.workflowVariants.some((variant) => Boolean(variant.h3InputMode))
+		? resolveH3InputMode(mediaInputs, requestedH3InputMode)
+		: undefined;
+	const matches = config.workflowVariants.filter((variant) => {
+		const isH3VideoVariant = Boolean(variant.h3InputMode) && (variant.taskKind === "text_to_video" || variant.taskKind === "image_to_video");
+		const isH3VideoRequest = input.taskKind === "text_to_video" || input.taskKind === "image_to_video";
+		const taskMatches = variant.taskKind === input.taskKind || (isH3VideoVariant && isH3VideoRequest && mediaInputs.length > 0);
+		if (!taskMatches) return false;
+		if (input.taskKind !== "text_to_video" && input.taskKind !== "image_to_video" && input.taskKind !== "text_to_audio" && variant.referenceImageCount !== input.referenceImageCount) return false;
+		if (variant.h3InputMode && variant.h3InputMode !== resolvedH3InputMode) return false;
+		return true;
+	}).filter((variant) => !input.capability || variant.capability === input.capability || variant.id === input.capability);
+	if (matches.length !== 1) throw new AppError(`ComfyUI 工作流无法唯一匹配：${input.modelKey}/${input.taskKind}${typeof input.referenceImageCount === "number" ? `/参考图${input.referenceImageCount}张` : typeof input.mediaInputCount === "number" ? `/媒体${input.mediaInputCount}项` : ""}`, { status: 400, code: "comfyui_workflow_route_not_unique", details: { modelKey: input.modelKey, taskKind: input.taskKind, referenceImageCount: input.referenceImageCount ?? null, mediaInputCount: input.mediaInputCount ?? mediaInputs.length, mediaInputRoles: mediaInputs.map((item) => item.role ?? null), matches: matches.map((variant) => variant.id) } });
 	return matches[0]!;
 }
 
-async function resolveVariant(c: AppContext, modelKey: string, taskKind: WorkflowVariant["taskKind"], referenceImageCount: number, mediaInputCount: number, capability?: string): Promise<WorkflowVariant> {
+async function resolveVariant(c: AppContext, modelKey: string, taskKind: WorkflowVariant["taskKind"], referenceImageCount: number, mediaInputs: readonly ComfyMediaInput[], capability?: string, h3InputMode?: H3InputMode): Promise<WorkflowVariant> {
 	await ensureModelCatalogSchema(c.env.DB);
 	const rows = await getPrismaClient().model_catalog_models.findMany({ where: { vendor_key: "comfyui", enabled: 1, OR: [{ model_key: modelKey }, { model_alias: modelKey }] }, select: { model_key: true, meta: true } });
 	if (rows.length !== 1) throw new AppError(`ComfyUI 模型 ${modelKey} 不存在或匹配不唯一`, { status: 400, code: "comfyui_model_not_unique", details: { modelKey, matches: rows.map((row) => row.model_key) } });
 	let meta: unknown = null;
 	try { meta = rows[0]?.meta ? JSON.parse(rows[0].meta) as unknown : null; } catch { throw new AppError(`ComfyUI 模型 ${modelKey} 的 meta 不是合法 JSON`, { status: 500, code: "comfyui_model_meta_invalid" }); }
-	return selectComfyUiWorkflowVariant(parseComfyUiWorkflowConfig(meta, modelKey), { modelKey, taskKind, referenceImageCount, mediaInputCount, ...(capability ? { capability } : {}) });
+	return selectComfyUiWorkflowVariant(parseComfyUiWorkflowConfig(meta, modelKey), { modelKey, taskKind, referenceImageCount, mediaInputCount: mediaInputs.length, mediaInputs, ...(capability ? { capability } : {}), ...(h3InputMode ? { h3InputMode } : {}) });
 }
 
 function cloneWorkflow(workflow: ComfyWorkflow): ComfyWorkflow {
@@ -170,6 +228,20 @@ export function applyComfyUiWorkflowInputs(
 			if (typeof extras[extraKey] === "string" || typeof extras[extraKey] === "number") inputs[inputKey] = extras[extraKey];
 		}
 	}
+	if (variant.h3Mode) {
+		const h3NodeIds = Object.entries(workflow)
+			.filter(([, node]) => readString(node.class_type) === "MiniMaxH3Easy")
+			.map(([id]) => id);
+		if (h3NodeIds.length !== 1) throw new AppError(`ComfyUI 工作流 ${variant.id} 的 MiniMax H3 主节点必须唯一`, { status: 500, code: "comfyui_h3_node_not_unique" });
+		const h3Inputs = workflow[h3NodeIds[0]!]!.inputs;
+		if (!h3Inputs || !Object.prototype.hasOwnProperty.call(h3Inputs, "mode")) throw new AppError(`ComfyUI 工作流 ${variant.id} 的 MiniMax H3 主节点缺少 mode`, { status: 500, code: "comfyui_h3_mode_input_missing" });
+		h3Inputs.mode = variant.h3Mode;
+		const actualH3InputMode = resolveH3InputMode(mediaInputs, variant.h3InputMode === "digital_human" ? "digital_human" : undefined);
+		if (variant.h3InputMode !== actualH3InputMode) throw new AppError(`MiniMax H3 工作流 ${variant.id} 的输入模式与媒体合同不一致`, { status: 400, code: "comfyui_h3_input_mode_conflict", details: { expected: variant.h3InputMode ?? null, actual: actualH3InputMode } });
+		if (variant.h3Mode === "image" && Object.prototype.hasOwnProperty.call(h3Inputs, "keyframe_role")) {
+			h3Inputs.keyframe_role = actualH3InputMode === "last_frame" ? "last" : "first";
+		}
+	}
 	if (variant.taskKind === "text_to_audio") {
 		const extras = isRecord(request.extras) ? request.extras : {};
 		const audioLoaderIds = variant.audioLoaderNodeIds ?? Object.entries(workflow).filter(([, node]) => readString(node.class_type) === "XiaozhuguangAudioLoader").map(([id]) => id);
@@ -209,7 +281,7 @@ export function applyComfyUiWorkflowInputs(
 	}
 	const mediaLoaderIds = variant.mediaLoaderNodeIds ?? Object.entries(workflow).filter(([, node]) => readString(node.class_type) === "MiniMaxH3EasyMediaLoader").map(([id]) => id);
 	if (mediaLoaderIds.length > 0) {
-		if (mediaInputs.length === 0) throw new AppError(`ComfyUI 工作流 ${variant.id} 缺少媒体输入`, { status: 400, code: "comfyui_media_input_missing" });
+		if (mediaInputs.length === 0 && variant.h3InputMode !== "text") throw new AppError(`ComfyUI 工作流 ${variant.id} 缺少媒体输入`, { status: 400, code: "comfyui_media_input_missing" });
 		if (mediaLoaderIds.length !== 1) throw new AppError(`ComfyUI 工作流 ${variant.id} 的媒体加载节点必须唯一`, { status: 500, code: "comfyui_media_loader_not_unique" });
 		const state = {
 			images: mediaInputs.filter((item) => item.type === "image").map((item) => ({ filename: item.filename })),
@@ -310,14 +382,16 @@ export async function runComfyUiTask(c: AppContext, req: TaskRequestDto): Promis
 			mediaInputs.push({ type: value.type, url: value.url.trim(), ...(role ? { role } : {}) });
 		}
 	}
+	const audioReferenceUrl = readString(extras.voiceReferenceUrl);
+	if (req.kind === "text_to_audio" && audioReferenceUrl) mediaInputs.push({ type: "audio", url: audioReferenceUrl, role: "reference" });
 	const taskKind: WorkflowVariant["taskKind"] = req.kind === "text_to_video" || req.kind === "image_to_video" || req.kind === "text_to_audio" ? req.kind : mediaInputs.length > 0 ? "text_to_video" : references.length ? "image_edit" : "text_to_image";
 	const capability = readString(extras.workflowCapability) || readString(extras.libTvImagePresetKey) || undefined;
-	const variant = await resolveVariant(c, modelKey, taskKind, references.length, mediaInputs.length, capability);
+	const requestedH3InputMode = extras.h3InputMode === "reference" || extras.h3InputMode === "digital_human" ? extras.h3InputMode : undefined;
+	if (typeof extras.h3InputMode !== "undefined" && !requestedH3InputMode) throw new AppError("ComfyUI extras.h3InputMode 仅支持 reference 或 digital_human", { status: 400, code: "comfyui_h3_input_mode_invalid" });
+	const variant = await resolveVariant(c, modelKey, taskKind, references.length, mediaInputs, capability, requestedH3InputMode);
 	const seed = resolveComfyUiSeed(req);
 	const uploadedNames: string[] = [];
 	for (let index = 0; index < references.length; index += 1) uploadedNames.push(await uploadReferenceImage(baseUrl, token, references[index]!, index));
-	const audioReferenceUrl = readString(extras.voiceReferenceUrl);
-	if (taskKind === "text_to_audio" && audioReferenceUrl) mediaInputs.push({ type: "audio", url: audioReferenceUrl, role: "reference" });
 	const uploadedMedia: UploadedComfyMedia[] = [];
 	for (let index = 0; index < mediaInputs.length; index += 1) uploadedMedia.push(await uploadComfyMedia(baseUrl, token, mediaInputs[index]!, index));
 	const workflow = applyComfyUiWorkflowInputs(variant, req, uploadedNames, seed, uploadedMedia);

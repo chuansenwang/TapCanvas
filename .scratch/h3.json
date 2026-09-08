@@ -1,0 +1,570 @@
+{
+  "1": {
+    "inputs": {
+      "fl2va_model": "minimax_h3_fl2va_int8_convrot.safetensors",
+      "ref2va_model": "无",
+      "text_encoder": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+      "audio_vae": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "class_type": "MiniMaxH3EasyLoader",
+    "_meta": {
+      "title": "MiniMax H3 Easy 加载器"
+    }
+  },
+  "3": {
+    "inputs": {
+      "mode": "reference",
+      "prompt": "根据宫格漫画__MINIMAX_H3_UNRESOLVED_REF_image__，生成视频",
+      "resolution": "360P",
+      "aspect_ratio": "2:3",
+      "width": 1344,
+      "height": 768,
+      "seconds": 4,
+      "advanced": true,
+      "fps": 24,
+      "keyframe_role": "first",
+      "ref_image_size": "1.5k",
+      "reference_mention_mode": "index",
+      "prompt_optimizer_settings": false,
+      "prompt_optimizer_scene_guide": "none",
+      "h3_bundle": [
+        "1",
+        0
+      ],
+      "media": [
+        "42",
+        0
+      ],
+      "prompt_optimizer_resources": "[{\"type\":\"image\",\"tag\":\"<Picture 1>\",\"name\":\"img.png\",\"asset\":{\"filename\":\"img.png\",\"subfolder\":\"\",\"storage\":\"input\"}}]",
+      "prompt_optimizer_marker": "{}",
+      "prompt_optimizer_prompt_connected": false
+    },
+    "class_type": "MiniMaxH3Easy",
+    "_meta": {
+      "title": "MiniMax H3 Easy"
+    }
+  },
+  "4": {
+    "inputs": {
+      "h3_context": [
+        "3",
+        1
+      ]
+    },
+    "class_type": "MiniMaxH3EasyOutput",
+    "_meta": {
+      "title": "MiniMax H3 Easy 输出"
+    }
+  },
+  "6": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "ModelAttentionBackend"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model": [
+        "24",
+        0
+      ],
+      "conditioning": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "基本引导器"
+    }
+  },
+  "8": {
+    "inputs": {
+      "scheduler": "beta",
+      "steps": 8,
+      "denoise": 1,
+      "model": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "基本调度器"
+    }
+  },
+  "9": {
+    "inputs": {
+      "noise_seed": 195685467270342
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "随机噪波"
+    }
+  },
+  "10": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "11": {
+    "inputs": {
+      "noise": [
+        "9",
+        0
+      ],
+      "guider": [
+        "7",
+        0
+      ],
+      "sampler": [
+        "10",
+        0
+      ],
+      "sigmas": [
+        "8",
+        0
+      ],
+      "latent_image": [
+        "34",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "自定义采样器（高级）"
+    }
+  },
+  "13": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "31",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "ModelAttentionBackend"
+    }
+  },
+  "14": {
+    "inputs": {
+      "model": [
+        "40",
+        0
+      ],
+      "conditioning": [
+        "38",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "基本引导器"
+    }
+  },
+  "15": {
+    "inputs": {
+      "scheduler": "beta",
+      "steps": 3,
+      "denoise": 0.25,
+      "model": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "基本调度器"
+    }
+  },
+  "16": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "17": {
+    "inputs": {
+      "noise": [
+        "9",
+        0
+      ],
+      "guider": [
+        "14",
+        0
+      ],
+      "sampler": [
+        "16",
+        0
+      ],
+      "sigmas": [
+        "15",
+        0
+      ],
+      "latent_image": [
+        "41",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "自定义采样器（高级）"
+    }
+  },
+  "18": {
+    "inputs": {
+      "samples": [
+        "17",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "20": {
+    "inputs": {
+      "fps": [
+        "4",
+        4
+      ],
+      "bit_depth": 8,
+      "color_space": "sRGB",
+      "images": [
+        "18",
+        0
+      ],
+      "audio": [
+        "26",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "创建视频"
+    }
+  },
+  "21": {
+    "inputs": {
+      "filename_prefix": "video/MiniMaxH3_Easy_DualStage_Standard_Final",
+      "format": "auto",
+      "format.codec": "auto",
+      "codec": "auto",
+      "video": [
+        "20",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Second pass result"
+    }
+  },
+  "22": {
+    "inputs": {
+      "fps": [
+        "4",
+        4
+      ],
+      "bit_depth": 8,
+      "color_space": "sRGB",
+      "images": [
+        "25",
+        0
+      ],
+      "audio": [
+        "26",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "创建视频"
+    }
+  },
+  "23": {
+    "inputs": {
+      "filename_prefix": "video/MiniMaxH3_Easy_DualStage_Standard_FirstPass",
+      "format": "auto",
+      "format.codec": "auto",
+      "codec": "auto",
+      "video-preview": "",
+      "video": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "First-pass comparison"
+    }
+  },
+  "24": {
+    "inputs": {
+      "lora_name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "lora"
+    }
+  },
+  "25": {
+    "inputs": {
+      "samples": [
+        "11",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Decode first-pass video"
+    }
+  },
+  "26": {
+    "inputs": {
+      "samples": [
+        "11",
+        1
+      ],
+      "vae": [
+        "4",
+        3
+      ]
+    },
+    "class_type": "VAEDecodeAudio",
+    "_meta": {
+      "title": "Decode first-pass audio"
+    }
+  },
+  "27": {
+    "inputs": {
+      "width": [
+        "32",
+        0
+      ],
+      "height": [
+        "32",
+        1
+      ],
+      "upscale_method": "lanczos",
+      "keep_proportion": "crop",
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 32,
+      "device": "cpu",
+      "image": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {
+      "title": "Resize from second-pass resolution selector"
+    }
+  },
+  "28": {
+    "inputs": {
+      "pixels": [
+        "36",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "Re-encode upscaled video"
+    }
+  },
+  "29": {
+    "inputs": {
+      "av_latent": [
+        "11",
+        1
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "Reuse first-pass H3 audio latent"
+    }
+  },
+  "30": {
+    "inputs": {
+      "video_latent": [
+        "28",
+        0
+      ],
+      "audio_latent": [
+        "29",
+        1
+      ]
+    },
+    "class_type": "LTXVConcatAVLatent",
+    "_meta": {
+      "title": "Build second-pass H3 AV latent"
+    }
+  },
+  "31": {
+    "inputs": {
+      "unet_name": "minimax_h3_fl2va_pruned_w4a8_mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Second-stage W4A8 REF2VA model"
+    }
+  },
+  "32": {
+    "inputs": {
+      "aspect_ratio": [
+        "39",
+        0
+      ],
+      "megapixels": 1,
+      "multiple": 32
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Second-pass resolution"
+    }
+  },
+  "34": {
+    "inputs": {
+      "anything": [
+        "4",
+        1
+      ]
+    },
+    "class_type": "easy clearCacheAll",
+    "_meta": {
+      "title": "Clear Cache All"
+    }
+  },
+  "35": {
+    "inputs": {
+      "anything": [
+        "30",
+        0
+      ]
+    },
+    "class_type": "easy clearCacheAll",
+    "_meta": {
+      "title": "Clear Cache All"
+    }
+  },
+  "36": {
+    "inputs": {
+      "anything": [
+        "27",
+        0
+      ]
+    },
+    "class_type": "easy clearCacheAll",
+    "_meta": {
+      "title": "Clear Cache All"
+    }
+  },
+  "38": {
+    "inputs": {
+      "h3_context": [
+        "3",
+        1
+      ],
+      "second_pass_video_latent": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3EasySecondPassConditioning",
+    "_meta": {
+      "title": "Pass 2 Conditioning"
+    }
+  },
+  "39": {
+    "inputs": {
+      "h3_context": [
+        "3",
+        1
+      ]
+    },
+    "class_type": "MiniMaxH3EasyAspectRatio",
+    "_meta": {
+      "title": "MiniMax H3 Easy Aspect Ratio"
+    }
+  },
+  "40": {
+    "inputs": {
+      "max_resolution": 1024,
+      "jpeg_quality": 80,
+      "suppress_default_preview": true,
+      "preview_frames": [
+        "41",
+        3
+      ],
+      "preview_fps": 12,
+      "tiny_vae": "taeh3.safetensors",
+      "model": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "ModelPreviewOverrideKJ",
+    "_meta": {
+      "title": "H3 二采视频预览（极速 tiny VAE）"
+    }
+  },
+  "41": {
+    "inputs": {
+      "latent": [
+        "35",
+        0
+      ]
+    },
+    "class_type": "GetLatentSizeAndCount",
+    "_meta": {
+      "title": "读取二采 latent 实际帧数"
+    }
+  },
+  "42": {
+    "inputs": {
+      "media_state": "{\"images\":[{\"filename\":\"img.png\"}],\"audios\":[],\"videos\":[]}"
+    },
+    "class_type": "MiniMaxH3EasyMediaLoader",
+    "_meta": {
+      "title": "MiniMax H3 Easy 媒体加载器"
+    }
+  }
+}

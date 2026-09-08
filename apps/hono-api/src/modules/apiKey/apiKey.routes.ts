@@ -74,6 +74,7 @@ import {
 import {
 	runGenericTaskForVendor,
 	resolveExecutableNewApiTaskModel,
+	resolveTaskExecutionVendor,
 	resolveVendorContext,
 } from "../task/task.service";
 import { TaskRequestSchema, type TaskRequestDto } from "../task/task.schemas";
@@ -3292,33 +3293,6 @@ export async function runPublicTask(
 	const externalVendor =
 		typeof input?.vendor === "string" && input.vendor.trim() ? input.vendor.trim() : null;
 	const requestedVendorRaw = externalVendor?.toLowerCase() || "newapi";
-	const requestedVendor = requestedVendorRaw === "auto" ? "newapi" : requestedVendorRaw;
-	if (requestedVendor !== "newapi" && requestedVendor !== "comfyui") {
-		throw new AppError("公共任务仅支持 newapi 或 comfyui 执行器", { status: 400, code: "unsupported_task_vendor", details: { vendor: requestedVendor } });
-	}
-	if (
-		requestedVendor === "comfyui" &&
-		request.kind !== "text_to_image" &&
-		request.kind !== "image_edit" &&
-		request.kind !== "text_to_video" &&
-		request.kind !== "image_to_video" &&
-		request.kind !== "text_to_audio"
-	) {
-		throw new AppError("本地 ComfyUI 执行器当前支持图片、H3 视频和 IndexTTS 音频任务", {
-			status: 400,
-			code: "unsupported_comfyui_task_kind",
-			details: { vendor: requestedVendor, taskKind: request.kind },
-		});
-	}
-	setTraceStage(c, "public:run:begin", {
-		taskKind: request?.kind ?? null,
-		vendor: requestedVendor,
-		externalVendorRequested: externalVendor,
-		modelAlias:
-			typeof extras?.modelAlias === "string" && extras.modelAlias.trim()
-				? extras.modelAlias.trim()
-				: null,
-	});
 	const debug = isHttpDebugLogEnabled(c);
 	const debugLog = (event: string, payload: Record<string, unknown>) => {
 		if (!debug) return;
@@ -3351,6 +3325,38 @@ export async function runPublicTask(
 		}
 		return { ...request, extras: cleanExtras } as Record<string, any>;
 	})();
+	const normalizedRequest = TaskRequestSchema.parse(requestForExecution);
+	const requestedVendor = await resolveTaskExecutionVendor(
+		c as AppContext,
+		externalVendor ? requestedVendorRaw : null,
+		normalizedRequest,
+	);
+	if (requestedVendor !== "newapi" && requestedVendor !== "comfyui") {
+		throw new AppError("公共任务仅支持 newapi 或 comfyui 执行器", { status: 400, code: "unsupported_task_vendor", details: { vendor: requestedVendor } });
+	}
+	if (
+		requestedVendor === "comfyui" &&
+		normalizedRequest.kind !== "text_to_image" &&
+		normalizedRequest.kind !== "image_edit" &&
+		normalizedRequest.kind !== "text_to_video" &&
+		normalizedRequest.kind !== "image_to_video" &&
+		normalizedRequest.kind !== "text_to_audio"
+	) {
+		throw new AppError("本地 ComfyUI 执行器当前支持图片、H3 视频和 IndexTTS 音频任务", {
+			status: 400,
+			code: "unsupported_comfyui_task_kind",
+			details: { vendor: requestedVendor, taskKind: normalizedRequest.kind },
+		});
+	}
+	setTraceStage(c, "public:run:begin", {
+		taskKind: normalizedRequest.kind,
+		vendor: requestedVendor,
+		externalVendorRequested: externalVendor,
+		modelAlias:
+			typeof extras?.modelAlias === "string" && extras.modelAlias.trim()
+				? extras.modelAlias.trim()
+				: null,
+	});
 
 	debugLog("task_resolved", {
 		taskKind: request?.kind ?? null,

@@ -11,9 +11,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // ─── 副作用 mock（必须在 import 被测模块之前） ───────────────────────────────
 
-const { mockFetchWithHttpDebugLog, mockListNewApiModels } = vi.hoisted(() => ({
+const { mockFetchWithHttpDebugLog, mockListNewApiModels, mockComfyCatalogModels } = vi.hoisted(() => ({
 	mockFetchWithHttpDebugLog: vi.fn(),
 	mockListNewApiModels: vi.fn(),
+	mockComfyCatalogModels: vi.fn(),
 }));
 
 vi.mock("../../httpDebugLog", () => ({
@@ -27,6 +28,9 @@ vi.mock("../../platform/node/prisma", () => ({
   getPrismaClient: () => ({
     model_catalog_vendors: {
       findUnique: async () => ({ enabled: 1 }),
+    },
+    model_catalog_models: {
+      findMany: mockComfyCatalogModels,
     },
     vendor_api_call_logs: {
       findMany: async () => [],
@@ -142,7 +146,7 @@ vi.mock("./task-result.repo", () => ({
 }));
 
 // 导入被测函数（必须在所有 vi.mock 之后）
-import { resolveExecutableNewApiTaskModel, runGenericTaskForVendor } from "./task.service";
+import { resolveExecutableNewApiTaskModel, resolveTaskExecutionVendor, runGenericTaskForVendor } from "./task.service";
 import type { AppContext } from "../../types";
 
 // ─── 集成路由测试 ────────────────────────────────────────────────────────────
@@ -206,6 +210,7 @@ describe("video_enhance → /v1/videos 路由集成测试", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+	mockComfyCatalogModels.mockResolvedValue([]);
 	mockListNewApiModels.mockResolvedValue([
 		{
 			modelName: "volc-enhance-video",
@@ -224,6 +229,16 @@ describe("video_enhance → /v1/videos 路由集成测试", () => {
 	]);
     mockSuccessResponse();
   });
+
+	it("未指定 vendor 时按已启用模型目录把 H3 路由到 ComfyUI", async () => {
+		mockComfyCatalogModels.mockResolvedValue([{ model_key: "minimax-h3" }]);
+		const vendor = await resolveTaskExecutionVendor(buildMinimalCtx(), null, {
+			kind: "image_to_video",
+			prompt: "让山谷里的星星动起来",
+			extras: { modelKey: "minimax-h3" },
+		});
+		expect(vendor).toBe("comfyui");
+	});
 
 	it("rejects an unknown model with exact executable candidates before any upstream request", async () => {
 		const c = buildMinimalCtx();
