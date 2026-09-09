@@ -383,6 +383,63 @@ async function waitForComfyHistory(baseUrl: string, token: string, promptId: str
 	throw new AppError(`ComfyUI 工作流超时：${promptId}`, { status: 504, code: "comfyui_timeout" });
 }
 
+function extractComfyHistoryStatus(history: JsonRecord): "running" | "succeeded" | "failed" {
+	const status = isRecord(history.status) ? history.status : null;
+	const statusString = readString(status?.status_str).toLowerCase();
+	if (statusString === "error" || statusString === "failed") return "failed";
+	if (status?.completed === true || statusString === "success") return "succeeded";
+	return "running";
+}
+
+function extractComfyHistoryFiles(history: JsonRecord): Array<{ filename: string; subfolder: string; type: string }> {
+	const outputs = isRecord(history.outputs) ? history.outputs : {};
+	const files: Array<{ filename: string; subfolder: string; type: string }> = [];
+	for (const raw of Object.values(outputs)) {
+		if (!isRecord(raw)) continue;
+		for (const key of ["images", "gifs", "videos", "video", "audio", "audios"] as const) {
+			const items = raw[key];
+			if (!Array.isArray(items)) continue;
+			for (const item of items) {
+				if (!isRecord(item)) continue;
+				const filename = readString(item.filename);
+				if (filename) files.push({ filename, subfolder: readString(item.subfolder), type: readString(item.type) || "output" });
+			}
+		}
+	}
+	return files;
+}
+
+/**
+ * 查询一次本地 ComfyUI 任务，不在请求线程内等待生成完成。
+ * 这是 H3 提交即返回后的统一收口入口，由任务轮询/reconcile 调用。
+ */
+export async function fetchComfyUiTaskResult(
+	c: AppContext,
+	input: { taskId: string; taskKind: TaskRequestDto["kind"]; timeoutMs?: number },
+): Promise<TaskResultDto> {
+	const baseUrl = normalizeBaseUrl(readEnv(c, "COMFYUI_BASE_URL"));
+	if (!baseUrl) throw new AppError("COMFYUI_BASE_URL 未配置", { status: 500, code: "comfyui_not_configured" });
+	const promptId = input.taskId.trim();
+	if (!promptId) throw new AppError("ComfyUI 任务缺少 prompt_id", { status: 400, code: "comfyui_prompt_id_missing" });
+	const historyUrl = comfyUrl(baseUrl, `history/${encodeURIComponent(promptId)}`);
+	let response: Response;
+	try {
+		response = await fetch(historyUrl, { headers: { Accept: "application/json", ...(readEnv(c, "COMFYUI_API_TOKEN") ? { Authorization: `Bearer ${readEnv(c, "COMFYUI_API_TOKEN")}` } : {}) }, signal: input.timeoutMs ? AbortSignal.timeout(input.timeoutMs) : undefined });
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new AppError(`ComfyUI 历史查询连接失败：${reason}`, { status: 502, code: "comfyui_history_failed", details: { endpoint: historyUrl, promptId, cause: reason } });
+	}
+	if (!response.ok) throw new AppError(`ComfyUI 历史查询失败：${response.status}`, { status: 502, code: "comfyui_history_failed", details: { endpoint: historyUrl, promptId } });
+	const payload: unknown = await response.json();
+	const history = isRecord(payload) && isRecord(payload[promptId]) ? payload[promptId] as JsonRecord : null;
+	if (!history) return TaskResultSchema.parse({ id: promptId, kind: input.taskKind, status: "running", assets: [], raw: { provider: "comfyui", promptId } });
+	const status = extractComfyHistoryStatus(history);
+	if (status !== "succeeded") return TaskResultSchema.parse({ id: promptId, kind: input.taskKind, status, assets: [], raw: { provider: "comfyui", promptId, history } });
+	const assets = extractComfyHistoryFiles(history).map((file) => TaskAssetSchema.parse({ type: input.taskKind === "text_to_audio" ? "audio" : input.taskKind === "text_to_image" || input.taskKind === "image_edit" ? "image" : "video", url: comfyUrl(baseUrl, `view?filename=${encodeURIComponent(file.filename)}&subfolder=${encodeURIComponent(file.subfolder)}&type=${encodeURIComponent(file.type)}`) }));
+	if (!assets.length) return TaskResultSchema.parse({ id: promptId, kind: input.taskKind, status: "failed", assets: [], raw: { provider: "comfyui", promptId, error: "ComfyUI 工作流已完成但未产出媒体", history } });
+	return TaskResultSchema.parse({ id: promptId, kind: input.taskKind, status: "succeeded", assets, raw: { provider: "comfyui", promptId, history } });
+}
+
 function extractOutputFiles(history: JsonRecord, variant: WorkflowVariant, workflow: ComfyWorkflow): Array<{ filename: string; subfolder: string; type: string }> {
 	const outputs = isRecord(history.outputs) ? history.outputs : {};
 	const allowedIds = new Set(variant.outputNodeIds ?? discoverNodeIds(workflow, "output"));
@@ -436,6 +493,9 @@ export async function runComfyUiTask(c: AppContext, req: TaskRequestDto): Promis
 	for (let index = 0; index < mediaInputs.length; index += 1) uploadedMedia.push(await uploadComfyMedia(baseUrl, token, mediaInputs[index]!, index));
 	const workflow = applyComfyUiWorkflowInputs(variant, req, uploadedNames, seed, uploadedMedia);
 	const submitted = await runComfyRequest(baseUrl, token, workflow);
+	if (req.kind === "text_to_video" || req.kind === "image_to_video") {
+		return TaskResultSchema.parse({ id: submitted.promptId, kind: req.kind, status: "running", assets: [], raw: { provider: "comfyui", modelKey, workflowVariant: variant.id, seed, promptId: submitted.promptId, mediaInputs: uploadedMedia.map(({ filename: _filename, ...media }) => media), response: submitted.response } });
+	}
 	const history = await waitForComfyHistory(baseUrl, token, submitted.promptId, Number(readEnv(c, "COMFYUI_POLL_TIMEOUT_MS")) || 1_800_000);
 	const files = extractOutputFiles(history, variant, workflow);
 	if (!files.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 未产出媒体`, { status: 502, code: "comfyui_output_missing", details: { promptId: submitted.promptId } });

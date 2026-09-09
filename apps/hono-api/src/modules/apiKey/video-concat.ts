@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline as streamPipeline } from "node:stream/promises";
@@ -17,6 +17,13 @@ import {
 import { putFileToStorage } from "../asset/asset.hosting.stream-upload";
 import { FFMPEG_EXEC_OPTS } from "../task/subprocess-limits";
 import { createTaskWorkspace } from "../../platform/node/task-workspace";
+import {
+	commitLocalAssetFile,
+	resolveLocalAssetFilePath,
+	resolveLocalAssetStorageConfig,
+	type LocalAssetStorageConfig,
+} from "../asset/local-asset-storage";
+import { resolvePublicAssetBaseUrl } from "../asset/asset.publicBase";
 import type { S3Client } from "@aws-sdk/client-s3";
 
 import {
@@ -37,6 +44,7 @@ import {
 } from "./video-concat.policy";
 import {
 	concatVideosViaMediaWorker,
+	isMediaWorkerEnabled,
 	muxAudioViaMediaWorker,
 } from "../../platform/media-worker/client";
 
@@ -171,11 +179,12 @@ async function mapWithConcurrency<T, R>(
 export async function downloadTo(
 	url: string,
 	dest: string,
-	storage: ObjectStorageConfig,
-	s3: S3Client,
+	storage: ObjectStorageConfig | null,
+	s3: S3Client | null,
+	localStorage: LocalAssetStorageConfig | null = null,
 ): Promise<void> {
-	const publicBase = storage.publicBase.trim().replace(/\/+$/, "");
-	if (publicBase && url.startsWith(`${publicBase}/`)) {
+	const publicBase = storage?.publicBase.trim().replace(/\/+$/, "") ?? "";
+	if (storage && s3 && publicBase && url.startsWith(`${publicBase}/`)) {
 		const key = url.slice(publicBase.length + 1).split(/[?#]/)[0];
 		const out = await s3.send(
 			new GetObjectCommand({ Bucket: storage.bucket, Key: key }),
@@ -183,6 +192,20 @@ export async function downloadTo(
 		// Stream directly to disk — avoids loading the entire clip into a Buffer.
 		await streamPipeline((out.Body as any).transformToWebStream(), createWriteStream(dest));
 		return;
+	}
+	if (localStorage) {
+		try {
+			const parsed = new URL(url, "http://local.asset");
+			const marker = "/assets/local/";
+			const markerIndex = parsed.pathname.indexOf(marker);
+			if (markerIndex >= 0) {
+				const key = decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+				await streamPipeline(createReadStream(resolveLocalAssetFilePath(localStorage, key)), createWriteStream(dest));
+				return;
+			}
+		} catch (error: unknown) {
+			throw new Error(`local asset download failed for ${url}: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 	const res = await fetch(url);
 	if (!res.ok) {
@@ -531,19 +554,20 @@ export async function concatVideosFromUrls(
 	});
 
 	const storageConfig = resolveObjectStorageConfig(c.env);
-	if (!storageConfig) {
-		throw new Error("Object storage is not configured");
-	}
+	const localStorage = storageConfig ? null : resolveLocalAssetStorageConfig();
+	if (!storageConfig && !localStorage) throw new Error("Object storage and local asset storage are not configured");
 
 	// 优先走 media-worker(Go)：下载/探测/重编码全在 worker 容器，api 堆零媒体字节。
 	// 拼接策略先由纯结构 policy 冻结；默认 hard_cut + 不自动平均调色。
-	const viaWorker = await concatVideosViaMediaWorker({
-		clips: specs,
-		userId,
-		targetAspect,
-		xfadeSeconds: policy.xfadeSeconds,
-		colorMatch: policy.colorMatch,
-	});
+	const viaWorker = isMediaWorkerEnabled()
+		? await concatVideosViaMediaWorker({
+			clips: specs,
+			userId,
+			targetAspect,
+			xfadeSeconds: policy.xfadeSeconds,
+			colorMatch: policy.colorMatch,
+		})
+		: null;
 	if (viaWorker) {
 		return {
 			url: viaWorker.url,
@@ -555,11 +579,11 @@ export async function concatVideosFromUrls(
 			colorMatch: policy.colorMatch,
 		};
 	}
-	if (options?.allowLocalMediaProcessing !== true) {
+	if (options?.allowLocalMediaProcessing !== true && !localStorage) {
 		throw new Error("media_worker_video_concat_unavailable");
 	}
 
-	const client = createObjectStorageClientFromConfig(storageConfig);
+	const client = storageConfig ? createObjectStorageClientFromConfig(storageConfig) : null;
 	const workspace = await createTaskWorkspace("video-concat");
 	const workDir = workspace.path;
 	try {
@@ -570,7 +594,7 @@ export async function concatVideosFromUrls(
 			uniqueUrls.map((url, i) => [url, join(workDir, `raw-${i}.mp4`)]),
 		);
 		await mapWithConcurrency(uniqueUrls, DOWNLOAD_CONCURRENCY, (url) =>
-			downloadTo(url, fileByUrl.get(url) as string, storageConfig, client),
+			downloadTo(url, fileByUrl.get(url) as string, storageConfig, client, localStorage),
 		);
 		const rawFiles = specs.map((s) => fileByUrl.get(s.url) as string);
 
@@ -701,16 +725,13 @@ export async function concatVideosFromUrls(
 		const safeUser = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
 		const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 		const key = `gen/videos/${safeUser}/${datePrefix}/${randomUUID()}.mp4`;
-		await putFileToStorage({
-			client,
-			bucket: storageConfig.bucket,
-			key,
-			filePath: outFile,
-			contentType: "video/mp4",
-		});
-
-		const publicBase = storageConfig.publicBase.trim().replace(/\/+$/, "");
-		const url = publicBase ? `${publicBase}/${key}` : `/${key}`;
+		if (storageConfig && client) {
+			await putFileToStorage({ client, bucket: storageConfig.bucket, key, filePath: outFile, contentType: "video/mp4" });
+		} else if (localStorage) {
+			await commitLocalAssetFile({ config: localStorage, key, filePath: outFile });
+		}
+		const publicBase = storageConfig?.publicBase.trim().replace(/\/+$/, "") || resolvePublicAssetBaseUrl(c).trim().replace(/\/+$/, "");
+		const url = publicBase ? `${publicBase}/${key}` : `/assets/local/${key}`;
 
 		return {
 			url,

@@ -13,3 +13,7 @@
 - **背景**：H3 全参考重试已通过模型、时长和输入模式校验，但 ComfyUI `/prompt` 返回 400。
 - **现象与根因**：提交工作流中的 `resolution="720p"`、二阶段 `unet_name="minimax_h3_fl2va_pruned_w4a8_mixed.safetensors"` 和 `tiny_vae="taeh3.safetensors"` 均不在本机 ComfyUI 的实时枚举中。根因是登记工作流时沿用了与本机节点不同的大小写和模型文件名，且没有在提交前用 `/object_info` 实际枚举校验。
 - **处置与预防**：已按本机校验错误改为大写分辨率枚举（`720P` 等）、已安装的 `minimax_h3_fl2va_pruned_int8_convrot.safetensors` 以及 `tiny_vae="none"`，并在 API 工作流边界把小写分辨率规范化为大写；后续工作流登记必须以本机节点实时枚举为准。
+
+- **背景**：用户反馈 MiniMax H3 文生视频调用很快显示 `fetch failed`，此前曾把旧 Agents Bridge 的 30 分钟配置解释为当前原生 DSH Web 会话配置。
+- **现象与根因**：当前原生 DSH Web 使用独立的 profile；更直接的根因是 H3 的 `runComfyUiTask()` 在拿到 ComfyUI `prompt_id` 后仍同步轮询 `/history`，直到视频完成才返回 taskId，长连接断开时调用方只能看到 `fetch failed`，而 ComfyUI 任务仍在运行。
+- **处置与预防**：将 H3 视频改为提交 ComfyUI 后立即返回 `running + promptId`，通过统一任务轮询和画布 reconcile 收取终态；区分 `COMFYUI_POLL_TIMEOUT_MS`（后端轮询预算）与原生 Agent/浏览器连接生命周期，今后不得把旧 Bridge 配置当作原生 DSH 配置的证据。

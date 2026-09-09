@@ -22,7 +22,7 @@ description: TapCanvas 当前画布的原生 Agent 工具说明。
 
 - `film_image_gen`：提交图片节点并返回真实任务回执。
 - `film_video_gen`：提交视频节点并返回真实异步任务回执。
-- `film_video_composite`：使用真实视频节点 ID 调用拼接执行器。
+- `film_video_composite`：使用真实视频节点 ID 调用拼接执行器；成功后会在当前画布自动创建合片 `composeVideo` 节点，并建立源视频到合片节点的顺序连线，返回真实合片节点 ID 与资产 URL。
 - `film_ask_human`：通过当前会话的用户提问服务等待导演回答。
 - `film_file_read`、`film_file_write`：在当前画布隔离的 Agent Workspace 中读写相对路径文件。
 - `film_memory_recall`：从当前隔离 Workspace 的影视任务记录中召回历史；没有记录时返回 `not_found`。
@@ -36,3 +36,4 @@ description: TapCanvas 当前画布的原生 Agent 工具说明。
 - 原生工具返回错误时保留错误码、诊断和工具调用事实，禁止改走公共 API 或静默降级。
 - `queued` / `running` 只表示任务尚未结束；只有真实终态和资产 URL 才构成媒体交付证据。
 - 当前画布操作完成后，回答实际写入的节点、任务状态和资产事实。
+- 合片工具的成功回执必须同时包含合片资产 URL 与画布节点回执；只有 URL 没有节点 ID 不构成“已写入画布”。

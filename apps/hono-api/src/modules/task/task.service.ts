@@ -4552,6 +4552,19 @@ export async function runGenericTaskForVendor(
 				await runComfyUiTask(c, req),
 				generationContext,
 			);
+			if (
+				(req.kind === "text_to_video" || req.kind === "image_to_video") &&
+				typeof result.id === "string" &&
+				result.id.trim()
+			) {
+				await upsertVendorTaskRefWithWarn(c, {
+					userId,
+					kind: "video",
+					taskId: result.id.trim(),
+					vendor: "comfyui",
+					warnTag: "upsert comfyui video ref failed",
+				});
+			}
 		} else {
 			if (!resolveNewApiRelayConfig(c)) {
 				throw new AppError(

@@ -6,6 +6,7 @@ import {
 	fetchNewApiTaskResult,
 	hostTaskAssetsSynchronously,
 } from "./task.service";
+import { fetchComfyUiTaskResult } from "./comfyui-workflow";
 import {
 	acquireTaskAssetHostingLease,
 	acquireTaskPollLease,
@@ -14,6 +15,7 @@ import {
 } from "./task-poll-lease";
 import { recordVendorCallLogFromTaskResult } from "./task.vendor-call-utils";
 import { readGenerationAssetContextFromRaw } from "./generation-asset-context";
+import { AppError } from "../../middleware/error";
 
 export type TaskPollingMode = "public" | "internal";
 
@@ -173,11 +175,18 @@ export async function fetchTaskResultForPolling(
 	};
 
 	let inferredFromVendorRef = false;
-	if (!resolved.kind) {
+	if (resolved.kind) {
+		const ref = await getVendorTaskRefByTaskId(c.env.DB, userId, resolved.kind, taskId);
+		if (ref?.vendor) {
+			resolved.vendor = ref.vendor.trim();
+			inferredFromVendorRef = true;
+		}
+	} else {
 		for (const k of ["video", "image"] as const) {
 			const ref = await getVendorTaskRefByTaskId(c.env.DB, userId, k, taskId);
 			if (ref?.vendor) {
 				resolved.kind = k;
+				resolved.vendor = ref.vendor.trim();
 				inferredFromVendorRef = true;
 				break;
 			}
@@ -213,7 +222,17 @@ export async function fetchTaskResultForPolling(
 	}
 	let pollLeaseReleased = false;
 	try {
-		result = await fetchNewApiTaskResult(c, userId, taskId, {
+		const isComfyUi = resolved.vendor.trim().toLowerCase() === "comfyui";
+		if (isComfyUi && !taskKind) {
+			throw new AppError("ComfyUI 任务轮询缺少 taskKind，无法确定输出类型", { status: 400, code: "comfyui_poll_task_kind_missing" });
+		}
+		result = isComfyUi
+			? await fetchComfyUiTaskResult(c, {
+				taskId,
+				taskKind: taskKind!,
+				timeoutMs: input.timeoutMs ?? 20_000,
+			})
+			: await fetchNewApiTaskResult(c, userId, taskId, {
 			taskKind: taskKind ?? null,
 			vendor: "newapi",
 			promptFromClient: prompt,
@@ -221,7 +240,7 @@ export async function fetchTaskResultForPolling(
 			// Every polling path has a finite upstream bound; slow provider/network work
 			// must be retried by the next tick rather than holding a request indefinitely.
 			timeoutMs: input.timeoutMs ?? 20_000,
-		});
+			});
 
 		let parsedResult = TaskResultSchema.parse(result);
 		let persistResult = true;

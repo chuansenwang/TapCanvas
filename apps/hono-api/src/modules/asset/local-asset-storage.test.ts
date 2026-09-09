@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	LocalAssetRangeError,
+	commitLocalAssetFile,
 	readLocalAsset,
 	resolveLocalAssetFilePath,
 	resolveLocalAssetPublicBase,
@@ -70,6 +71,18 @@ describe("local asset storage", () => {
 		).rejects.toEqual(
 			expect.objectContaining<Partial<LocalAssetRangeError>>({ totalSize: 5 }),
 		);
+	});
+
+	it("commits generated files without overwriting an existing asset", async () => {
+		const config = await createConfig();
+		const sourceDirectory = await mkdtemp(path.join(tmpdir(), "tapcanvas-local-source-"));
+		temporaryDirectories.push(sourceDirectory);
+		const sourcePath = path.join(sourceDirectory, "final.mp4");
+		await writeFile(sourcePath, new Uint8Array([7, 8, 9]));
+		const key = "gen/videos/user/20260909/final.mp4";
+		const committedPath = await commitLocalAssetFile({ config, key, filePath: sourcePath });
+		expect(new Uint8Array(await readFile(committedPath))).toEqual(new Uint8Array([7, 8, 9]));
+		await expect(commitLocalAssetFile({ config, key, filePath: sourcePath })).rejects.toMatchObject({ code: "EEXIST" });
 	});
 
 	it("rejects traversal keys before touching the filesystem", async () => {

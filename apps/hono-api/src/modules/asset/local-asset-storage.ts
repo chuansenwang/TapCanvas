@@ -1,5 +1,6 @@
-import { createReadStream, createWriteStream } from "node:fs";
+import { constants, createReadStream, createWriteStream } from "node:fs";
 import {
+	copyFile,
 	link,
 	mkdir,
 	open,
@@ -182,6 +183,26 @@ export async function writeLocalAssetResponse(input: {
 	} finally {
 		await rm(temporaryFilePath, { force: true }).catch(() => undefined);
 	}
+}
+
+/** 将已生成的本地文件以不可覆盖方式提交到资产目录。 */
+export async function commitLocalAssetFile(input: {
+	config: LocalAssetStorageConfig;
+	key: string;
+	filePath: string;
+}): Promise<string> {
+	const targetPath = resolveLocalAssetFilePath(input.config, input.key);
+	await ensureLocalAssetRoot(input.config);
+	await mkdir(path.dirname(targetPath), { recursive: true });
+	await assertRealPathWithinRoot(input.config, path.dirname(targetPath));
+	const temporaryPath = `${targetPath}.${crypto.randomUUID()}.tmp`;
+	try {
+		await copyFile(input.filePath, temporaryPath, constants.COPYFILE_EXCL);
+		await link(temporaryPath, targetPath);
+	} finally {
+		await rm(temporaryPath, { force: true }).catch(() => undefined);
+	}
+	return targetPath;
 }
 
 function parseRangeHeader(
