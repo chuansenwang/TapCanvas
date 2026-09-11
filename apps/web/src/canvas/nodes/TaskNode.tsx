@@ -5941,7 +5941,9 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     if (!isAudioNode || !storedAudioModel || modelListLoading || modelListError) return
     const selected = findModelOptionByIdentifier(activeAudioModelOptions, storedAudioModel)
     if (selected?.vendor && (data as Record<string, unknown>).audioModelVendor !== selected.vendor) {
-      updateNodeData(id, { audioModelVendor: selected.vendor })
+      const tags = readCatalogTags(selected)
+      const engineTag = tags.find((tag) => tag.startsWith('tapcanvas:audio-engine=')) || ''
+      updateNodeData(id, { audioModelVendor: selected.vendor, audioModelEngine: engineTag.slice('tapcanvas:audio-engine='.length) || null })
     }
   }, [activeAudioModelOptions, data, id, isAudioNode, modelListError, modelListLoading, storedAudioModel, updateNodeData])
   React.useEffect(() => {
@@ -5949,7 +5951,9 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     const firstValue = String(activeAudioModelOptions[0]?.value || '').trim()
     if (!firstValue) return
     const firstOption = activeAudioModelOptions[0]
-    updateNodeData(id, { audioModel: firstValue, audioModelVendor: firstOption?.vendor || null })
+    const tags = firstOption ? readCatalogTags(firstOption) : []
+    const engineTag = tags.find((tag) => tag.startsWith('tapcanvas:audio-engine=')) || ''
+    updateNodeData(id, { audioModel: firstValue, audioModelVendor: firstOption?.vendor || null, audioModelEngine: engineTag.slice('tapcanvas:audio-engine='.length) || null })
   }, [
     activeAudioModelOptions,
     id,
@@ -5975,6 +5979,9 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     const selectedAudioOption = findModelOptionByIdentifier(activeAudioModelOptions, audioModel)
     const isDoubao = Boolean(
       selectedAudioOption && readCatalogTags(selectedAudioOption).includes('tapcanvas:audio-engine=doubao'),
+    )
+    const isMiniMaxH3 = Boolean(
+      selectedAudioOption && readCatalogTags(selectedAudioOption).includes('tapcanvas:audio-engine=minimax-h3'),
     )
 
     // MiniMax 音色/情绪/语速
@@ -6033,12 +6040,41 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
             return
           }
           const selected = findModelOptionByIdentifier(modelOptions, value)
-          updateNodeData(id, { audioModel: value, audioModelVendor: selected?.vendor || null })
+          const tags = selected ? readCatalogTags(selected) : []
+          const engineTag = tags.find((tag) => tag.startsWith('tapcanvas:audio-engine=')) || ''
+          updateNodeData(id, { audioModel: value, audioModelVendor: selected?.vendor || null, audioModelEngine: engineTag.slice('tapcanvas:audio-engine='.length) || null })
         },
       },
     ]
     if (audioType === 'speech') {
-      if (isComfyAudio) {
+      if (isMiniMaxH3) {
+        const duration = typeof audioDataRecord.duration === 'number' ? audioDataRecord.duration : 15
+        const steps = typeof audioDataRecord.steps === 'number' ? audioDataRecord.steps : 10
+        const unet = 'fl2va'
+        controls.push(
+          {
+            key: 'duration',
+            title: '时长',
+            summary: `${duration} 秒`,
+            options: ['5', '10', '15'].map((value) => ({ value, label: `${value} 秒` })),
+            onChange: (value) => updateNodeData(id, { duration: Number(value) }),
+          },
+          {
+            key: 'steps',
+            title: '步数',
+            summary: `${steps} 步`,
+            options: ['4', '10', '12', '15', '20', '30'].map((value) => ({ value, label: `${value} 步` })),
+            onChange: (value) => updateNodeData(id, { steps: Number(value) }),
+          },
+          {
+            key: 'unet',
+            title: '模式',
+            summary: unet,
+            options: [{ value: 'fl2va', label: 'fl2va（当前 8188 已安装）' }],
+            onChange: () => updateNodeData(id, { unet }),
+          },
+        )
+      } else if (isComfyAudio) {
         const vectorValue = Array.isArray(audioDataRecord.indexttsEmotionVector) ? JSON.stringify(audioDataRecord.indexttsEmotionVector) : '[0,0,0,0,0,0,0,0]'
         controls.push({
           key: 'indexttsEmotionMode',

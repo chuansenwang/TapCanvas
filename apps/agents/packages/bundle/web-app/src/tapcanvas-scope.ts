@@ -142,6 +142,9 @@ interface FilmVideoGenArguments {
   start_frame_image_node?: string
   end_frame_image_node?: string
   reference_nodes?: readonly string[]
+  reference_assets?: readonly string[]
+  continuation_from_node?: string
+  continuation_mode?: 'first_frame' | 'reference'
   sound?: 'on' | 'off'
   need_bgm?: boolean
   video_subtype?: 'ai_transition'
@@ -285,13 +288,19 @@ function readFilmVideoArguments(value: unknown): FilmVideoGenArguments {
     prompt: readRequiredText(value, 'film_video_gen', 'prompt'),
     title: readRequiredText(value, 'film_video_gen', 'title'),
   }
-  const textKeys = ['tag', 'aspect_ratio', 'resolution', 'ai_model', 'start_frame_image_node', 'end_frame_image_node'] as const
+  const textKeys = ['tag', 'aspect_ratio', 'resolution', 'ai_model', 'start_frame_image_node', 'end_frame_image_node', 'continuation_from_node'] as const
   for (const key of textKeys) {
     const text = readOptionalText(value, 'film_video_gen', key)
     if (text !== undefined) result[key] = text
   }
   const references = readStringList(value.reference_nodes, 'film_video_gen', 'reference_nodes')
   if (references.length) result.reference_nodes = references
+  const referenceAssets = readStringList(value.reference_assets, 'film_video_gen', 'reference_assets')
+  if (referenceAssets.length) result.reference_assets = referenceAssets
+  const continuationMode = value.continuation_mode
+  if (continuationMode !== undefined && continuationMode !== 'first_frame' && continuationMode !== 'reference') throw new Error('film_video_gen.continuation_mode 只能是 first_frame 或 reference')
+  if (continuationMode !== undefined) result.continuation_mode = continuationMode
+  if (result.continuation_from_node && result.continuation_mode === undefined) throw new Error('film_video_gen.continuation_from_node 必须同时提供 continuation_mode')
   for (const key of ['duration_sec'] as const) {
     const candidate = value[key]
     if (candidate !== undefined && (typeof candidate !== 'number' || !Number.isInteger(candidate) || candidate <= 0)) {
@@ -562,17 +571,31 @@ export function registerTapCanvasRuntime(ctx: Context): void {
   }
 
   registerFilmTool('film_video_gen', '直接生成影视分镜视频并写入当前 TapCanvas 画布，返回真实节点、任务和异步状态。', {
-    prompt: { type: 'string', required: true }, title: { type: 'string', required: true }, tag: { type: 'string' }, duration_sec: { type: 'integer' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, ai_model: { type: 'string' }, start_frame_image_node: { type: 'string' }, end_frame_image_node: { type: 'string' }, reference_nodes: { type: 'array', items: { type: 'string' } }, sound: { type: 'string', enum: ['on', 'off'] }, need_bgm: { type: 'boolean' }, video_subtype: { type: 'string', enum: ['ai_transition'] },
+    prompt: { type: 'string', required: true }, title: { type: 'string', required: true }, tag: { type: 'string' }, duration_sec: { type: 'integer' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, ai_model: { type: 'string' }, start_frame_image_node: { type: 'string' }, end_frame_image_node: { type: 'string' }, reference_nodes: { type: 'array', items: { type: 'string' } }, reference_assets: { type: 'array', items: { type: 'string' } }, continuation_from_node: { type: 'string' }, continuation_mode: { type: 'string', enum: ['first_frame', 'reference'] }, sound: { type: 'string', enum: ['on', 'off'] }, need_bgm: { type: 'boolean' }, video_subtype: { type: 'string', enum: ['ai_transition'] },
   }, async (args, exec) => {
     const scope = scopeOrThrow(exec.agent)
     const input = readFilmVideoArguments(args)
     const nodeId = crypto.randomUUID()
+    let continuationAssetId = ''
+    if (input.continuation_from_node) {
+      const source = scope.canvas?.nodes.find((node) => node.id === input.continuation_from_node)
+      if (!source || source.data.kind !== 'video') throw new Error(`film_video_gen.continuation_from_node 不是当前画布中有效的视频节点：${input.continuation_from_node}`)
+      const extraction = await executeNativeBridgeTool(scope, 'tapcanvas_video_extract_last_frame', { nodeId: input.continuation_from_node }, exec.signal, exec.callId)
+      let parsed: unknown
+      try { parsed = JSON.parse(extraction) as unknown } catch { throw new Error('视频尾帧抽取器返回了无法解析的回执') }
+      if (!isRecord(parsed) || !Array.isArray(parsed.referenceAssetIds) || parsed.referenceAssetIds.length !== 1 || typeof parsed.referenceAssetIds[0] !== 'string' || parsed.referenceAssetIds[0].trim() === '') throw new Error('视频尾帧抽取器未返回唯一真实资产 ID')
+      continuationAssetId = parsed.referenceAssetIds[0].trim()
+    }
+    const referenceAssets = [...(input.reference_assets ?? [])]
+    if (continuationAssetId && input.continuation_mode === 'reference') referenceAssets.push(continuationAssetId)
     const nodeData: Record<string, unknown> = {
       kind: 'video', prompt: input.prompt, label: input.title,
       ...(input.tag ? { tag: input.tag } : {}), ...(input.duration_sec ? { durationSeconds: input.duration_sec } : {}),
       ...(input.aspect_ratio ? { aspect: input.aspect_ratio } : {}), ...(input.resolution ? { resolution: input.resolution } : {}),
       ...(input.ai_model ? { videoModel: input.ai_model } : {}), ...(input.reference_nodes ? { referenceImageNodeIds: [...input.reference_nodes] } : {}),
+      ...(referenceAssets.length ? { referenceAssetIds: [...new Set(referenceAssets)] } : {}),
       ...(input.start_frame_image_node ? { firstFrameImageNodeId: input.start_frame_image_node } : {}),
+      ...(continuationAssetId && input.continuation_mode === 'first_frame' ? { firstFrameAssetId: continuationAssetId } : {}),
       ...(input.end_frame_image_node ? { lastFrameImageNodeId: input.end_frame_image_node } : {}),
       ...(input.sound ? { sound: input.sound } : {}), ...(input.need_bgm === undefined ? {} : { needBgm: input.need_bgm }), ...(input.video_subtype ? { videoSubtype: input.video_subtype } : {}),
     }

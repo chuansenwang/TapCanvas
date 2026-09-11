@@ -203,7 +203,21 @@ export async function runNodeAudio(
         resultModel = audioModel
       } else {
       const isDoubao = audioModel.toLowerCase().startsWith('doubao-seed-audio')
-      if (isDoubao) {
+      const isMiniMaxH3 = pickText(data.audioModelEngine) === 'minimax-h3'
+      if (isMiniMaxH3) {
+        const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
+        const result = await synthesizeSpeechAudio({
+          text,
+          model: audioModel,
+          duration: typeof data.duration === 'number' ? data.duration : undefined,
+          steps: typeof data.steps === 'number' ? data.steps : undefined,
+          unet: pickText(data.unet) || undefined,
+          referenceAudioUrls: refs.referenceAudioUrls.length ? refs.referenceAudioUrls : undefined,
+        })
+        resultUrl = result.url
+        resultDuration = result.durationSec
+        resultModel = result.model
+      } else if (isDoubao) {
         const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
         const result = await synthesizeSpeechAudio({
           text,
@@ -219,6 +233,7 @@ export async function runNodeAudio(
         resultDuration = result.durationSec
         resultModel = result.model
       } else {
+        const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
         const result = await synthesizeSpeechAudio({
           text,
           model: audioModel,

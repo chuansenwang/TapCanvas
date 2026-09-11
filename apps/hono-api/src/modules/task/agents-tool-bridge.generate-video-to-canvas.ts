@@ -143,6 +143,7 @@ import {
   readVideoInputPosterUrl,
   resolveCanvasVideoPoster,
 } from "./video-canvas-poster";
+import { validateH3PromptContract } from "./h3-prompt-contract";
 
 // Resolve the authoritative video aspect from the group the node belongs to.
 // A group with data.videoAspect pins ALL its shots to one aspect deterministically,
@@ -2228,6 +2229,19 @@ export async function generateVideoToCanvas(input: {
       : []),
     ...referenceAudioUrls.map((url) => ({ type: "audio" as const, url, role: "audio" as const })),
   ];
+  if (/^minimax-h3$/i.test(modelKey)) {
+    const h3Contract = validateH3PromptContract({ prompt, mediaInputs });
+    if (!h3Contract.ok) {
+      throw new AppError(
+        `MiniMax H3 ${h3Contract.mode} 模式提示词缺少必需段落：${h3Contract.missing.join("、")}`,
+        {
+          status: 422,
+          code: "comfyui_h3_prompt_contract_invalid",
+          details: { mode: h3Contract.mode, missing: h3Contract.missing, upstreamRequestAttempted: false },
+        },
+      );
+    }
+  }
   const taskRequest: TaskRequestDto = {
     kind: taskKind,
     prompt,

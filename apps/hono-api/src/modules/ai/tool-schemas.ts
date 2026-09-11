@@ -884,7 +884,7 @@ export const canvasNodeSpecs = {
 	audio: {
 		label: "音频",
 		purpose:
-			"语音合成（TTS）或音乐生成节点，经 new-api relay 产出可播放的音频 URL。audioModel 必须从本轮系统音频模型目录动态选择：speech / voice_card 只能选带 speech 类型标签的可执行模型，music 只能选带 music 类型标签的可执行模型；价格与计费单位以目录实时返回为准。音频节点的 out-audio 可连到 video / composeVideo 节点作为配音轨输入：视频生成完成后服务端用 ffmpeg 把音轨合到成片上（audioMixMode=replace 替换原音轨 / mix 与原音轨叠混）。文案应是最终口播稿（口语化、带停顿标点），不是镜头描述。\n\n**配音卡模式（audioType=voice_card，和角色卡对称）**：把本节点当成某个角色的「可复用声音锚」——只锁音色（doubaoVoiceId 或克隆参考），**不带固定 text**。设 `voiceCharacter=角色名`，把 out-audio **直接连到该角色的多段视频节点**：出片时服务端按「每段视频自己的台词（clipPrompt 引号内对白）+ 本卡音色」即时 TTS 合成再 mux 到该段视频上 → 同一角色多段同嗓音。音色留空则服务端按角色性别自动挑官方音色（可随时改 doubaoVoiceId 覆盖）。一张配音卡 fan-out 连多个视频节点复用，等价于角色卡的 referenceImages 复用。",
+			"语音合成（TTS）或音乐生成节点，经已配置的执行引擎产出可播放的音频 URL。audioModel 必须从本轮系统音频模型目录动态选择：speech / voice_card 只能选带 speech 类型标签的可执行模型，music 只能选带 music 类型标签的可执行模型；价格与计费单位以目录实时返回为准。标签为 tapcanvas:audio-engine=minimax-h3 的语音模型调用本机 MiniMax H3 服务，支持六段式 prompt、最多 3 个参考音频与 duration/steps/unet 参数，后端必须显式配置 MINIMAX_H3_TTS_BASE_URL。音频节点的 out-audio 可连到 video / composeVideo 节点作为配音轨输入：视频生成完成后服务端用 ffmpeg 把音轨合到成片上（audioMixMode=replace 替换原音轨 / mix 与原音轨叠混）。文案应是最终口播稿（口语化、带停顿标点），不是镜头描述。\n\n**配音卡模式（audioType=voice_card，和角色卡对称）**：把本节点当成某个角色的「可复用声音锚」——只锁音色（doubaoVoiceId 或克隆参考），**不带固定 text**。设 `voiceCharacter=角色名`，把 out-audio **直接连到该角色的多段视频节点**：出片时服务端按「每段视频自己的台词（clipPrompt 引号内对白）+ 本卡音色」即时 TTS 合成再 mux 到该段视频上 → 同一角色多段同嗓音。音色留空则服务端按角色性别自动挑官方音色（可随时改 doubaoVoiceId 覆盖）。一张配音卡 fan-out 连多个视频节点复用，等价于角色卡的 referenceImages 复用。",
 		output: {
 			audioUrl: "string (mp3 公网 URL)",
 			audioDurationSec: "number (optional; 音频时长秒)",
@@ -915,6 +915,12 @@ export const canvasNodeSpecs = {
 			speed: "number (optional; 仅 MiniMax：0.5~2.0 语速，默认 1)",
 			soundEffects:
 				"string[] (optional; 仅 MiniMax：spacious_echo 空旷回音 / auditorium_echo 礼堂回音 / lofi_telephone 复古电话 / robotic 机器人)",
+			duration:
+				"number (optional; 仅 MiniMax H3：生成时长秒数，必须为 1~15；超过 15 秒会被拒绝，以避免台词遵循度下降)",
+			steps:
+				"number (optional; 仅 MiniMax H3：采样步数 4~30)",
+			unet:
+				"enum (optional; 仅 MiniMax H3：当前 8188 已验证并仅支持 fl2va)",
 			audioMixMode:
 				"enum (optional; 连到视频节点时的混音方式：replace 替换原音轨（默认）/ mix 与原音轨叠混)",
 		},

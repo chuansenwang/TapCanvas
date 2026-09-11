@@ -14,6 +14,8 @@ import {
 	doubaoSpeechReserveCeiling,
 	generateMusicToStorage,
 	isDoubaoSpeechModel,
+	isMiniMaxH3SpeechModel,
+	synthesizeMiniMaxH3SpeechToStorage,
 	synthesizeDoubaoSpeechToStorage,
 	synthesizeSpeechToStorage,
 } from "./audio-speech";
@@ -3985,9 +3987,14 @@ publicApiRouter.post("/audio/speech", async (c) => {
 	const model = catalogModel.requestModelKey;
 
 	const isDoubao = isDoubaoSpeechModel(model);
+	const isMiniMaxH3 = isMiniMaxH3SpeechModel(catalogModel);
 
 	// MiniMax：按实际计费字符动态计价；豆包语音：按秒计费（预留封顶，结算实际时长）。
-	const required = isDoubao ? doubaoSpeechReserveCeiling() : computeSpeechCredits(model, text);
+	const required = isDoubao
+		? doubaoSpeechReserveCeiling()
+		: isMiniMaxH3
+			? await resolveTeamCreditsCostForTask(c, { taskKind: "text_to_audio", modelKey: model })
+			: computeSpeechCredits(model, text);
 	const reservation = await requireSufficientTeamCredits(c, userId, {
 		required,
 		taskKind: "text_to_audio",
@@ -3996,6 +4003,18 @@ publicApiRouter.post("/audio/speech", async (c) => {
 	});
 
 	try {
+		if (isMiniMaxH3) {
+			const result = await synthesizeMiniMaxH3SpeechToStorage(c, userId, {
+				prompt: text,
+				model,
+				duration: typeof body?.duration === "number" ? body.duration : null,
+				steps: typeof body?.steps === "number" ? body.steps : null,
+				unet: typeof body?.unet === "string" ? body.unet.trim() || null : null,
+				referenceAudioUrls: Array.isArray(body?.referenceAudioUrls) ? body.referenceAudioUrls : null,
+			});
+			if (reservation) await settleTeamCreditsOnSuccess(c, userId, { taskId: reservation.reservationTaskId, taskKind: "text_to_audio", amount: reservation.amount, vendor: "new_api", modelKey: model });
+			return c.json(result, 200);
+		}
 		if (isDoubao) {
 			const result = await synthesizeDoubaoSpeechToStorage(c, userId, {
 				text,

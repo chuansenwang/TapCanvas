@@ -14,6 +14,9 @@ import {
 	resolveObjectStorageConfig,
 } from "../asset/rustfs.client";
 import { requireSelectableAudioModel } from "../new-api-models/new-api-audio-model";
+import type { NewApiModelDto } from "../new-api-models/new-api-models.service";
+import { validateH3AudioDuration, validateH3AudioPromptContract } from "../task/h3-prompt-contract";
+import { generateMiniMaxH3AudioWithComfy } from "./minimax-h3-comfy";
 
 const execFileAsync = promisify(execFile);
 
@@ -141,6 +144,31 @@ export type SynthesizeSpeechResult = {
 	emotion: string | null;
 };
 
+export type SynthesizeMiniMaxH3SpeechInput = {
+	/** H3 六段式或自由模式提示词。 */
+	prompt: string;
+	model?: string | null;
+	duration?: number | null;
+	steps?: number | null;
+	unet?: string | null;
+	/** 参考音频 URL；按顺序上传为兼容别名 ref_1..3。提示词可用 @1/@2/@3 引用。 */
+	referenceAudioUrls?: string[] | null;
+};
+
+export type SynthesizeMiniMaxH3SpeechResult = {
+	url: string;
+	key: string;
+	bytes: number;
+	durationSec: number | null;
+	/** ComfyUI 原始输出，保留用于追溯，不作为画布默认播放的交付音频。 */
+	sourceUrl: string;
+	sourceKey: string;
+	sourceDurationSec: number | null;
+	model: string;
+	voiceId: string;
+	emotion: string | null;
+};
+
 function readNewApiRelayConfig(c: AppContext): { baseUrl: string; token: string } | null {
 	const env = c?.env as Record<string, unknown> | undefined;
 	const processEnv = (globalThis as any)?.process?.env as
@@ -181,6 +209,131 @@ export function normalizeSpeechSoundEffects(values: unknown): SpeechSoundEffect[
 		}
 	}
 	return out;
+}
+
+export function isMiniMaxH3SpeechModel(model: Pick<NewApiModelDto, "tags">): boolean {
+	return model.tags.some((tag) => tag.trim().toLowerCase() === "tapcanvas:audio-engine=minimax-h3");
+}
+
+/**
+ * H3 Prompt 合同要求首秒无人声：交付时移除这段预卷，并仅清理其后的连续起始静音。
+ * 再保留 50ms 前导静音，避免播放器在 0 秒硬切入人声；不做尾端检测。
+ */
+export function h3DeliveryAudioFilter(): string {
+	return [
+		"atrim=start=1",
+		"asetpts=PTS-STARTPTS",
+		"silenceremove=start_periods=1:start_duration=0.20:start_threshold=-45dB:start_silence=0.08",
+		"adelay=50:all=1",
+	].join(",");
+}
+
+/** 直连本机 ComfyUI 的 MiniMax H3 工作流，并将真实产物转存为项目音频资产。 */
+export async function synthesizeMiniMaxH3SpeechToStorage(
+	c: AppContext,
+	userId: string,
+	input: SynthesizeMiniMaxH3SpeechInput,
+): Promise<SynthesizeMiniMaxH3SpeechResult> {
+	const prompt = input.prompt.trim();
+	if (!prompt) throw new Error("prompt is required");
+	const durationContract = validateH3AudioDuration(input.duration);
+	if (!durationContract.ok) {
+		throw new AppError(durationContract.reason, {
+			status: 400,
+			code: "minimax_h3_audio_duration_invalid",
+			details: { duration: input.duration ?? null, maxDuration: 15 },
+		});
+	}
+	const env = c.env as Record<string, unknown>;
+	const baseUrl = typeof env.MINIMAX_H3_TTS_BASE_URL === "string" ? env.MINIMAX_H3_TTS_BASE_URL.trim().replace(/\/+$/, "") : "";
+	if (!baseUrl) throw new Error("MINIMAX_H3_TTS_BASE_URL 未配置");
+	const storageConfig = resolveObjectStorageConfig(c.env);
+	if (!storageConfig) throw new Error("Object storage is not configured");
+	const catalogModel = await requireSelectableAudioModel(c, input.model, "speech");
+	if (!isMiniMaxH3SpeechModel(catalogModel)) {
+		throw new AppError("所选语音模型不支持 MiniMax H3 执行端点", {
+			status: 400,
+			code: "audio_model_engine_mismatch",
+			details: { model: catalogModel.modelName, expectedEngine: "minimax-h3" },
+		});
+	}
+	const refs = (input.referenceAudioUrls ?? []).map((url) => url.trim()).filter(Boolean).slice(0, 3);
+	const promptContract = validateH3AudioPromptContract({ prompt, referenceAudioCount: refs.length });
+	if (!promptContract.ok) {
+		throw new AppError(`MiniMax H3 音频提示词缺少必需段落：${promptContract.missing.join("、")}`, {
+			status: 400,
+			code: "minimax_h3_audio_prompt_contract_invalid",
+			details: { mode: promptContract.mode, missing: promptContract.missing },
+		});
+	}
+	const generated = await generateMiniMaxH3AudioWithComfy({
+		baseUrl,
+		prompt,
+		duration: durationContract.duration,
+		steps: input.steps,
+		unet: input.unet,
+		referenceAudioUrls: refs,
+	});
+	const sourceAudioBuf = generated.audio;
+	let audioBuf: Buffer;
+	const workDir = await mkdtemp(join(tmpdir(), "h3-"));
+	let durationSec: number | null = null;
+	let sourceDurationSec: number | null = null;
+	try {
+		const sourceFile = join(workDir, "comfy-output.flac");
+		const deliveryFile = join(workDir, "speech-delivery.wav");
+		await writeFile(sourceFile, sourceAudioBuf);
+		sourceDurationSec = await probeDurationSec(sourceFile);
+		await execFileAsync("ffmpeg", [
+			"-y",
+			"-v",
+			"error",
+			"-i",
+			sourceFile,
+			"-af",
+			h3DeliveryAudioFilter(),
+			"-c:a",
+			"pcm_s16le",
+			deliveryFile,
+		]);
+		audioBuf = Buffer.from(await readFile(deliveryFile));
+		if (audioBuf.byteLength < 128) {
+			throw new AppError("MiniMax H3 转封装后未保留可交付音频", {
+				status: 502,
+				code: "minimax_h3_delivery_audio_empty",
+			});
+		}
+		durationSec = await probeDurationSec(deliveryFile);
+		if (durationSec === null || durationSec <= 0) {
+			throw new AppError("MiniMax H3 交付音频无法测得有效时长", {
+				status: 502,
+				code: "minimax_h3_delivery_duration_missing",
+			});
+		}
+	} finally {
+		await rm(workDir, { recursive: true, force: true }).catch(() => {});
+	}
+	const client = createObjectStorageClientFromConfig(storageConfig);
+	const safeUser = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
+	const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+	const assetId = randomUUID();
+	const sourceKey = `gen/audio/${safeUser}/${datePrefix}/${assetId}.source.flac`;
+	const key = `gen/audio/${safeUser}/${datePrefix}/${assetId}.wav`;
+	await client.send(new PutObjectCommand({ Bucket: storageConfig.bucket, Key: sourceKey, Body: sourceAudioBuf, ContentType: "audio/flac", CacheControl: "public, max-age=31536000, immutable" }));
+	await client.send(new PutObjectCommand({ Bucket: storageConfig.bucket, Key: key, Body: audioBuf, ContentType: "audio/wav", CacheControl: "public, max-age=31536000, immutable" }));
+	const publicBase = storageConfig.publicBase.trim().replace(/\/+$/, "");
+	return {
+		url: publicBase ? `${publicBase}/${key}` : `/${key}`,
+		key,
+		bytes: audioBuf.byteLength,
+		durationSec,
+		sourceUrl: publicBase ? `${publicBase}/${sourceKey}` : `/${sourceKey}`,
+		sourceKey,
+		sourceDurationSec,
+		model: catalogModel.requestModelKey,
+		voiceId: "",
+		emotion: null,
+	};
 }
 
 function normalizeSpeed(value: unknown): number | null {

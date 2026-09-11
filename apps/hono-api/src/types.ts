@@ -91,6 +91,8 @@ export type WorkerEnv = Record<string, unknown> & {
 	COMFYUI_BASE_URL?: string;
 	COMFYUI_API_TOKEN?: string;
 	COMFYUI_POLL_TIMEOUT_MS?: string;
+	/** MiniMax H3 本地 ComfyUI 服务地址，例如 http://127.0.0.1:8188。 */
+	MINIMAX_H3_TTS_BASE_URL?: string;
 	NEW_API_USD_EXCHANGE_RATE?: string;
 	NEW_API_SQL_DSN?: string;
 	TAP_CREDITS_PER_CNY?: string;

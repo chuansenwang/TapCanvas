@@ -9,7 +9,9 @@ const {
   mockedPersistFlowPatch,
   mockedRegisterGeneratedMediaAsset,
   mockedIsDoubaoSpeechModel,
+  mockedIsMiniMaxH3SpeechModel,
   mockedSynthesizeDoubaoSpeechToStorage,
+  mockedSynthesizeMiniMaxH3SpeechToStorage,
   mockedListDoubaoSeedAudioVoices,
 } = vi.hoisted(() => ({
   mockedSynthesizeSpeechToStorage: vi.fn(),
@@ -17,7 +19,9 @@ const {
   mockedPersistFlowPatch: vi.fn(),
   mockedRegisterGeneratedMediaAsset: vi.fn(),
   mockedIsDoubaoSpeechModel: vi.fn(),
+  mockedIsMiniMaxH3SpeechModel: vi.fn(() => false),
   mockedSynthesizeDoubaoSpeechToStorage: vi.fn(),
+  mockedSynthesizeMiniMaxH3SpeechToStorage: vi.fn(),
   mockedListDoubaoSeedAudioVoices: vi.fn(),
 }));
 
@@ -25,6 +29,8 @@ vi.mock("../apiKey/audio-speech", () => ({
   synthesizeSpeechToStorage: mockedSynthesizeSpeechToStorage,
   synthesizeDoubaoSpeechToStorage: mockedSynthesizeDoubaoSpeechToStorage,
   isDoubaoSpeechModel: mockedIsDoubaoSpeechModel,
+  isMiniMaxH3SpeechModel: mockedIsMiniMaxH3SpeechModel,
+  synthesizeMiniMaxH3SpeechToStorage: mockedSynthesizeMiniMaxH3SpeechToStorage,
   generateMusicToStorage: vi.fn(),
 }));
 

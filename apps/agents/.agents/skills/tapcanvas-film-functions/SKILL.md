@@ -11,7 +11,8 @@ description: 使用 TapCanvas 原生影视 Function 完成图片、视频、拼�
 
 - `film_image_gen`：文生图或参考节点/资产图生图，写入图片节点。每次调用都必须显式传 `vendor`：本地 ComfyUI 模型传 `vendor: "comfyui"`，系统模型传 `vendor: "newapi"`；不能省略，也不能仅凭模型名推断。
 - 一次图片请求只调用一次 `film_image_gen`。执行器返回失败后，原地报告真实错误并停止；不要自动改用另一个 vendor、换模型或重复提交同一生成任务。
-- `film_video_gen`：文生视频或参考图生视频，写入视频节点并返回异步任务回执。
+- `film_video_gen`：文生视频或参考图生视频，写入视频节点并返回异步任务回执。多段续写需显式传 `continuation_from_node` 和 `continuation_mode`；执行器会从真实上游视频抽取尾帧资产，按 `first_frame` 或 `reference` 角色传递，不能把首尾帧与普通参考混用。
+- 相邻视频不自动连续：场景/时间/上下文改变时使用独立的 `editorial_cut` 语义，不传 `continuation_from_node`；只有同一动作需要接力时才显式传入连续性字段。
 - `film_video_composite`：按视频节点 ID 拼接已生成片段。
 - `film_ask_human`：需要导演确认或补充信息时等待用户回答。
 - `film_file_read` / `film_file_write`：读写当前画布隔离 Workspace 的相对路径文件。

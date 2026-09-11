@@ -21,7 +21,7 @@ description: TapCanvas 当前画布的原生 Agent 工具说明。
 影视工具已作为原生 Agent Function 注册，不是外部 MCP。可直接调用：
 
 - `film_image_gen`：提交图片节点并返回真实任务回执。
-- `film_video_gen`：提交视频节点并返回真实异步任务回执。
+- `film_video_gen`：提交视频节点并返回真实异步任务回执。相邻视频不默认连续；场景切换使用独立镜头。只有明确需要动作接力时才传 `continuation_from_node` 与 `continuation_mode`，工具会从当前画布真实上游视频抽取尾帧并登记为资产，`first_frame` 用作首帧，`reference` 用作全参考素材，二者不能混用。
 - `film_video_composite`：使用真实视频节点 ID 调用拼接执行器；成功后会在当前画布自动创建合片 `composeVideo` 节点，并建立源视频到合片节点的顺序连线，返回真实合片节点 ID 与资产 URL。
 - `film_ask_human`：通过当前会话的用户提问服务等待导演回答。
 - `film_file_read`、`film_file_write`：在当前画布隔离的 Agent Workspace 中读写相对路径文件。
@@ -30,6 +30,10 @@ description: TapCanvas 当前画布的原生 Agent 工具说明。
 - `film_asset_search` / `film_asset_save`：分别调用项目素材列举和素材同步执行器，使用真实节点 ID，不返回或复制存储 URL。
 
 以下附件别名也已注册，但当前仓库没有对应的统一原生执行器，因此调用会返回明确能力错误，不会伪造成功：`film_scene_director`（旧 commands 协议）、`film_video_edit`、`film_audio_gen`、`film_sfx_gen`、`film_color_grade`。已有具体 TapCanvas 工具时，应直接使用其真实协议，例如 `tapcanvas_capture_director_scene`、`tapcanvas_render_director_clip`、`tapcanvas_material_assets_list`。
+
+音频节点使用动态模型目录。模型带 `tapcanvas:audio-engine=minimax-h3` 标签时，执行端调用后端显式配置的 `MINIMAX_H3_TTS_BASE_URL`（本机默认 `http://127.0.0.1:8188`）直连 ComfyUI：上传真实上游参考音频、提交 H3 工作流、轮询任务历史并读取音频产物；使用 H3 的 `prompt`、可选 `duration`/`steps`/`unet`，最多 3 条参考音频。服务未配置、参考资产缺失或下载失败时必须显式失败，不得改走其他 TTS 引擎。
+
+选择 MiniMax H3 音频模型或处理 H3 多人对白时，先加载 `tapcanvas-h3-audio` Skill；其中的六段式/三段式结构、`<d>` 台词、`(Sx)` 音色绑定、开场无人声、时间轴与时长预算是执行前合同。
 
 ## 失败与交付
 

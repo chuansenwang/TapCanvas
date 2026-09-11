@@ -3,8 +3,10 @@ import { AppError } from "../../middleware/error";
 import type { FlowRow } from "../flow/flow.repo";
 import {
   synthesizeSpeechToStorage,
-  synthesizeDoubaoSpeechToStorage,
-  isDoubaoSpeechModel,
+	synthesizeDoubaoSpeechToStorage,
+	synthesizeMiniMaxH3SpeechToStorage,
+	isDoubaoSpeechModel,
+	isMiniMaxH3SpeechModel,
   generateMusicToStorage,
 } from "../apiKey/audio-speech";
 import { requireSelectableAudioModel } from "../new-api-models/new-api-audio-model";
@@ -184,7 +186,8 @@ export async function generateAudioToCanvas(input: {
   // 根治：豆包模型走豆包合成路径；voiceId 若空 or 不在真实豆包目录，则按「角色名+性别」
   // 确定性从 414 富音色目录挑一把有效音色（与 asset-selfheal / VOICE_CARD_AUTO_DUB 同口径：
   // 同角色跨镜跨章恒定同一把嗓），彻底消除假 speaker id 与哑卡。
-  const useDoubao = isDoubaoSpeechModel(model);
+	const useDoubao = isDoubaoSpeechModel(model);
+	const useMiniMaxH3 = isMiniMaxH3SpeechModel(catalogModel);
   let resolvedVoiceId = voiceId;
   if (useDoubao) {
     const catalog = requireExactVoiceId
@@ -270,7 +273,9 @@ export async function generateAudioToCanvas(input: {
       ? `大家好，我是${voiceCharacter}。这是我在本剧中的声音，用于音色试听与跨章节的声音锁定。`
       : "");
   let audioUrl = "";
+  let audioSourceUrl = "";
   let durationSec: number | null = null;
+  let sourceDurationSec: number | null = null;
   let usedVoiceId = resolvedVoiceId;
   if (audioType === "music") {
     // 与 /audio/music 路由同口径：只接受 new-api /api/pricing 实时按次价，缺价显式失败。
@@ -317,8 +322,24 @@ export async function generateAudioToCanvas(input: {
       }
       throw err;
     }
-  } else if (effectiveText) {
-    if (useDoubao) {
+	} else if (effectiveText) {
+		if (useMiniMaxH3) {
+			const referenceAudioUrls = Array.isArray(nodeData.referenceAudioUrls)
+				? nodeData.referenceAudioUrls.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+				: [];
+			const r = await synthesizeMiniMaxH3SpeechToStorage(input.c, input.requestUserId, {
+				prompt: effectiveText,
+				model,
+				duration: readNumber(nodeData.duration),
+				steps: readNumber(nodeData.steps),
+			unet: readTrimmedString(nodeData.unet) || null,
+				referenceAudioUrls,
+			});
+			audioUrl = r.url;
+			audioSourceUrl = r.sourceUrl;
+			durationSec = r.durationSec;
+			sourceDurationSec = r.sourceDurationSec;
+		} else if (useDoubao) {
       // MiniMax 的 speed 是 0.5~2.0 倍率；豆包 seed-audio 的 speechRate 是 -50~100（0=常速）。
       const speechRate =
         speed !== null ? Math.max(-50, Math.min(100, Math.round((speed - 1) * 100))) : null;
@@ -355,8 +376,8 @@ export async function generateAudioToCanvas(input: {
       meta: {
         type: "audio",
         url: audioUrl,
-        sourceUrl: audioUrl,
-        vendor: useDoubao ? "doubao" : "new_api",
+        sourceUrl: audioSourceUrl || audioUrl,
+			vendor: useMiniMaxH3 ? "minimax-h3" : useDoubao ? "doubao" : "new_api",
         taskKind: "text_to_audio",
         prompt: effectiveText || text,
         modelKey: model,
@@ -381,7 +402,7 @@ export async function generateAudioToCanvas(input: {
       ...(display.voiceLabel ? { voiceLabel: display.voiceLabel } : {}),
     };
   }
-  const finalNodeData: Record<string, unknown> = {
+	const finalNodeData: Record<string, unknown> = {
     kind: "audio",
     audioType,
     ...(audioUrl ? { audioUrl } : {}),
@@ -400,14 +421,17 @@ export async function generateAudioToCanvas(input: {
     assetRegistrationStatus: assetId ? "ready" : "failed",
     ...(assetRegistrationError ? { assetRegistrationError } : {}),
     ...(durationSec ? { audioDurationSec: durationSec } : {}),
+    ...(audioSourceUrl ? { audioSourceUrl } : {}),
+    ...(sourceDurationSec ? { audioSourceDurationSec: sourceDurationSec } : {}),
     ...(usedVoiceId ? { doubaoVoiceId: usedVoiceId } : {}),
     ...(voiceCharacter ? { voiceCharacter, roleName: voiceCharacter } : {}),
     ...voiceCardLabelFields,
     ...(effectiveText ? { text: effectiveText } : {}),
     // 独立素材标记：true = 不被 collectComposeAudioNodeIds 收编进成片混音（章级 BGM 用户自行剪辑拼接）。
     ...(mixExclude ? { mixExclude: true } : {}),
-    audioModel: model,
-    label,
+		audioModel: model,
+		audioModelEngine: useMiniMaxH3 ? "minimax-h3" : useDoubao ? "doubao" : catalogModel.tags.find((tag) => tag.trim().toLowerCase().startsWith("tapcanvas:audio-engine="))?.split("=").slice(1).join("=") || "minimax",
+		label,
     status: "success",
   };
   const px = readNumber((node.position as Record<string, unknown>)?.x);
