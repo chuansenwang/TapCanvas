@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { updateImageOperationParameters } from '@tapcanvas/image-operation-protocol'
+import { parseImageOperationSpec, updateImageOperationParameters } from '@tapcanvas/image-operation-protocol'
 import { createImageOperationForSource, createPresetImageOperation } from './imageOperationFactory'
 import { LIBTV_IMAGE_PRESETS } from './libTvImagePresets'
 
@@ -54,5 +54,21 @@ describe('image operation factory', () => {
     expect(updated.operationId).toBe(operation.operationId)
     expect(updated.inputs).toEqual(operation.inputs)
     expect(updated.parameters.strength).toBe(72)
+  })
+
+  it('preserves the explicit local See-through execution contract', () => {
+    const operation = createImageOperationForSource({
+      kind: 'character_decompose',
+      execution: 'local-character-decompose',
+      sourceNodeId: 'source-1',
+      sourceUrl: 'https://example.com/character.png',
+      parameters: { engine: 'see-through', splitLeftRight: true },
+      output: { mediaType: 'image', count: 1, format: 'png', transparent: true },
+    })
+    expect(parseImageOperationSpec(operation)).toMatchObject({
+      kind: 'character_decompose',
+      execution: 'local-character-decompose',
+      output: { transparent: true },
+    })
   })
 })

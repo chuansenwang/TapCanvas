@@ -7,6 +7,15 @@ import {
 import type { AppContext } from "../../types";
 import { fetchWithHttpDebugLog } from "../../httpDebugLog";
 import { removeImageBackground } from "./background-removal";
+import {
+	isSeeThroughHyperframesAnimationRequest,
+	runSeeThroughHyperframesCharacterAnimation,
+} from "./see-through-hyperframes-animation";
+import {
+	attachHostedCharacterDecompositionAssets,
+	isSeeThroughCharacterDecompositionRequest,
+	runSeeThroughCharacterDecomposition,
+} from "./see-through-character-decomposition";
 import { resolveVideoModelMaximumReferenceImages } from "./video-orchestrator.generation-contract";
 import {
 	verifyVideoPromptDeliveryContract,
@@ -235,7 +244,11 @@ export async function hostTaskAssetsSynchronously(options: {
 		meta,
 	});
 
-	const unhostedAssets = hostedAssets.filter(
+	const hostedResult = attachHostedCharacterDecompositionAssets(
+		TaskResultSchema.parse({ ...result, assets: hostedAssets }),
+	);
+
+	const unhostedAssets = hostedResult.assets.filter(
 		(asset) => !isHostedTaskAssetUrl(c, asset.url),
 	);
 	if (unhostedAssets.length > 0) {
@@ -270,13 +283,13 @@ export async function hostTaskAssetsSynchronously(options: {
 	});
 
 	const rawRecord =
-		typeof result.raw === "object" && result.raw !== null
-			? (result.raw as Record<string, unknown>)
+		typeof hostedResult.raw === "object" && hostedResult.raw !== null
+			? (hostedResult.raw as Record<string, unknown>)
 			: {};
 
 	return TaskResultSchema.parse({
-		...result,
-		assets: hostedAssets,
+		...hostedResult,
+		assets: hostedResult.assets,
 		raw: {
 			...rawRecord,
 			hosting: {
@@ -1583,13 +1596,14 @@ export async function resolveTaskExecutionVendor(
 
 	const modelKey = pickModelKey(req, { modelKey: undefined });
 	if (!modelKey) return "newapi";
+	const catalogKind = req.kind === "text_to_audio" ? "audio" : "video";
 
 	await ensureModelCatalogSchema(c.env.DB);
 	const rows = await getPrismaClient().model_catalog_models.findMany({
 		where: {
 			vendor_key: "comfyui",
 			enabled: 1,
-			kind: "video",
+			kind: catalogKind,
 			OR: [{ model_key: modelKey }, { model_alias: modelKey }],
 		},
 		select: { model_key: true },
@@ -4547,7 +4561,17 @@ export async function runGenericTaskForVendor(
 		let result: TaskResult;
 
 		setTraceStage(c, "task:vendor:dispatch", { vendor: v, taskKind: req.kind });
-		if (v === "comfyui") {
+		if (isSeeThroughHyperframesAnimationRequest(req)) {
+			result = attachGenerationAssetContextToTaskResult(
+				await runSeeThroughHyperframesCharacterAnimation(c, userId, req),
+				generationContext,
+			);
+		} else if (isSeeThroughCharacterDecompositionRequest(req)) {
+			result = attachGenerationAssetContextToTaskResult(
+				await runSeeThroughCharacterDecomposition(c, req),
+				generationContext,
+			);
+		} else if (v === "comfyui") {
 			result = attachGenerationAssetContextToTaskResult(
 				await runComfyUiTask(c, req),
 				generationContext,

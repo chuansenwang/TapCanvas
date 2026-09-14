@@ -56,7 +56,7 @@ export type ModelCatalogVendorApiKeyStatusDto = z.infer<
 	typeof ModelCatalogVendorApiKeyStatusSchema
 >;
 
-export const BillingModelKindSchema = z.enum(["text", "image", "video"]);
+export const BillingModelKindSchema = z.enum(["text", "image", "video", "audio"]);
 
 export type BillingModelKind = z.infer<typeof BillingModelKindSchema>;
 

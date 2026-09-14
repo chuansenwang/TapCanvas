@@ -7250,7 +7250,7 @@ function buildAgentsBridgeRemoteToolCatalog(
 		{
 			name: "tapcanvas_hyperframes_render",
 			description:
-				"剪辑师包装层渲染（HTML→MP4）：把你写的单文件 HyperFrames composition（题卡/动态字幕/片头片尾/motion graphics 短片段）服务端 headless Chromium 逐帧渲染成 mp4，托管对象存储后返回 { videoUrl, key, bytes, durationSec }。【边界】只做包装层短片段（建议 ≤15s）——整片组装仍走 tapcanvas_video_concat（ffmpeg，无重编码损耗）；简单字幕/xfade 转场也优先 ffmpeg 路径，本工具用于 ffmpeg drawtext 做不到的动态排版/动画题卡。生成式画面（角色/场景）禁用本工具拼凑，走生图/生视频管线。composition 写法：根元素必须带 data-composition-id + data-width/data-height + data-duration；定时元素加 class=\"clip\" + data-start/data-duration（秒）；CSS keyframes 动画可被逐帧 seek；中文字体用系统 Noto Sans CJK（font-family:'Noto Sans CJK SC',sans-serif）。远程素材（图/视频/音频）必须列进 assets 参数由服务端预下载，HTML 里以 ./assets/<name> 相对路径引用——禁直接写远程 URL（容器出网受限会渲染挂起）。渲出的片段 URL 用 flow_patch 落画布节点或交 video_concat 合回主片。",
+				"确定性 HyperFrames 渲染（HTML 或透明角色部件动画→MP4）：服务端 headless Chromium 逐帧渲染并托管，返回 { videoUrl, key, bytes, durationSec }。适用于题卡、动态字幕、片头片尾和已由 See-through 给出真实 RGBA 部件、坐标与深度的二维角色动画；不生成角色、场景或缺失图层。整片组装仍走 tapcanvas_video_concat。HTML composition 根元素必须带 data-composition-id + data-width/data-height + data-duration；定时元素加 class=\"clip\" + data-start/data-duration；远程素材必须列进 assets，由服务端预下载后以 ./assets/<name> 引用。若提供 characterAnimation，服务端会按其部件坐标、深度和关键帧编译 composition，且不得再提供 html/assets。",
 			parameters: {
 				type: "object",
 				properties: {
@@ -7276,6 +7276,11 @@ function buildAgentsBridgeRemoteToolCatalog(
 							additionalProperties: false,
 						},
 					},
+					characterAnimation: {
+						type: "object",
+						description:
+							"与 html 二选一。See-through 透明部件二维动画合同：{schemaVersion:1, engine:'hyperframes', compositionId, sourceNodeId, frameSize:[width,height], durationSec:0-30, backgroundColor:'#RRGGBB', parts:[{tag,assetName,xyxy:[left,top,right,bottom],depthMedian,url}], motions:[{tag,origin:[0..1,0..1],keyframes:[{second,x,y,rotationDeg,scaleX?,scaleY?,opacity?}]}],createdAt}。部件 URL 必须是已有真实 http(s) 资产，关键帧时间严格递增。",
+					},
 					fps: {
 						type: "number",
 						description: "帧率（12-60，默认 30）。",
@@ -7286,7 +7291,7 @@ function buildAgentsBridgeRemoteToolCatalog(
 						description: "渲染质量（默认 standard；draft 用于快速预览自检）。",
 					},
 				},
-				required: ["html"],
+				required: [],
 				additionalProperties: false,
 			},
 		},

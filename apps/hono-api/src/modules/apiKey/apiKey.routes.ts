@@ -2,7 +2,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { randomUUID } from "node:crypto";
-import { AppError, errorMiddleware } from "../../middleware/error";
+import { AppError, errorMiddleware, honoErrorHandler, isAppErrorLike } from "../../middleware/error";
 import type { AppContext, AppEnv } from "../../types";
 import { getPrismaClient } from "../../platform/node/prisma";
 import { authMiddleware } from "../../middleware/auth";
@@ -13,13 +13,16 @@ import {
 	computeSpeechCredits,
 	doubaoSpeechReserveCeiling,
 	generateMusicToStorage,
-	isDoubaoSpeechModel,
+	isDoubaoSpeechCatalogModel,
 	isMiniMaxH3SpeechModel,
 	synthesizeMiniMaxH3SpeechToStorage,
 	synthesizeDoubaoSpeechToStorage,
 	synthesizeSpeechToStorage,
 } from "./audio-speech";
-import { requireSelectableAudioModel } from "../new-api-models/new-api-audio-model";
+import {
+	requireSelectableAudioModel,
+	validateAudioRuntimeParameters,
+} from "../new-api-models/new-api-audio-model";
 import { listDoubaoSeedAudioVoices } from "./seed-audio-voices";
 import { resolveTeamCreditsCostForTask } from "../billing/billing.service";
 import {
@@ -3985,31 +3988,51 @@ publicApiRouter.post("/audio/speech", async (c) => {
 	if (!text) return c.json({ error: "text is required" }, 400);
 	const catalogModel = await requireSelectableAudioModel(c, body?.model, "speech");
 	const model = catalogModel.requestModelKey;
+	const runtimeParameters = validateAudioRuntimeParameters(catalogModel, body?.runtimeParameters);
 
-	const isDoubao = isDoubaoSpeechModel(model);
+	const isDoubao = isDoubaoSpeechCatalogModel(catalogModel);
 	const isMiniMaxH3 = isMiniMaxH3SpeechModel(catalogModel);
+	const audioEngine = catalogModel.tags
+		.map((tag) => tag.trim().toLowerCase())
+		.find((tag) => tag.startsWith("tapcanvas:audio-engine="))
+		?.slice("tapcanvas:audio-engine=".length) || "";
+	if (audioEngine === "comfyui") {
+		const task = await runGenericTaskForVendor(c, userId, "comfyui", {
+			kind: "text_to_audio",
+			prompt: text,
+			extras: {
+				modelKey: model,
+				runtimeParameters,
+				...(typeof body?.voiceReferenceUrl === "string" ? { voiceReferenceUrl: body.voiceReferenceUrl } : {}),
+				...(typeof body?.workflowCapability === "string" ? { workflowCapability: body.workflowCapability } : {}),
+			},
+		});
+		const asset = task.assets.find((item) => item.type === "audio" && item.url.trim());
+		if (!asset) return c.json({ error: "ComfyUI 音频工作流未返回音频资产" }, 502);
+		return c.json({ url: asset.url, key: "", bytes: 0, durationSec: null, model, voiceId: "" }, 200);
+	}
 
-	// MiniMax：按实际计费字符动态计价；豆包语音：按秒计费（预留封顶，结算实际时长）。
+	// 本地 H3 与通用 ComfyUI 一样不经过远端计费；MiniMax relay 按字符、豆包按秒预留积分。
 	const required = isDoubao
 		? doubaoSpeechReserveCeiling()
 		: isMiniMaxH3
-			? await resolveTeamCreditsCostForTask(c, { taskKind: "text_to_audio", modelKey: model })
+			? null
 			: computeSpeechCredits(model, text);
-	const reservation = await requireSufficientTeamCredits(c, userId, {
-		required,
-		taskKind: "text_to_audio",
-		vendor: "new_api",
-		modelKey: model,
-	});
+	const reservation = required === null
+		? null
+		: await requireSufficientTeamCredits(c, userId, {
+			required,
+			taskKind: "text_to_audio",
+			vendor: "new_api",
+			modelKey: model,
+		});
 
 	try {
 		if (isMiniMaxH3) {
 			const result = await synthesizeMiniMaxH3SpeechToStorage(c, userId, {
 				prompt: text,
 				model,
-				duration: typeof body?.duration === "number" ? body.duration : null,
-				steps: typeof body?.steps === "number" ? body.steps : null,
-				unet: typeof body?.unet === "string" ? body.unet.trim() || null : null,
+				runtimeParameters,
 				referenceAudioUrls: Array.isArray(body?.referenceAudioUrls) ? body.referenceAudioUrls : null,
 			});
 			if (reservation) await settleTeamCreditsOnSuccess(c, userId, { taskId: reservation.reservationTaskId, taskKind: "text_to_audio", amount: reservation.amount, vendor: "new_api", modelKey: model });
@@ -4024,8 +4047,9 @@ publicApiRouter.post("/audio/speech", async (c) => {
 				pitchRate: typeof body?.pitchRate === "number" ? body.pitchRate : null,
 				loudnessRate: typeof body?.loudnessRate === "number" ? body.loudnessRate : null,
 				sampleRate: typeof body?.sampleRate === "number" ? body.sampleRate : null,
-				responseFormat:
-					typeof body?.responseFormat === "string" ? body.responseFormat : null,
+			responseFormat:
+				typeof body?.responseFormat === "string" ? body.responseFormat : null,
+			runtimeParameters,
 				referenceAudioUrls: Array.isArray(body?.referenceAudioUrls)
 					? body.referenceAudioUrls
 					: null,
@@ -4056,6 +4080,7 @@ publicApiRouter.post("/audio/speech", async (c) => {
 			emotion: typeof body?.emotion === "string" ? body.emotion : null,
 			speed: typeof body?.speed === "number" ? body.speed : null,
 			soundEffects: Array.isArray(body?.soundEffects) ? body.soundEffects : null,
+			runtimeParameters,
 		});
 		if (reservation) {
 			await settleTeamCreditsOnSuccess(c, userId, {
@@ -4075,6 +4100,11 @@ publicApiRouter.post("/audio/speech", async (c) => {
 				vendor: "new_api",
 				modelKey: model,
 			});
+		}
+		// 保留 AppError 的语义化状态与原因（例如「存储未配置」应为 503），
+		// 不要一律压成 502——否则用户只能看到无信息量的上游失败。
+		if (err instanceof AppError || isAppErrorLike(err)) {
+			return honoErrorHandler(err, c);
 		}
 		return c.json(
 			{ error: "speech synthesis failed", detail: String((err as Error)?.message || err) },
@@ -4104,6 +4134,14 @@ publicApiRouter.post("/audio/music", async (c) => {
 	if (!prompt && !lyrics) return c.json({ error: "prompt or lyrics is required" }, 400);
 	const catalogModel = await requireSelectableAudioModel(c, body?.model, "music");
 	const model = catalogModel.requestModelKey;
+	const runtimeParameters = validateAudioRuntimeParameters(catalogModel, body?.runtimeParameters);
+	const musicEngine = catalogModel.tags
+		.map((tag) => tag.trim().toLowerCase())
+		.find((tag) => tag.startsWith("tapcanvas:audio-engine="))
+		?.slice("tapcanvas:audio-engine=".length) || "";
+	if (musicEngine === "comfyui") {
+		return c.json({ error: "当前 ComfyUI 音频目录未声明音乐工作流" }, 400);
+	}
 
 	// 音乐按次计价只接受 new-api /api/pricing 的实时价格；缺价显式失败。
 	const required = await resolveTeamCreditsCostForTask(c, {
@@ -4126,6 +4164,7 @@ publicApiRouter.post("/audio/music", async (c) => {
 					? body.lyricsMode
 					: "instrumental",
 			model,
+			runtimeParameters,
 		});
 		if (reservation) {
 			await settleTeamCreditsOnSuccess(c, userId, {

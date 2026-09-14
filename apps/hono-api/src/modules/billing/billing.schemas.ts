@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BillingModelKindSchema = z.enum(["text", "image", "video"]);
+export const BillingModelKindSchema = z.enum(["text", "image", "video", "audio"]);
 
 export const BillingModelOptionSchema = z.object({
 	modelKey: z.string(),

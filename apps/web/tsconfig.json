@@ -26,6 +26,7 @@
       "@tapcanvas/image-prompt-spec": ["../../packages/schemas/image-prompt-spec/index.d.ts"],
       "@tapcanvas/image-view-controls": ["../../packages/schemas/image-view-controls/index.d.ts"],
       "@tapcanvas/image-operation-protocol": ["../../packages/schemas/image-operation-protocol/index.ts"],
+      "@tapcanvas/character-animation-protocol": ["../../packages/schemas/character-animation-protocol/index.ts"],
       "zod": ["node_modules/zod/index.d.cts"]
     },
     "resolveJsonModule": true,

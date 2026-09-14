@@ -13,7 +13,7 @@ import { Position, NodeResizeControl, NodeToolbar, useStore, useReactFlow } from
 import { isCanvasNodeDragActive, useRFStore } from '../store'
 import { useUIStore } from '../../ui/uiStore'
 import { ASSET_REFRESH_EVENT, notifyAssetRefresh } from '../../ui/assetEvents'
-import { ActionIcon, Group, Paper, Popover, Button, Text, Stack, TextInput, Select, Badge, Tooltip } from '@mantine/core'
+import { ActionIcon, Group, Paper, Popover, Button, Text, Stack, TextInput, NumberInput, Select, Badge, Tooltip } from '@mantine/core'
 import {
   IconAdjustments,
   IconBulb,
@@ -208,20 +208,13 @@ import {
 import { runNodeDagToTarget } from '../../runner/dag'
 import { isModerationFailure } from '../../runner/taskErrorClassifier'
 import { collectUpstreamComposeAudioTracks } from '../../runner/collectUpstreamComposeSources'
-import {
-  AUDIO_EMOTION_OPTIONS,
-  AUDIO_LYRICS_MODE_OPTIONS,
-  AUDIO_VOICE_OPTIONS,
-  DOUBAO_LOUDNESS_RATE_OPTIONS,
-  DOUBAO_PITCH_RATE_OPTIONS,
-  DOUBAO_SPEECH_RATE_OPTIONS,
-} from './taskNode/audioControlOptions'
 import { SAMPLE_OPTIONS } from './taskNode/constants'
 import {
   buildCharacterBibleFromDto,
   buildCharacterReferenceImages,
   type AiCharacterLibraryCharacterDto,
 } from '@tapcanvas/character-bible-protocol'
+import { canAnimateCharacterWithHyperframes } from './taskNode/characterHyperframesContract'
 
 import {
   buildDefaultStoryboardEditorData,
@@ -285,7 +278,6 @@ import {
   formatImageQualityOptionLabel,
   formatImageResolutionOptionLabel,
   getTaskNodeModelDisplayLabel,
-  isCatalogAudioType,
   normalizeImageAspect,
   normalizeImageQualitySetting,
   normalizeImageResolutionSetting,
@@ -302,13 +294,17 @@ import {
   resolveVideoOrientationValue,
 } from './taskNode/mediaModelControls'
 import {
+  formatAudioModelCapability,
+  readAudioModelCapability,
+  readAudioModelParameters,
+} from './taskNode/audioModelConfig'
+import {
   ImagePresetConfirmPortal,
   PanoramicConfirmPortal,
 } from './taskNode/components/TaskNodeConfirmPortals'
 import {
   LazyCharacterFissionEditorPortal,
   LazyCameraControlPanel,
-  LazyDoubaoVoicePicker,
   LazyAiCharacterLibraryModal,
   LazyAnnotationEditor,
   LazyCropOverlayEditor,
@@ -2261,6 +2257,10 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
       label: getTaskNodeModelDisplayLabel(option),
     }))
   }, [modelList])
+  const audioModelOptions = React.useMemo<ModelOption[]>(
+    () => modelMenuOptions.filter((option) => readAudioModelCapability(option) !== null),
+    [modelMenuOptions],
+  )
   const {
     options: videoActionModelList,
     loading: videoActionModelListLoading,
@@ -2305,8 +2305,8 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     return imageEditActionOptions[0]?.value || null
   }, [imageEditActionError, imageEditActionLoading, imageEditActionOptions, imageModel])
   const selectedActiveModelOption = React.useMemo(
-    () => findModelOptionByIdentifier(modelMenuOptions, activeModelKey),
-    [activeModelKey, modelMenuOptions],
+    () => findModelOptionByIdentifier(isAudioNode ? audioModelOptions : modelMenuOptions, activeModelKey),
+    [activeModelKey, audioModelOptions, isAudioNode, modelMenuOptions],
   )
   React.useEffect(() => {
     if (viewOnly || isAudioNode) return
@@ -3018,7 +3018,7 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
       updateNodeData(id, { videoModelVendor: vendor })
     }
   }, [existingVideoVendor, videoModel, findVendorForModel, updateNodeData, id, isVideoNode])
-  const summaryModelLabel = selectedActiveModelOption?.label || (
+  const summaryModelLabel = (isAudioNode ? selectedActiveModelOption?.label : selectedActiveModelOption?.label) || (
     modelListError
       ? '模型目录加载失败'
       : modelListLoading
@@ -3177,7 +3177,7 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
   const handleToolbarModelChange = React.useCallback((value: string) => {
     const selectedValue = String(value || '').trim()
     if (!selectedValue) return
-    const option = findModelOptionByIdentifier(modelMenuOptions, value)
+    const option = findModelOptionByIdentifier(isAudioNode ? audioModelOptions : modelMenuOptions, value)
     if (!option) {
       toast(`模型 ${selectedValue} 不在当前系统模型目录中`, 'error')
       return
@@ -3188,6 +3188,29 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
       persistRecentGenerationPrefs({ videoModel: selectedValue })
       return
     }
+    if (isAudioNode) {
+      const capability = readAudioModelCapability(option)
+      if (!capability) {
+        toast(`音频模型 ${selectedValue} 未声明语音或音乐能力`, 'error')
+        return
+      }
+      const engineTag = readCatalogTags(option).find((tag) => tag.startsWith('tapcanvas:audio-engine=')) || ''
+      const runtimeParameters = Object.fromEntries(
+        readAudioModelParameters(option)
+          .map((parameter) => {
+            return parameter.defaultValue === null ? null : [parameter.key, parameter.defaultValue] as const
+          })
+          .filter((entry): entry is readonly [string, string | number | boolean] => entry !== null),
+      )
+      updateNodeData(id, {
+        audioModel: selectedValue,
+        audioType: capability,
+        audioModelVendor: option.vendor || null,
+        audioModelEngine: engineTag.slice('tapcanvas:audio-engine='.length) || null,
+        audioRuntimeParameters: runtimeParameters,
+      })
+      return
+    }
     if (coreKind === 'image' || kind === 'imageEdit') {
       setImageModel(selectedValue)
       updateNodeData(id, { imageModel: selectedValue, imageModelVendor: option.vendor || null })
@@ -3196,7 +3219,7 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     }
     setModelKey(selectedValue)
     updateNodeData(id, { geminiModel: selectedValue, modelVendor: option.vendor || null })
-  }, [coreKind, id, isVideoNode, kind, modelMenuOptions, persistRecentGenerationPrefs, updateNodeData])
+  }, [audioModelOptions, coreKind, id, isAudioNode, isVideoNode, kind, modelMenuOptions, persistRecentGenerationPrefs, updateNodeData])
 
   const handleToolbarDurationChange = React.useCallback((num: number) => {
     const nextSpecKey = buildVideoBillingSpecKey(effectiveVideoResolution, num)
@@ -4460,6 +4483,8 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
   const [extractLoading, setExtractLoading] = React.useState(false)
   const [smartCutoutLoading, setSmartCutoutLoading] = React.useState(false)
   const [layerLoading, setLayerLoading] = React.useState(false)
+  const [characterDecomposeLoading, setCharacterDecomposeLoading] = React.useState(false)
+  const [characterHyperframesLoading, setCharacterHyperframesLoading] = React.useState(false)
   const [imageNaturalSize, setImageNaturalSize] = React.useState<{ w: number; h: number } | null>(null)
   const [gridSplitRows, setGridSplitRows] = React.useState(2)
   const [gridSplitCols, setGridSplitCols] = React.useState(2)
@@ -5927,313 +5952,188 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     [isOrchestratedVideoClip, isVideoComposeNode, upstreamVideos, composedVideoUrl, videoSurface, mediaFallbackText, nodeHeight, handleDownloadComposed, composeDownloading, data, id, updateNodeData, openCanvasReferencePicker],
   )
 
-  const audioType: 'speech' | 'music' = (data as any)?.audioType === 'music' ? 'music' : 'speech'
-  const audioSpeechModelOptions = React.useMemo(
-    () => modelMenuOptions.filter((option) => isCatalogAudioType(option, 'speech')),
-    [modelMenuOptions],
+  const audioDataRecord = React.useMemo<Record<string, unknown>>(
+    () => data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : {},
+    [data],
   )
-  const audioMusicModelOptions = React.useMemo(
-    () => modelMenuOptions.filter((option) => isCatalogAudioType(option, 'music')),
-    [modelMenuOptions],
+  const audioNodeMode = audioDataRecord.audioType === 'voice_card' ? 'voice_card' : null
+  const audioRuntimeParameters = React.useMemo<Record<string, unknown>>(
+    () => {
+      const candidate = audioDataRecord.audioRuntimeParameters
+      return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+        ? candidate as Record<string, unknown>
+        : {}
+    },
+    [audioDataRecord],
   )
-  const activeAudioModelOptions = audioType === 'music' ? audioMusicModelOptions : audioSpeechModelOptions
+  const selectedAudioOption = React.useMemo(
+    () => findModelOptionByIdentifier(audioModelOptions, storedAudioModel),
+    [audioModelOptions, storedAudioModel],
+  )
+  const selectedAudioCapability = readAudioModelCapability(selectedAudioOption)
+  const audioCapabilityLabel = audioNodeMode === 'voice_card'
+    ? '配音卡'
+    : formatAudioModelCapability(selectedAudioCapability)
   React.useEffect(() => {
     if (!isAudioNode || !storedAudioModel || modelListLoading || modelListError) return
-    const selected = findModelOptionByIdentifier(activeAudioModelOptions, storedAudioModel)
-    if (selected?.vendor && (data as Record<string, unknown>).audioModelVendor !== selected.vendor) {
+    const selected = findModelOptionByIdentifier(audioModelOptions, storedAudioModel)
+    if (!selected) return
+    const patch: Record<string, unknown> = {}
+    if (selected.vendor && audioDataRecord.audioModelVendor !== selected.vendor) {
+      patch.audioModelVendor = selected.vendor
+    }
+    const selectedCapability = readAudioModelCapability(selected)
+    if (audioNodeMode !== 'voice_card' && selectedCapability && audioDataRecord.audioType !== selectedCapability) {
+      patch.audioType = selectedCapability
+    }
+    // 模型目录是音频参数的唯一来源：节点上残留的、当前目录已不再声明的旧参数
+    // （例如历史「时长/步数」）必须清掉，否则会被当成未知参数送到执行端而直接失败。
+    const declaredParameterKeys = new Set(
+      readAudioModelParameters(selected).map((parameter) => parameter.key),
+    )
+    const staleParameterKeys = Object.keys(audioRuntimeParameters)
+      .filter((key) => !declaredParameterKeys.has(key))
+    if (staleParameterKeys.length > 0) {
+      const projectedParameters: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(audioRuntimeParameters)) {
+        if (declaredParameterKeys.has(key)) projectedParameters[key] = value
+      }
+      patch.audioRuntimeParameters = projectedParameters
+      for (const key of staleParameterKeys) patch[key] = undefined
+    }
+    if (Object.keys(patch).length > 0 || audioDataRecord.audioModelEngine === undefined) {
       const tags = readCatalogTags(selected)
       const engineTag = tags.find((tag) => tag.startsWith('tapcanvas:audio-engine=')) || ''
-      updateNodeData(id, { audioModelVendor: selected.vendor, audioModelEngine: engineTag.slice('tapcanvas:audio-engine='.length) || null })
+      patch.audioModelEngine = engineTag.slice('tapcanvas:audio-engine='.length) || null
+      updateNodeData(id, patch)
     }
-  }, [activeAudioModelOptions, data, id, isAudioNode, modelListError, modelListLoading, storedAudioModel, updateNodeData])
-  React.useEffect(() => {
-    if (!isAudioNode || viewOnly || modelListLoading || modelListError || storedAudioModel) return
-    const firstValue = String(activeAudioModelOptions[0]?.value || '').trim()
-    if (!firstValue) return
-    const firstOption = activeAudioModelOptions[0]
-    const tags = firstOption ? readCatalogTags(firstOption) : []
-    const engineTag = tags.find((tag) => tag.startsWith('tapcanvas:audio-engine=')) || ''
-    updateNodeData(id, { audioModel: firstValue, audioModelVendor: firstOption?.vendor || null, audioModelEngine: engineTag.slice('tapcanvas:audio-engine='.length) || null })
-  }, [
-    activeAudioModelOptions,
-    id,
-    isAudioNode,
-    modelListError,
-    modelListLoading,
-    storedAudioModel,
-    updateNodeData,
-    viewOnly,
-  ])
-  // 音频参数走 ControlChips 通用芯片（与图片节点底部工具栏同一套样式）
+  }, [audioDataRecord, audioModelOptions, audioNodeMode, audioRuntimeParameters, id, isAudioNode, modelListError, modelListLoading, storedAudioModel, updateNodeData])
+
+  // 音频模型、能力类型与参数全部从系统模型目录投影；节点不再自行选择语音/音乐类型。
   type AudioControl = {
     key: string
     title: string
     summary: string
     options: ReadonlyArray<{ value: string; label: string; disabled?: boolean }>
     onChange: (value: string) => void
+    readOnly?: boolean
     render?: React.ReactNode
   }
   const mappedAudioControls = React.useMemo<ReadonlyArray<AudioControl>>(() => {
     if (!isAudioNode) return []
-    const audioModel = storedAudioModel
-    const selectedAudioOption = findModelOptionByIdentifier(activeAudioModelOptions, audioModel)
-    const isDoubao = Boolean(
-      selectedAudioOption && readCatalogTags(selectedAudioOption).includes('tapcanvas:audio-engine=doubao'),
-    )
-    const isMiniMaxH3 = Boolean(
-      selectedAudioOption && readCatalogTags(selectedAudioOption).includes('tapcanvas:audio-engine=minimax-h3'),
-    )
-
-    // MiniMax 音色/情绪/语速
-    const voiceId =
-      (typeof (data as any)?.voiceId === 'string' && ((data as any).voiceId as string).trim()) ||
-      'male-qn-qingse'
-    const emotion = typeof (data as any)?.emotion === 'string' ? ((data as any).emotion as string) : ''
-    const speed = typeof (data as any)?.speed === 'number' ? ((data as any).speed as number) : 1
-    // 豆包语音参数
-    const doubaoVoiceId =
-      typeof (data as any)?.doubaoVoiceId === 'string' ? ((data as any).doubaoVoiceId as string) : ''
-    const speechRate = typeof (data as any)?.speechRate === 'number' ? ((data as any).speechRate as number) : 0
-    const pitchRate = typeof (data as any)?.pitchRate === 'number' ? ((data as any).pitchRate as number) : 0
-    const loudnessRate =
-      typeof (data as any)?.loudnessRate === 'number' ? ((data as any).loudnessRate as number) : 0
-    const lyricsMode =
-      (data as any)?.lyricsMode === 'auto' || (data as any)?.lyricsMode === 'custom'
-        ? ((data as any).lyricsMode as 'auto' | 'custom')
-        : 'instrumental'
-
-    const modelOptions = activeAudioModelOptions
-    const audioDataRecord = data as Record<string, unknown>
-    const isComfyAudio = selectedAudioOption?.vendor === 'comfyui'
-    const indexttsEmotionMode = audioDataRecord.indexttsEmotionMode === 'vector' || audioDataRecord.indexttsEmotionMode === 'text' ? audioDataRecord.indexttsEmotionMode : 'basic'
-
     const controls: AudioControl[] = [
       {
-        key: 'audioType',
+        key: 'audioCapability',
         title: '类型',
-        summary: audioType === 'music' ? '音乐' : '语音',
-        options: [
-          { value: 'speech', label: '语音' },
-          { value: 'music', label: '音乐' },
-        ],
-        onChange: (value) => {
-          const nextType = value === 'music' ? 'music' : 'speech'
-          const nextOptions = nextType === 'music' ? audioMusicModelOptions : audioSpeechModelOptions
-          const nextModel = String(nextOptions[0]?.value || '').trim()
-          if (!nextModel) {
-            toast(`${nextType === 'music' ? '音乐' : '语音'}模型目录为空，请先在系统模型管理中配置渠道、协议与价格`, 'error')
-          }
-          updateNodeData(id, {
-            audioType: nextType,
-            audioModel: nextModel || null,
-          })
-        },
-      },
-      {
-        key: 'audioModel',
-        title: '模型',
-        summary: selectedAudioOption?.label || (audioModel ? `不可用：${audioModel}` : '未选择模型'),
-        options: modelOptions,
-        onChange: (value) => {
-          if (!findModelOptionByIdentifier(modelOptions, value)) {
-            toast(`音频模型 ${value} 不在当前系统模型目录中`, 'error')
-            return
-          }
-          const selected = findModelOptionByIdentifier(modelOptions, value)
-          const tags = selected ? readCatalogTags(selected) : []
-          const engineTag = tags.find((tag) => tag.startsWith('tapcanvas:audio-engine=')) || ''
-          updateNodeData(id, { audioModel: value, audioModelVendor: selected?.vendor || null, audioModelEngine: engineTag.slice('tapcanvas:audio-engine='.length) || null })
-        },
+        summary: audioCapabilityLabel,
+        options: [],
+        onChange: () => {},
+        readOnly: true,
       },
     ]
-    if (audioType === 'speech') {
-      if (isMiniMaxH3) {
-        const duration = typeof audioDataRecord.duration === 'number' ? audioDataRecord.duration : 15
-        const steps = typeof audioDataRecord.steps === 'number' ? audioDataRecord.steps : 10
-        const unet = 'fl2va'
-        controls.push(
-          {
-            key: 'duration',
-            title: '时长',
-            summary: `${duration} 秒`,
-            options: ['5', '10', '15'].map((value) => ({ value, label: `${value} 秒` })),
-            onChange: (value) => updateNodeData(id, { duration: Number(value) }),
-          },
-          {
-            key: 'steps',
-            title: '步数',
-            summary: `${steps} 步`,
-            options: ['4', '10', '12', '15', '20', '30'].map((value) => ({ value, label: `${value} 步` })),
-            onChange: (value) => updateNodeData(id, { steps: Number(value) }),
-          },
-          {
-            key: 'unet',
-            title: '模式',
-            summary: unet,
-            options: [{ value: 'fl2va', label: 'fl2va（当前 8188 已安装）' }],
-            onChange: () => updateNodeData(id, { unet }),
-          },
-        )
-      } else if (isComfyAudio) {
-        const vectorValue = Array.isArray(audioDataRecord.indexttsEmotionVector) ? JSON.stringify(audioDataRecord.indexttsEmotionVector) : '[0,0,0,0,0,0,0,0]'
-        controls.push({
-          key: 'indexttsEmotionMode',
-          title: '情感控制',
-          summary: indexttsEmotionMode === 'vector' ? '音频向量' : indexttsEmotionMode === 'text' ? '文本情感' : '基础情感',
-          options: [
-            { value: 'basic', label: '基础情感' },
-            { value: 'vector', label: '音频向量' },
-            { value: 'text', label: '文本情感' },
-          ],
-          onChange: (value) => updateNodeData(id, { indexttsEmotionMode: value }),
+    const parameters = readAudioModelParameters(selectedAudioOption)
+    for (const parameter of parameters) {
+      const current = audioRuntimeParameters[parameter.key]
+      const value = current === undefined || current === null || current === ''
+        ? parameter.defaultValue
+        : current
+      const summary = parameter.options.find((option) => option.value === String(value))?.label
+        || (value === null ? '未设置' : String(value))
+      const persistValue = (nextValue: string): void => {
+        if (parameter.type === 'number' || parameter.type === 'integer' || parameter.type === 'float') {
+          const numericValue = Number(nextValue)
+          if (!Number.isFinite(numericValue)) {
+            toast(`${parameter.label} 必须是数字`, 'error')
+            return
+          }
+          if (parameter.type === 'integer' && !Number.isInteger(numericValue)) {
+            toast(`${parameter.label} 必须是整数`, 'error')
+            return
+          }
+          if (parameter.min !== undefined && numericValue < parameter.min) {
+            toast(`${parameter.label} 不能小于 ${parameter.min}`, 'error')
+            return
+          }
+          if (parameter.max !== undefined && numericValue > parameter.max) {
+            toast(`${parameter.label} 不能大于 ${parameter.max}`, 'error')
+            return
+          }
+          updateNodeData(id, {
+            [parameter.key]: numericValue,
+            audioRuntimeParameters: { ...audioRuntimeParameters, [parameter.key]: numericValue },
+          })
+          return
+        }
+        if (parameter.type === 'boolean') {
+          updateNodeData(id, {
+            [parameter.key]: nextValue === 'true',
+            audioRuntimeParameters: { ...audioRuntimeParameters, [parameter.key]: nextValue === 'true' },
+          })
+          return
+        }
+        updateNodeData(id, {
+          [parameter.key]: nextValue,
+          audioRuntimeParameters: { ...audioRuntimeParameters, [parameter.key]: nextValue },
         })
-        if (indexttsEmotionMode === 'text') {
-          controls.push({
-            key: 'indexttsEmotionText',
-            title: '情感文本',
-            summary: String(audioDataRecord.indexttsEmotionText || '').trim() || '未填写',
-            options: [],
-            onChange: () => {},
-            render: <TextInput className="task-node-audio-emotion-text" size="xs" placeholder="例如：克制但带有紧张感" value={String(audioDataRecord.indexttsEmotionText || '')} onChange={(event) => updateNodeData(id, { indexttsEmotionText: event.currentTarget.value })} />,
-          })
-        }
-        if (indexttsEmotionMode === 'vector') {
-          controls.push({
-            key: 'indexttsEmotionVector',
-            title: '情感向量',
-            summary: vectorValue,
-            options: [],
-            onChange: () => {},
-            render: <TextInput className="task-node-audio-emotion-vector" size="xs" placeholder="8个0到1的数字(JSON)" defaultValue={vectorValue} onBlur={(event) => { try { const parsed: unknown = JSON.parse(event.currentTarget.value); if (Array.isArray(parsed)) updateNodeData(id, { indexttsEmotionVector: parsed }) } catch { /* 后端会在提交时报告无效向量 */ } }} />,
-          })
-        }
       }
-      if (isDoubao) {
-        // 豆包语音：富音色选择器（render）+ 语速/音调/响度
-        controls.push(
-          {
-            key: 'doubaoVoiceId',
-            title: '音色',
-            summary: '',
-            options: [],
-            onChange: () => {},
-            render: (
-              <LazyDoubaoVoicePicker
-                key="doubaoVoiceId"
-                compact
-                value={doubaoVoiceId}
-                onChange={(vid, vname) => {
-                  // 配音卡三字段同步（2026-07-17 根治）：改音色必须连带 voiceLabel 与
-                  // 「配音卡｜角色·音色名」label 后缀一起更新，否则卡面标签与真实音色脱钩。
-                  const patch: Record<string, unknown> = { doubaoVoiceId: vid }
-                  const isVoiceCard =
-                    String((data as any)?.audioType ?? '').toLowerCase() === 'voice_card'
-                  if (isVoiceCard) {
-                    patch.voiceLabel = vname || ''
-                    const role =
-                      (typeof (data as any)?.voiceCharacter === 'string' &&
-                        ((data as any).voiceCharacter as string).trim()) ||
-                      (typeof (data as any)?.roleName === 'string' &&
-                        ((data as any).roleName as string).trim()) ||
-                      ''
-                    if (role) patch.label = vname ? `配音卡｜${role}·${vname}` : `配音卡｜${role}`
-                  }
-                  updateNodeData(id, patch)
-                }}
-                stopNodeDrag={(e) => e.stopPropagation()}
-              />
-            ),
-          },
-          {
-            key: 'speechRate',
-            title: '语速',
-            summary:
-              (DOUBAO_SPEECH_RATE_OPTIONS as readonly { value: string; label: string }[]).find(
-                (o) => Number(o.value) === speechRate,
-              )?.label || `${speechRate}`,
-            options: DOUBAO_SPEECH_RATE_OPTIONS as unknown as { value: string; label: string }[],
-            onChange: (value) => updateNodeData(id, { speechRate: Number(value) || 0 }),
-          },
-          {
-            key: 'pitchRate',
-            title: '音调',
-            summary:
-              (DOUBAO_PITCH_RATE_OPTIONS as readonly { value: string; label: string }[]).find(
-                (o) => Number(o.value) === pitchRate,
-              )?.label || `${pitchRate}`,
-            options: DOUBAO_PITCH_RATE_OPTIONS as unknown as { value: string; label: string }[],
-            onChange: (value) => updateNodeData(id, { pitchRate: Number(value) || 0 }),
-          },
-          {
-            key: 'loudnessRate',
-            title: '响度',
-            summary:
-              (DOUBAO_LOUDNESS_RATE_OPTIONS as readonly { value: string; label: string }[]).find(
-                (o) => Number(o.value) === loudnessRate,
-              )?.label || `${loudnessRate}`,
-            options: DOUBAO_LOUDNESS_RATE_OPTIONS as unknown as { value: string; label: string }[],
-            onChange: (value) => updateNodeData(id, { loudnessRate: Number(value) || 0 }),
-          },
-        )
-      } else {
-        controls.push(
-          {
-            key: 'voiceId',
-            title: '音色',
-            summary:
-              (AUDIO_VOICE_OPTIONS as readonly { value: string; label: string }[]).find(
-                (o) => o.value === voiceId,
-              )?.label || voiceId,
-            options: AUDIO_VOICE_OPTIONS as unknown as { value: string; label: string }[],
-            onChange: (value) => updateNodeData(id, { voiceId: value }),
-          },
-          {
-            key: 'emotion',
-            title: '情绪',
-            summary:
-              (AUDIO_EMOTION_OPTIONS as readonly { value: string; label: string }[]).find(
-                (o) => o.value === emotion,
-              )?.label || '默认',
-            options: [
-              { value: '', label: '默认' },
-              ...(AUDIO_EMOTION_OPTIONS as unknown as { value: string; label: string }[]),
-            ],
-            onChange: (value) => updateNodeData(id, { emotion: value }),
-          },
-          {
-            key: 'speed',
-            title: '语速',
-            summary: `${speed.toFixed(1)}x`,
-            options: ['0.5', '0.8', '1', '1.2', '1.5', '2'].map((v) => ({
-              value: v,
-              label: `${Number(v).toFixed(1)}x`,
-            })),
-            onChange: (value) => updateNodeData(id, { speed: Number(value) || 1 }),
-          },
-        )
+      const options = parameter.options.length > 0
+        ? parameter.options
+        : parameter.type === 'boolean'
+          ? [{ value: 'true', label: '是' }, { value: 'false', label: '否' }]
+          : []
+      if (options.length > 0) {
+        controls.push({
+          key: parameter.key,
+          title: parameter.label,
+          summary,
+          options,
+          onChange: persistValue,
+        })
+        continue
       }
-    } else {
       controls.push({
-        key: 'lyricsMode',
-        title: '歌词',
-        summary:
-          (AUDIO_LYRICS_MODE_OPTIONS as readonly { value: string; label: string }[]).find(
-            (o) => o.value === lyricsMode,
-          )?.label || '纯音乐',
-        options: AUDIO_LYRICS_MODE_OPTIONS as unknown as { value: string; label: string }[],
-        onChange: (value) => updateNodeData(id, { lyricsMode: value }),
+        key: parameter.key,
+        title: parameter.label,
+        summary,
+        options: [],
+        onChange: persistValue,
+        render: parameter.type === 'number' || parameter.type === 'integer' || parameter.type === 'float' ? (
+          <NumberInput
+            className="task-node-audio-runtime-parameter"
+            size="xs"
+            aria-label={parameter.label}
+            placeholder={parameter.label}
+            value={typeof value === 'number' ? value : value === null ? '' : Number(value)}
+            min={parameter.min}
+            max={parameter.max}
+            step={parameter.step || (parameter.type === 'integer' ? 1 : undefined)}
+            allowDecimal={parameter.type !== 'integer'}
+            onChange={(nextValue) => {
+              if (typeof nextValue === 'number' && Number.isFinite(nextValue)) persistValue(String(nextValue))
+            }}
+          />
+        ) : (
+          <TextInput
+            className="task-node-audio-runtime-parameter"
+            size="xs"
+            aria-label={parameter.label}
+            placeholder={parameter.label}
+            value={value === null ? '' : String(value)}
+            onChange={(event) => updateNodeData(id, {
+              [parameter.key]: event.currentTarget.value,
+              audioRuntimeParameters: { ...audioRuntimeParameters, [parameter.key]: event.currentTarget.value },
+            })}
+          />
+        ),
       })
     }
     return controls
   }, [
-    activeAudioModelOptions,
-    audioMusicModelOptions,
-    audioSpeechModelOptions,
-    audioType,
-    data,
+    audioCapabilityLabel,
+    audioRuntimeParameters,
     id,
     isAudioNode,
-    storedAudioModel,
+    selectedAudioOption,
     updateNodeData,
   ])
 
@@ -7015,6 +6915,34 @@ const rewritePromptWithCharacters = React.useCallback(
       uploadEditedImageBlob,
     })
   }, [data, id, nodeWidth, uploadEditedImageBlob])
+
+  const handleCharacterDecomposition = React.useCallback(async () => {
+    if (!primaryImageUrl || characterDecomposeLoading) return
+    setCharacterDecomposeLoading(true)
+    try {
+      const { runCharacterDecomposition } = await import('./taskNode/characterDecompositionActions')
+      await runCharacterDecomposition({
+        data: data as Record<string, unknown>,
+        nodeId: id,
+        nodeWidth,
+        primaryImageUrl,
+        sleep: sleep3d,
+      })
+    } finally {
+      setCharacterDecomposeLoading(false)
+    }
+  }, [characterDecomposeLoading, data, id, nodeWidth, primaryImageUrl, sleep3d])
+
+  const handleCharacterHyperframesAnimation = React.useCallback(async () => {
+    if (characterHyperframesLoading) return
+    setCharacterHyperframesLoading(true)
+    try {
+      const { runCharacterHyperframesAnimation } = await import('./taskNode/characterHyperframesActions')
+      await runCharacterHyperframesAnimation({ data: data as Record<string, unknown>, nodeId: id, nodeWidth })
+    } finally {
+      setCharacterHyperframesLoading(false)
+    }
+  }, [characterHyperframesLoading, data, id, nodeWidth])
 
   // 一键去噪：以当前图为参考图，用固定去噪/增强提示词生成新节点（复用 spawnImageNode 链路）
   const handleDenoise = React.useCallback((mode: 'clean' | 'enhance') => {
@@ -7809,6 +7737,26 @@ const rewritePromptWithCharacters = React.useCallback(
             onClick: handleLayerSplit,
           },
           {
+            key: 'character-decompose',
+            label: '角色组件',
+            showLabel: true,
+            icon: <IconArrowsSplit className="task-node-toolbar__icon" size={16} />,
+            tooltip: '用本机 See-through 拆分二次元角色的语义透明组件，供 HyperFrames 动画使用',
+            loading: characterDecomposeLoading,
+            disabled: characterDecomposeLoading,
+            onClick: handleCharacterDecomposition,
+          },
+          ...(canAnimateCharacterWithHyperframes(data as Record<string, unknown>) ? [{
+            key: 'character-hyperframes-animation',
+            label: '组件动画',
+            showLabel: true,
+            icon: <IconMovie className="task-node-toolbar__icon" size={16} />,
+            tooltip: '用 HyperFrames 将 See-through 透明组件重组为轻挥手二维动画',
+            loading: characterHyperframesLoading,
+            disabled: characterHyperframesLoading,
+            onClick: handleCharacterHyperframesAnimation,
+          }] : []),
+          {
             key: 'grid-split',
             label: '宫格切分',
             showLabel: true,
@@ -7988,7 +7936,7 @@ const rewritePromptWithCharacters = React.useCallback(
             label: '抠图',
             showLabel: true,
             icon: <IconScissors size={18} />,
-            loading: extractLoading || smartCutoutLoading || layerLoading,
+            loading: extractLoading || smartCutoutLoading || layerLoading || characterDecomposeLoading,
             onClick: () => {},
             menuItems: [
               { key: 'fast-cutout',  label: '极速抠图', onClick: handleFastCutout },
@@ -8232,9 +8180,13 @@ const rewritePromptWithCharacters = React.useCallback(
     extractLoading,
     smartCutoutLoading,
     layerLoading,
+    characterDecomposeLoading,
+    characterHyperframesLoading,
     handleFastCutout,
     handleSmartCutout,
     handleLayerSplit,
+    handleCharacterDecomposition,
+    handleCharacterHyperframesAnimation,
     handleDenoise,
     handleCreateRotatePreview,
     openPortraitTextureEditor,
@@ -9665,12 +9617,14 @@ const rewritePromptWithCharacters = React.useCallback(
       }
     : null
   const modelCatalogNotice = !viewOnly && (hasModelSelect || isAudioNode) && (
-    modelListError || (!modelListLoading && Boolean(activeModelKey) && !selectedActiveModelOption)
+    modelListError || (!modelListLoading && audioModelOptions.length === 0 && isAudioNode) || (!modelListLoading && Boolean(activeModelKey) && !selectedActiveModelOption)
   ) ? (
     <Group className="tc-task-node__model-catalog-notice" gap={6} wrap="nowrap">
       <Text className="tc-task-node__model-catalog-notice-text" size="xs" c="red">
         {modelListError
           ? `模型目录加载失败：${modelListError.message}`
+          : isAudioNode && audioModelOptions.length === 0
+            ? '当前没有声明语音或音乐能力的音频模型，请先在系统模型管理中配置'
           : `模型 ${activeModelKey} 当前不可用，请重新选择`}
       </Text>
       {modelListError ? (
@@ -9696,8 +9650,8 @@ const rewritePromptWithCharacters = React.useCallback(
       summaryQuality={videoHd ? 'HD' : '标准'}
       summaryResolution={summaryResolution}
       summaryExec={summaryExec}
-      showModelMenu={hasModelSelect && modelMenuOptions.length > 0}
-      modelList={modelMenuOptions}
+      showModelMenu={(hasModelSelect || isAudioNode) && (isAudioNode ? audioModelOptions.length > 0 : modelMenuOptions.length > 0)}
+      modelList={isAudioNode ? audioModelOptions : modelMenuOptions}
       onModelChange={handleToolbarModelChange}
       showTimeMenu={showTimeMenu}
       durationOptions={durationOptions}
@@ -9799,8 +9753,8 @@ const rewritePromptWithCharacters = React.useCallback(
       summaryQuality={videoHd ? 'HD' : '标准'}
       summaryResolution={summaryResolution}
       summaryExec={summaryExec}
-      showModelMenu={hasModelSelect && modelMenuOptions.length > 0}
-      modelList={modelMenuOptions}
+      showModelMenu={(hasModelSelect || isAudioNode) && (isAudioNode ? audioModelOptions.length > 0 : modelMenuOptions.length > 0)}
+      modelList={isAudioNode ? audioModelOptions : modelMenuOptions}
       onModelChange={handleToolbarModelChange}
       showTimeMenu={showTimeMenu}
       durationOptions={durationOptions}

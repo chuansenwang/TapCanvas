@@ -4,6 +4,10 @@ import {
 	renderHyperframesComposition,
 	type HyperframesRenderAsset,
 } from "../apiKey/hyperframes-render";
+import {
+	buildSeeThroughHyperframesComposition,
+	parseSeeThroughHyperframesInput,
+} from "./see-through-hyperframes-composition";
 
 function readTrimmedString(value: unknown): string {
 	return typeof value === "string" ? value.trim() : "";
@@ -19,7 +23,8 @@ export type HyperframesRenderToCanvasResult = {
 
 /**
  * 剪辑师包装层渲染：把 agent 写好的单文件 HyperFrames composition 渲成 mp4 片段
- * （题卡/动态字幕/片头片尾），返回托管 URL。整片组装仍归 tapcanvas_video_concat。
+ * （题卡/动态字幕/片头片尾/透明角色部件二维动画），返回托管 URL。
+ * 整片组装仍归 tapcanvas_video_concat。
  */
 export async function renderHyperframesToCanvas(input: {
 	c: AppContext;
@@ -31,15 +36,30 @@ export async function renderHyperframesToCanvas(input: {
 			? (input.bodyArgs as Record<string, unknown>)
 			: {};
 
-	const html = readTrimmedString(args.html);
-	if (!html) {
+	const requestedHtml = readTrimmedString(args.html);
+	const hasCharacterAnimation = Object.hasOwn(args, "characterAnimation");
+	if (hasCharacterAnimation && (requestedHtml || Object.hasOwn(args, "assets"))) {
+		throw new AppError("characterAnimation 不能与 html 或 assets 同时提供", {
+			status: 400,
+			code: "agents_tool_hyperframes_input_conflict",
+		});
+	}
+	if (!requestedHtml && !hasCharacterAnimation) {
 		throw new AppError("html is required", {
 			status: 400,
 			code: "agents_tool_hyperframes_missing_html",
 		});
 	}
+	const compiledCharacterAnimation = hasCharacterAnimation
+		? buildSeeThroughHyperframesComposition(
+			parseSeeThroughHyperframesInput(args.characterAnimation),
+		)
+		: null;
+	const html = compiledCharacterAnimation?.html ?? requestedHtml;
 
-	const assets: HyperframesRenderAsset[] = Array.isArray(args.assets)
+	const assets: HyperframesRenderAsset[] = compiledCharacterAnimation
+		? [...compiledCharacterAnimation.assets]
+		: Array.isArray(args.assets)
 		? (args.assets as unknown[])
 				.map((item) => {
 					if (!item || typeof item !== "object" || Array.isArray(item)) return null;

@@ -670,6 +670,7 @@ export const canvasNodeSpecs = {
 		fields: {
 			prompt: "string (required — executable video production prompt)",
 			videoModel: "string. COPY the exact enabledVideoModels modelKey selected by the current task or the account generation preference; do not invent a literal. Must match an enabledVideoModels[*].modelKey or alias. NOTE: if the group node has data.videoModel pinned, that explicit pin wins — keep them consistent.",
+			workflowCapability: "string (optional; dynamic workflow capability identifier. Custom ComfyUI variants must be selected explicitly; use reference-audio-legacy only with real ordered image and audio mediaInputs, never by placing audio instructions only in prompt)",
 			durationSeconds: "number (per-clip duration in seconds; MUST be one of the selected model's durationOptions from enabledVideoModels context. DEFAULT to that model's maxDuration (longest supported clip) to get the most footage per generation, unless the user/plan explicitly asks for a shorter clip. ALWAYS set explicitly when user specifies duration)",
 			videoResolution: "string (e.g. '480p' / '720p' / '1080p'; MUST be one of the model's resolutionOptions values; ALWAYS set when user specifies resolution)",
 			orientation: "string ('landscape' / 'portrait'; use model's orientationOptions; set when user specifies orientation or aspect implies a direction)",
@@ -694,13 +695,14 @@ export const canvasNodeSpecs = {
 	image: {
 		label: "图像",
 		purpose:
-			"统一图像生成节点；支持文生图与图生图，输出候选图与主图。若本轮已确认角色卡/权威基底帧/场景锚点，必须把 referenceImages 或 assetInputs 连同角色职责一起持久化到节点数据，不能只在 prompt 文案里口头提到。提示词应尽量具体，包含用途/上下文、主体数量、空间关系、镜头、光线、材质与情绪；复杂画面可分步描述，并优先用正向语义定义目标场景而不是简单堆负面词。需要高精度控制时，可直接使用英文或中英混合镜头语言。",
+			"统一图像生成节点；支持文生图与图生图，输出候选图与主图。若本轮已确认角色卡/权威基底帧/场景锚点，必须把 referenceImages 或 assetInputs 连同角色职责一起持久化到节点数据，不能只在 prompt 文案里口头提到。对已生成的二次元单角色图片，画布工具栏还可调用本机已配置的 See-through 执行角色组件拆分：它要求真实可访问的图片 URL，输出语义化透明 RGBA 部件、原图坐标和深度元数据；这些已托管部件可继续由 HyperFrames 重组为确定性的二维关键帧动画，不能用通用云端分层或生成式视频替代。未配置或执行失败时显式失败。提示词应尽量具体，包含用途/上下文、主体数量、空间关系、镜头、光线、材质与情绪；复杂画面可分步描述，并优先用正向语义定义目标场景而不是简单堆负面词。需要高精度控制时，可直接使用英文或中英混合镜头语言。",
 		recommendedModels: [],
 		modelSelection:
 			"用户或当前任务显式指定优先；否则使用用户账号生成偏好中的 imageModel/imageSize。将对应 enabledImageModels 项的精确 modelKey 写入 imageModel。目录缺失、无精确匹配项或规格不受支持时显式失败，禁止自动改选目录中的其他模型。",
 		output: {
 			imageResults: "Array<{ url: string; title?: string }>",
 			imageUrl: "string (primary)",
+			characterDecomposition: "optional { engine: 'see-through'; frameSize: [width, height]; parts: Array<{ tag: string; assetName: string; xyxy: [left, top, right, bottom]; depthMedian: number; partId: number | null; url: string }> } (仅由本机角色组件拆分操作产生)",
 		},
 		fields: {
 			prompt: "string",
@@ -884,21 +886,23 @@ export const canvasNodeSpecs = {
 	audio: {
 		label: "音频",
 		purpose:
-			"语音合成（TTS）或音乐生成节点，经已配置的执行引擎产出可播放的音频 URL。audioModel 必须从本轮系统音频模型目录动态选择：speech / voice_card 只能选带 speech 类型标签的可执行模型，music 只能选带 music 类型标签的可执行模型；价格与计费单位以目录实时返回为准。标签为 tapcanvas:audio-engine=minimax-h3 的语音模型调用本机 MiniMax H3 服务，支持六段式 prompt、最多 3 个参考音频与 duration/steps/unet 参数，后端必须显式配置 MINIMAX_H3_TTS_BASE_URL。音频节点的 out-audio 可连到 video / composeVideo 节点作为配音轨输入：视频生成完成后服务端用 ffmpeg 把音轨合到成片上（audioMixMode=replace 替换原音轨 / mix 与原音轨叠混）。文案应是最终口播稿（口语化、带停顿标点），不是镜头描述。\n\n**配音卡模式（audioType=voice_card，和角色卡对称）**：把本节点当成某个角色的「可复用声音锚」——只锁音色（doubaoVoiceId 或克隆参考），**不带固定 text**。设 `voiceCharacter=角色名`，把 out-audio **直接连到该角色的多段视频节点**：出片时服务端按「每段视频自己的台词（clipPrompt 引号内对白）+ 本卡音色」即时 TTS 合成再 mux 到该段视频上 → 同一角色多段同嗓音。音色留空则服务端按角色性别自动挑官方音色（可随时改 doubaoVoiceId 覆盖）。一张配音卡 fan-out 连多个视频节点复用，等价于角色卡的 referenceImages 复用。",
+			"语音合成（TTS）或音乐生成节点，经已配置的执行引擎产出可播放的音频 URL。audioModel 必须从本轮系统音频模型目录动态选择，并携带 `tapcanvas:audio-type=speech|music` 能力标签；当前模型的 `runtimeParameters` 是唯一参数来源，前端与 Agent 不得维护按模型名划分的静态参数表。模型目录未声明能力、未定价或不可路由时必须显式失败。带 `tapcanvas:audio-engine=minimax-h3` 的语音模型仍调用本机 H3 服务，且不接受任何模型参数：音频时长由提示词里的台词与时间轴预算推导，采样步数与可用 UNET 取工作流固定配置并可由执行前的 `/object_info` 实时枚举校验，禁止传入 `duration` / `steps` / `unet`。音频节点的 out-audio 可连到 video / composeVideo 节点作为配音轨输入。配音卡模式（`audioType=voice_card`）保留角色声音锚语义，但其执行模型也必须来自 speech 能力目录。",
 		output: {
 			audioUrl: "string (mp3 公网 URL)",
 			audioDurationSec: "number (optional; 音频时长秒)",
 		},
 		fields: {
 			audioType:
-				"enum (optional; speech 语音合成（默认）/ music 音乐生成 / voice_card 配音卡（角色可复用声音锚，无固定 text，连到视频节点按该段台词即时配音）)",
+				"enum (由所选 audioModel 的 `tapcanvas:audio-type` 能力标签投影；voice_card 仅表示配音卡特殊模式，不是独立模型筛选器)",
 			voiceCharacter:
 				"string (optional; 仅 voice_card：该音色归属的角色名，用于按名复用/入库（镜像角色卡）。缺省回退 roleName)",
-			text: "string (required — 语音=最终口播文案（≤2万字，超长自动分段拼接）；音乐=曲风/氛围描述)",
+			text: "string (required — 语音=口播文案；音乐=曲风/氛围描述)。语音按所选模型分两种口径：MiniMax/豆包 relay 语音为最终口播文案（≤2万字，超长自动分段拼接）；`tapcanvas:audio-engine=minimax-h3` 的本地 H3 语音支持「简易模式」——直接给普通台词即可，服务端会按每行一句组装成 H3 结构化提示词（开场 1 秒无人声 + 逐句时间戳 + `<d>` 台词标签）；若 text 已经是完整的 H3 结构化提示词则原样透传，不被模板覆盖。H3 单次时长按台词推算且硬限制 1~15 秒，超限显式失败，需精简台词或拆成多条音频节点",
 			lyrics: "string (optional; 音乐自定义歌词，lyricsMode=custom 时使用)",
 			lyricsMode: "enum (optional; 音乐歌词模式：auto AI填词 / custom 自定义歌词 / instrumental 纯音乐（默认）)",
 			audioModel:
-				"string (required; COPY the exact modelKey from the current enabled audio model catalog. The model must carry a matching tapcanvas:audio-type tag and a positive live price; voice_card additionally requires tapcanvas:audio-engine=doubao. Missing, disabled, mismatched or unroutable models fail explicitly)",
+				"string (required; COPY the exact modelKey from the current enabled audio model catalog. The selected model must carry a matching `tapcanvas:audio-type` tag, positive live price, and its declared runtimeParameters are the only valid model-specific controls. Missing, disabled, mismatched or unroutable models fail explicitly)",
+			runtimeParameters:
+				"object (optional; key/value pairs copied from the selected audio model catalog entry's runtimeParameters; do not invent keys or values)",
 			doubaoVoiceId:
 				"string (optional; 豆包语音音色 speaker id，用于 doubao-seed-audio；如 zh_female_vv_uranus_bigtts(Vivi) / zh_male_m191_uranus_bigtts(云舟) / zh_female_cancan_uranus_bigtts(知性灿灿) / zh_male_sunwukong_uranus_bigtts(猴哥)；完整目录见富音色选择器。留空且无参考时不指定音色)",
 			speechRate: "number (optional; 豆包语速 -50~100，0=正常)",
@@ -915,12 +919,6 @@ export const canvasNodeSpecs = {
 			speed: "number (optional; 仅 MiniMax：0.5~2.0 语速，默认 1)",
 			soundEffects:
 				"string[] (optional; 仅 MiniMax：spacious_echo 空旷回音 / auditorium_echo 礼堂回音 / lofi_telephone 复古电话 / robotic 机器人)",
-			duration:
-				"number (optional; 仅 MiniMax H3：生成时长秒数，必须为 1~15；超过 15 秒会被拒绝，以避免台词遵循度下降)",
-			steps:
-				"number (optional; 仅 MiniMax H3：采样步数 4~30)",
-			unet:
-				"enum (optional; 仅 MiniMax H3：当前 8188 已验证并仅支持 fl2va)",
 			audioMixMode:
 				"enum (optional; 连到视频节点时的混音方式：replace 替换原音轨（默认）/ mix 与原音轨叠混)",
 		},

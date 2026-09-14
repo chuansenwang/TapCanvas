@@ -233,6 +233,7 @@ export default defineConfig(({ command, mode }) => {
 	        '@tapcanvas/image-prompt-spec': imagePromptSpecEntry,
 	        '@tapcanvas/image-view-controls': resolve(__dirname, '../../packages/schemas/image-view-controls/index.mjs'),
 	        '@tapcanvas/image-operation-protocol': resolve(__dirname, '../../packages/schemas/image-operation-protocol/index.ts'),
+	        '@tapcanvas/character-animation-protocol': resolve(__dirname, '../../packages/schemas/character-animation-protocol/index.ts'),
 	      },
 	    },
 	    optimizeDeps: {
@@ -240,7 +241,7 @@ export default defineConfig(({ command, mode }) => {
 	      // This protocol is edited together with the canvas application. Keep it
 	      // on Vite's source-module path so a running 5175 dev server never serves
 	      // a stale pre-bundled export surface after the protocol changes.
-	      exclude: ['@tabler/icons-react', '@tapcanvas/image-operation-protocol'],
+	      exclude: ['@tabler/icons-react', '@tapcanvas/image-operation-protocol', '@tapcanvas/character-animation-protocol'],
 	    },
 	    server: {
 	      port: 5175,

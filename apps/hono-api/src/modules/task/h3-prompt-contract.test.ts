@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateH3AudioDuration, validateH3AudioPromptContract, validateH3PromptContract } from "./h3-prompt-contract";
+import { validateH3AudioPromptContract, validateH3PromptContract } from "./h3-prompt-contract";
 
 describe("MiniMax H3 提示词合同", () => {
   it("要求文生模式的三个核心段落", () => {
@@ -44,14 +44,6 @@ describe("MiniMax H3 音频提示词合同", () => {
       prompt: "subject_definitions: x\nsummary: x\nretention_analysis: x\ndetailed_description: x\noverall_soundscape: x\nnon_diegetic_music: N/A",
       referenceAudioCount: 1,
     })).toEqual({ ok: true, mode: "reference" });
-  });
-
-  it("拒绝超过 15 秒的 H3 音频请求", () => {
-    expect(validateH3AudioDuration(15)).toEqual({ ok: true, duration: 15 });
-    expect(validateH3AudioDuration(15.01)).toEqual({
-      ok: false,
-      reason: "MiniMax H3 音频请求时长不得超过 15 秒；超过该训练稳定区间会降低台词遵循度",
-    });
   });
 
   it("不把语言标签限制为中文", () => {

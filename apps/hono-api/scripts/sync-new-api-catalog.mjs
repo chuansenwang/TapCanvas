@@ -18,7 +18,7 @@
 //   chat  → text
 //   image → image
 //   video → video
-//   audio → (skipped; catalog has no audio kind today)
+//   audio → audio
 
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -82,6 +82,7 @@ const NEW_API_KIND_TO_CATALOG_KIND = Object.freeze({
 	text: "text",
 	image: "image",
 	video: "video",
+	audio: "audio",
 });
 
 // Channel tags in new-api may be finer-grained than catalog vendor keys

@@ -20,6 +20,24 @@ function readEmotionVector(value: unknown): number[] | null {
   return value.map((item) => Number(item))
 }
 
+function readAudioRuntimeParameters(value: unknown): Record<string, string | number | boolean> | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('音频 runtimeParameters 必须是对象')
+  }
+  const result: Record<string, string | number | boolean> = {}
+  for (const [key, candidate] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof candidate !== 'string' && typeof candidate !== 'number' && typeof candidate !== 'boolean') {
+      throw new Error(`音频 runtimeParameters.${key} 的值类型无效`)
+    }
+    if (typeof candidate === 'number' && !Number.isFinite(candidate)) {
+      throw new Error(`音频 runtimeParameters.${key} 的数值无效`)
+    }
+    result[key] = candidate
+  }
+  return result
+}
+
 /**
  * 音频节点的口播文案：优先节点自身 data.text / data.prompt，为空时回退到
  * 上游直连 text 节点的正文（与「文本节点连入即素材」的画布心智一致）。
@@ -127,7 +145,14 @@ export async function runNodeAudio(
   const allNodes = get().nodes as Node[]
   const allEdges = get().edges as Edge[]
   const text = resolveAudioNodeText(node, allNodes, allEdges)
-  const isMusic = data.audioType === 'music'
+  const audioType = pickText(data.audioType).toLowerCase()
+  if (audioType !== 'speech' && audioType !== 'music' && audioType !== 'voice_card') {
+    const msg = '音频节点缺少有效类型：请先选择一个声明语音或音乐能力的模型'
+    setNodeStatus(id, 'error', { progress: 0, lastError: msg })
+    toast(msg, 'error')
+    return
+  }
+  const isMusic = audioType === 'music'
   if (!text) {
     const msg = isMusic
       ? '音乐节点缺少描述：请在底部输入曲风/氛围描述或歌词'
@@ -139,6 +164,14 @@ export async function runNodeAudio(
   const audioModel = pickText(data.audioModel)
   if (!audioModel) {
     const msg = '音频节点未选择模型，请先从系统模型目录选择可用模型'
+    setNodeStatus(id, 'error', { progress: 0, lastError: msg })
+    toast(msg, 'error')
+    return
+  }
+  const audioModelEngine = pickText(data.audioModelEngine).toLowerCase()
+  const runtimeParameters = readAudioRuntimeParameters(data.audioRuntimeParameters)
+  if (!isMusic && !audioModelEngine) {
+    const msg = '音频模型未声明可执行引擎，请刷新系统模型目录后重试'
     setNodeStatus(id, 'error', { progress: 0, lastError: msg })
     toast(msg, 'error')
     return
@@ -173,13 +206,13 @@ export async function runNodeAudio(
         lyrics: lyricsMode === 'custom' ? text : undefined,
         lyricsMode,
         model: audioModel,
+        runtimeParameters,
       })
       resultUrl = result.url
       resultDuration = result.durationSec
       resultModel = result.model
     } else {
-      const audioVendor = pickText(data.audioModelVendor)
-      if (audioVendor === 'comfyui') {
+      if (audioModelEngine === 'comfyui') {
         const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
         const voiceReferenceUrl = refs.referenceAudioUrls[0] || pickText(data.voiceReferenceUrl)
         if (!voiceReferenceUrl) throw new Error('IndexTTS 缺少音色参考音频，请连接上游音频节点')
@@ -190,38 +223,35 @@ export async function runNodeAudio(
           extras: {
             nodeId: id,
             modelKey: audioModel,
+            runtimeParameters,
             workflowCapability: `emotion-${emotionMode}`,
             voiceReferenceUrl,
             ...(emotionMode === 'text' ? { emotionText: pickText(data.indexttsEmotionText) } : {}),
             ...(emotionMode === 'vector' ? { emotionVector: readEmotionVector(data.indexttsEmotionVector) } : {}),
           },
         }
-        const response = await runPublicTaskWithAuth({ vendor: audioVendor, request })
+        const response = await runPublicTaskWithAuth({ vendor: 'comfyui', request })
         const asset = response.result.assets.find((item) => item.type === 'audio' && item.url.trim())
         if (!asset) throw new Error('IndexTTS 工作流未返回音频资产')
         resultUrl = asset.url
         resultModel = audioModel
-      } else {
-      const isDoubao = audioModel.toLowerCase().startsWith('doubao-seed-audio')
-      const isMiniMaxH3 = pickText(data.audioModelEngine) === 'minimax-h3'
-      if (isMiniMaxH3) {
+      } else if (audioModelEngine === 'minimax-h3') {
         const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
         const result = await synthesizeSpeechAudio({
           text,
           model: audioModel,
-          duration: typeof data.duration === 'number' ? data.duration : undefined,
-          steps: typeof data.steps === 'number' ? data.steps : undefined,
-          unet: pickText(data.unet) || undefined,
+          runtimeParameters,
           referenceAudioUrls: refs.referenceAudioUrls.length ? refs.referenceAudioUrls : undefined,
         })
         resultUrl = result.url
         resultDuration = result.durationSec
         resultModel = result.model
-      } else if (isDoubao) {
+      } else if (audioModelEngine === 'doubao') {
         const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
         const result = await synthesizeSpeechAudio({
           text,
           model: audioModel,
+          runtimeParameters,
           voiceId: pickText(data.doubaoVoiceId) || undefined,
           speechRate: typeof data.speechRate === 'number' ? data.speechRate : undefined,
           pitchRate: typeof data.pitchRate === 'number' ? data.pitchRate : undefined,
@@ -232,11 +262,12 @@ export async function runNodeAudio(
         resultUrl = result.url
         resultDuration = result.durationSec
         resultModel = result.model
-      } else {
+      } else if (audioModelEngine === 'minimax') {
         const refs = resolveAudioNodeReferences(node, allNodes, allEdges)
         const result = await synthesizeSpeechAudio({
           text,
           model: audioModel,
+          runtimeParameters,
           voiceId: pickText(data.voiceId) || undefined,
           emotion: pickText(data.emotion) || undefined,
           speed: typeof data.speed === 'number' ? data.speed : undefined,
@@ -247,7 +278,8 @@ export async function runNodeAudio(
         resultUrl = result.url
         resultDuration = result.durationSec
         resultModel = result.model
-      }
+      } else {
+        throw new Error(`音频模型声明了不支持的执行引擎：${audioModelEngine}`)
       }
     }
     if (isCanceled(id)) {

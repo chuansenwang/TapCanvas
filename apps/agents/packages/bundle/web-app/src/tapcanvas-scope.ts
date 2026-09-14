@@ -148,6 +148,7 @@ interface FilmVideoGenArguments {
   sound?: 'on' | 'off'
   need_bgm?: boolean
   video_subtype?: 'ai_transition'
+  workflow_capability?: string
 }
 
 interface FilmVideoCompositeArguments {
@@ -282,13 +283,13 @@ function readStringList(value: unknown, toolName: string, key: string, required 
   })
 }
 
-function readFilmVideoArguments(value: unknown): FilmVideoGenArguments {
+export function parseFilmVideoGenArguments(value: unknown): FilmVideoGenArguments {
   if (!isRecord(value)) throw new Error('film_video_gen 参数必须是对象')
   const result: FilmVideoGenArguments = {
     prompt: readRequiredText(value, 'film_video_gen', 'prompt'),
     title: readRequiredText(value, 'film_video_gen', 'title'),
   }
-  const textKeys = ['tag', 'aspect_ratio', 'resolution', 'ai_model', 'start_frame_image_node', 'end_frame_image_node', 'continuation_from_node'] as const
+  const textKeys = ['tag', 'aspect_ratio', 'resolution', 'ai_model', 'start_frame_image_node', 'end_frame_image_node', 'continuation_from_node', 'workflow_capability'] as const
   for (const key of textKeys) {
     const text = readOptionalText(value, 'film_video_gen', key)
     if (text !== undefined) result[key] = text
@@ -571,10 +572,10 @@ export function registerTapCanvasRuntime(ctx: Context): void {
   }
 
   registerFilmTool('film_video_gen', '直接生成影视分镜视频并写入当前 TapCanvas 画布，返回真实节点、任务和异步状态。', {
-    prompt: { type: 'string', required: true }, title: { type: 'string', required: true }, tag: { type: 'string' }, duration_sec: { type: 'integer' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, ai_model: { type: 'string' }, start_frame_image_node: { type: 'string' }, end_frame_image_node: { type: 'string' }, reference_nodes: { type: 'array', items: { type: 'string' } }, reference_assets: { type: 'array', items: { type: 'string' } }, continuation_from_node: { type: 'string' }, continuation_mode: { type: 'string', enum: ['first_frame', 'reference'] }, sound: { type: 'string', enum: ['on', 'off'] }, need_bgm: { type: 'boolean' }, video_subtype: { type: 'string', enum: ['ai_transition'] },
+    prompt: { type: 'string', required: true }, title: { type: 'string', required: true }, tag: { type: 'string' }, duration_sec: { type: 'integer' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, ai_model: { type: 'string' }, workflow_capability: { type: 'string', description: '可选的动态工作流能力标识；使用自定义 ComfyUI 工作流时必须显式传入' }, start_frame_image_node: { type: 'string' }, end_frame_image_node: { type: 'string' }, reference_nodes: { type: 'array', items: { type: 'string' } }, reference_assets: { type: 'array', items: { type: 'string' } }, continuation_from_node: { type: 'string' }, continuation_mode: { type: 'string', enum: ['first_frame', 'reference'] }, sound: { type: 'string', enum: ['on', 'off'] }, need_bgm: { type: 'boolean' }, video_subtype: { type: 'string', enum: ['ai_transition'] },
   }, async (args, exec) => {
     const scope = scopeOrThrow(exec.agent)
-    const input = readFilmVideoArguments(args)
+    const input = parseFilmVideoGenArguments(args)
     const nodeId = crypto.randomUUID()
     let continuationAssetId = ''
     if (input.continuation_from_node) {
@@ -598,6 +599,7 @@ export function registerTapCanvasRuntime(ctx: Context): void {
       ...(continuationAssetId && input.continuation_mode === 'first_frame' ? { firstFrameAssetId: continuationAssetId } : {}),
       ...(input.end_frame_image_node ? { lastFrameImageNodeId: input.end_frame_image_node } : {}),
       ...(input.sound ? { sound: input.sound } : {}), ...(input.need_bgm === undefined ? {} : { needBgm: input.need_bgm }), ...(input.video_subtype ? { videoSubtype: input.video_subtype } : {}),
+      ...(input.workflow_capability ? { workflowCapability: input.workflow_capability } : {}),
     }
     return executeNativeBridgeTool(scope, 'tapcanvas_video_generate_to_canvas', { node: { id: nodeId, type: 'taskNode', position: { x: 0, y: 0 }, data: nodeData } }, exec.signal, exec.callId)
   })

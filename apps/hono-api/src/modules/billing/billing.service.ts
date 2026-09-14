@@ -380,7 +380,7 @@ export async function listBillingModelCatalog(c: AppContext) {
 		const canonicalKey = normalizeBillingModelKey(row.model_key);
 		if (!canonicalKey) continue;
 		const kindRaw = typeof row.kind === "string" ? row.kind.trim() : "";
-		if (kindRaw !== "text" && kindRaw !== "image" && kindRaw !== "video") continue;
+		if (kindRaw !== "text" && kindRaw !== "image" && kindRaw !== "video" && kindRaw !== "audio") continue;
 		const labelZh = stripLabelOrientation(
 			String(row.label_zh || "").trim() || canonicalKey,
 		);

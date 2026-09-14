@@ -9,9 +9,6 @@ type ComfyWorkflow = Record<string, ComfyNode>;
 export type MiniMaxH3ComfyAudioInput = {
   baseUrl: string;
   prompt: string;
-  duration: number | null;
-  steps: number | null | undefined;
-  unet: string | null | undefined;
   referenceAudioUrls: readonly string[];
 };
 
@@ -21,16 +18,21 @@ type ComfyAudioFile = {
   type: string;
 };
 
-const DEFAULT_STEPS = 10;
-const MIN_DURATION_SECONDS = 5;
+/**
+ * H3 音频不对外暴露模型参数：时长由提示词里的台词与时间轴预算推导，采样步数取这里的
+ * 工作流固定配置（与登记的 minih3_audio.json 一致），可用 UNET 由 validateH3Models 在
+ * 执行前以 `/object_info` 实时枚举校验，因此节点上没有「时长/步数/工作流」输入框。
+ */
+const WORKFLOW_SCHEDULER_STEPS = 10;
+const MIN_DURATION_SECONDS = 1;
 const MAX_DURATION_SECONDS = 15;
 const FRAMES_PER_SECOND = 24;
 const FRAME_GRID_STEP = 17;
 const COMFY_TIMEOUT_MS = 1_200_000;
 
 const H3_MODEL_NAMES = {
-  unet: "Minimax_H3\\minimax_h3_fl2va_pruned_int8_convrot.safetensors",
-  clip: "qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+  unet: "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+  clip: "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
   videoVae: "minimax_h3_video_vae_fp16.safetensors",
   audioVae: "minimax_h3_audio_vae_fp32.safetensors",
 } as const;
@@ -47,11 +49,34 @@ function comfyUrl(baseUrl: string, path: string): string {
   return new URL(path.replace(/^\/+/, ""), `${baseUrl.replace(/\/+$/, "")}/`).toString();
 }
 
-function readComfyError(payload: unknown): string {
+/**
+ * 提取 ComfyUI 的真实失败原因。
+ *
+ * ComfyUI 的 history 结构是 `{ status: { status_str, messages: [[event, payload], ...] } }`，
+ * 异常细节在 `execution_error` 事件的 payload 里（node_type / exception_type / exception_message），
+ * 不在 history 顶层。此前误读 `history.messages`，导致用户只能看到「生成失败：undefined」，
+ * 真实原因（例如显存不足导致的设备不匹配）被吞掉。
+ */
+function readComfyErrorMessage(history: JsonRecord): string {
+  const status = isRecord(history.status) ? history.status : null;
+  const messages = status && Array.isArray(status.messages) ? status.messages : null;
+  if (messages) {
+    for (const entry of messages) {
+      if (!Array.isArray(entry)) continue;
+      const [eventName, payload] = entry;
+      if (eventName !== "execution_error" || !isRecord(payload)) continue;
+      const nodeType = readText(payload.node_type);
+      const exceptionType = readText(payload.exception_type);
+      const exceptionMessage = readText(payload.exception_message);
+      const reason = [exceptionType, exceptionMessage].filter(Boolean).join(": ").trim();
+      if (reason) return nodeType ? `${nodeType} → ${reason}` : reason;
+    }
+  }
+  // 兜底：保留原始载荷片段，避免只返回 undefined。
   try {
-    return JSON.stringify(payload).slice(0, 800);
+    return JSON.stringify(history).slice(0, 800);
   } catch {
-    return String(payload).slice(0, 800);
+    return String(history).slice(0, 800);
   }
 }
 
@@ -100,10 +125,6 @@ function estimateDurationSeconds(prompt: string): number {
   return Math.max(MIN_DURATION_SECONDS, dialogueBudget, timelineBudget);
 }
 
-function resolveDurationSeconds(requestedDuration: number | null, prompt: string): number {
-  return requestedDuration ?? estimateDurationSeconds(prompt);
-}
-
 function framesForDuration(duration: number): number {
   const target = Math.max(MIN_DURATION_SECONDS * FRAMES_PER_SECOND, Math.ceil(duration * FRAMES_PER_SECOND));
   let frames = 5;
@@ -126,7 +147,7 @@ function freshWorkflow(workflow: ComfyWorkflow): ComfyWorkflow {
   return fresh;
 }
 
-function buildWorkflow(input: { prompt: string; duration: number; steps: number; referenceFiles: readonly string[] }): ComfyWorkflow {
+function buildWorkflow(input: { prompt: string; duration: number; referenceFiles: readonly string[] }): ComfyWorkflow {
   const modelInputs: JsonRecord = {
     clip: ["10", 0],
     vae: ["11", 0],
@@ -143,7 +164,7 @@ function buildWorkflow(input: { prompt: string; duration: number; steps: number;
     "12": { class_type: "VAELoader", inputs: { vae_name: H3_MODEL_NAMES.audioVae } },
     "13": { class_type: "UNETLoader", inputs: { unet_name: H3_MODEL_NAMES.unet, weight_dtype: "default" } },
     "14": { class_type: "KSamplerSelect", inputs: { sampler_name: "res_multistep" } },
-    "15": { class_type: "BasicScheduler", inputs: { model: ["19", 0], scheduler: "beta", steps: input.steps, denoise: 1 } },
+    "15": { class_type: "BasicScheduler", inputs: { model: ["19", 0], scheduler: "beta", steps: WORKFLOW_SCHEDULER_STEPS, denoise: 1 } },
     "16": { class_type: "RandomNoise", inputs: { noise_seed: Math.floor(Math.random() * Number.MAX_SAFE_INTEGER) } },
     "17": { class_type: "BasicGuider", inputs: { model: ["19", 0], conditioning: ["30", 0] } },
     "18": { class_type: "SamplerCustomAdvanced", inputs: { noise: ["16", 0], guider: ["17", 0], sampler: ["14", 0], sigmas: ["15", 0], latent_image: ["30", 1] } },
@@ -215,7 +236,7 @@ async function waitForOutput(baseUrl: string, promptId: string): Promise<ComfyAu
     const history = payload[promptId];
     if (!isRecord(history)) { await new Promise<void>((resolve) => setTimeout(resolve, 3_000)); continue; }
     const status = isRecord(history.status) ? readText(history.status.status_str).toLowerCase() : "";
-    if (status === "error" || status === "failed") throw new AppError(`MiniMax H3 生成失败：${readComfyError(history.messages)}`, { status: 502, code: "minimax_h3_generation_failed", details: { promptId, history } });
+    if (status === "error" || status === "failed") throw new AppError(`MiniMax H3 生成失败：${readComfyErrorMessage(history)}`, { status: 502, code: "minimax_h3_generation_failed", details: { promptId } });
     const outputs = isRecord(history.outputs) ? history.outputs : {};
     for (const output of Object.values(outputs)) {
       if (!isRecord(output) || !Array.isArray(output.audio)) continue;
@@ -234,12 +255,9 @@ function replaceNumberedReferenceAliases(prompt: string, count: number): string 
 }
 
 export async function generateMiniMaxH3AudioWithComfy(input: MiniMaxH3ComfyAudioInput): Promise<{ audio: Buffer; selectedDuration: number; promptId: string }> {
-  if (input.unet && input.unet !== "fl2va") {
-    throw new AppError(`当前 ComfyUI H3 音频工作流仅注册 fl2va；${input.unet} 未在 8188 的实时模型枚举中，未开始生成`, { status: 400, code: "minimax_h3_unet_unavailable", details: { requestedUnet: input.unet, supportedUnet: "fl2va" } });
-  }
-  const selectedDuration = resolveDurationSeconds(input.duration, input.prompt);
+  const selectedDuration = estimateDurationSeconds(input.prompt);
   if (!Number.isFinite(selectedDuration) || selectedDuration < 1 || selectedDuration > MAX_DURATION_SECONDS) {
-    throw new AppError(`MiniMax H3 自动估算时长为 ${selectedDuration.toFixed(2)} 秒，超出可执行的 1~15 秒范围；请拆分台词或明确指定 1~15 秒时长`, { status: 400, code: "minimax_h3_audio_duration_unexecutable", details: { selectedDuration, minDuration: 1, maxDuration: MAX_DURATION_SECONDS } });
+    throw new AppError(`MiniMax H3 按台词估算的音频时长为 ${selectedDuration.toFixed(2)} 秒，超出可执行的 1~15 秒范围；请精简台词或拆成多条音频节点`, { status: 400, code: "minimax_h3_audio_duration_unexecutable", details: { selectedDuration, minDuration: 1, maxDuration: MAX_DURATION_SECONDS } });
   }
   await validateH3Models(input.baseUrl);
   const referenceFiles: string[] = [];
@@ -247,7 +265,6 @@ export async function generateMiniMaxH3AudioWithComfy(input: MiniMaxH3ComfyAudio
   const workflow = buildWorkflow({
     prompt: replaceNumberedReferenceAliases(input.prompt, referenceFiles.length),
     duration: selectedDuration,
-    steps: input.steps ?? DEFAULT_STEPS,
     referenceFiles,
   });
   const promptEndpoint = comfyUrl(input.baseUrl, "prompt");

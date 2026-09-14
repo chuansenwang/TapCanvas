@@ -1184,6 +1184,7 @@ describe("generateVideoToCanvas", () => {
             kind: "composeVideo",
             label: "第一段视频",
             prompt: "旧屋被楼盘包围，镜头缓慢推进",
+            workflowCapability: "reference-audio-legacy",
             negativePrompt: "blurry",
             videoModel: "veo-3.1",
             aspect: "16:9",
@@ -1204,6 +1205,7 @@ describe("generateVideoToCanvas", () => {
           negativePrompt: "blurry",
           extras: expect.objectContaining({
             modelKey: "veo-3.1",
+            workflowCapability: "reference-audio-legacy",
             aspectRatio: "16:9",
             durationSeconds: 8,
             firstFrameUrl: "https://example.com/first-frame.jpg",

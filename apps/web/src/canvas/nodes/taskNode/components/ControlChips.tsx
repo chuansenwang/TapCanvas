@@ -93,6 +93,7 @@ type ControlChipsProps = {
     summary: string
     options: ReadonlyArray<{ value: string; label: string; disabled?: boolean }>
     onChange: (value: string) => void
+    readOnly?: boolean
     /** 自定义渲染（提供时不渲染默认下拉芯片，直接渲染该节点，如富音色选择器）。 */
     render?: React.ReactNode
   }>
@@ -250,6 +251,20 @@ function ControlChips({
       {!generationSettings && mappedControls.map((control) =>
         control.render ? (
           <React.Fragment key={control.key}>{control.render}</React.Fragment>
+        ) : control.readOnly ? (
+          <Button
+            className="control-chips-button control-chips-button--readonly"
+            type="button"
+            variant="transparent"
+            radius={0}
+            size="compact-sm"
+            key={control.key}
+            disabled
+            style={{ ...summaryChipStyles, minWidth: 0 }}
+            title={control.title}
+          >
+            <span className="control-chips-value" style={controlValueStyle}>{control.summary}</span>
+          </Button>
         ) : (
         <Menu
           className="control-chips-menu"

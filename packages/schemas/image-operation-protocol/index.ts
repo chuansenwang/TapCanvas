@@ -29,6 +29,7 @@ export type ImageOperationKind =
   | 'element_edit'
   | 'layer_decompose'
   | 'layer_recompose'
+  | 'character_decompose'
   | 'grid_split'
   | 'annotate'
   | 'rotate'
@@ -38,6 +39,7 @@ export type ImageOperationExecution =
   | 'image-generation'
   | 'remove-background'
   | 'layer-decompose'
+  | 'local-character-decompose'
   | 'local-transform'
 
 export type ImageOperationAssetRole =
@@ -162,6 +164,7 @@ const IMAGE_OPERATION_KINDS = new Set<ImageOperationKind>([
   'element_edit',
   'layer_decompose',
   'layer_recompose',
+  'character_decompose',
   'grid_split',
   'annotate',
   'rotate',
@@ -172,6 +175,7 @@ const IMAGE_OPERATION_EXECUTIONS = new Set<ImageOperationExecution>([
   'image-generation',
   'remove-background',
   'layer-decompose',
+  'local-character-decompose',
   'local-transform',
 ])
 

@@ -51,20 +51,3 @@ export function validateH3AudioPromptContract(input: {
   const missing = required.filter((field) => !hasField(input.prompt, field));
   return missing.length === 0 ? { ok: true, mode } : { ok: false, mode, missing };
 }
-
-export function validateH3AudioDuration(duration: number | null | undefined): {
-  ok: true;
-  duration: number | null;
-} | {
-  ok: false;
-  reason: string;
-} {
-  if (duration === null || duration === undefined) return { ok: true, duration: null };
-  if (!Number.isFinite(duration) || duration < 1) {
-    return { ok: false, reason: "MiniMax H3 音频时长必须是不小于 1 秒的有限数字" };
-  }
-  if (duration > 15) {
-    return { ok: false, reason: "MiniMax H3 音频请求时长不得超过 15 秒；超过该训练稳定区间会降低台词遵循度" };
-  }
-  return { ok: true, duration };
-}

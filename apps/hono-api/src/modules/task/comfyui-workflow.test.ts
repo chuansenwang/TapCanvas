@@ -96,6 +96,72 @@ describe("ComfyUI 工作流目录", () => {
 		});
 	});
 
+	it("传统音频驱动工作流按显式节点绑定写入提示词、图片和音频", () => {
+		const config = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "reference-audio-legacy",
+			capability: "reference-audio-legacy",
+			taskKind: "image_to_video",
+			referenceImageCount: 0,
+			promptInputBindings: [{ nodeId: "263", inputKey: "UNKNOWN" }],
+			imageNodeIds: ["51"],
+			audioLoaderNodeIds: ["48"],
+			mediaInputNodeBinding: "legacy_loaders",
+			workflow: {
+				"48": { class_type: "LoadAudio", inputs: { audio: "source.mp3" } },
+				"51": { class_type: "LoadImage", inputs: { image: "source.png" } },
+				"263": { inputs: { UNKNOWN: "old prompt" } },
+			},
+		}] } }, "minimax-h3");
+		const variant = selectComfyUiWorkflowVariant(config, {
+			modelKey: "minimax-h3",
+			taskKind: "image_to_video",
+			capability: "reference-audio-legacy",
+			mediaInputs: [
+				{ type: "image", role: "reference", url: "https://example.test/actor.png" },
+				{ type: "audio", role: "audio", url: "https://example.test/dialogue.mp3" },
+			],
+		});
+		const result = applyComfyUiWorkflowInputs(variant, { kind: "image_to_video", prompt: "人物随音频自然说话", extras: {} }, [], 9, [
+			{ type: "image", role: "reference", url: "https://example.test/actor.png", filename: "actor.png" },
+			{ type: "audio", role: "audio", url: "https://example.test/dialogue.mp3", filename: "dialogue.mp3" },
+		]);
+		expect(result["263"]?.inputs?.UNKNOWN).toBe("人物随音频自然说话");
+		expect(result["51"]?.inputs?.image).toBe("actor.png");
+		expect(result["48"]?.inputs?.audio).toBe("dialogue.mp3");
+	});
+
+	it("传统音频驱动工作流对多个显式媒体节点保持顺序并拒绝数量不匹配", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "multi-reference-audio-legacy",
+			taskKind: "image_to_video",
+			referenceImageCount: 0,
+			promptInputBindings: [{ nodeId: "263", inputKey: "UNKNOWN" }],
+			imageNodeIds: ["51", "52"],
+			audioLoaderNodeIds: ["48", "49"],
+			mediaInputNodeBinding: "legacy_loaders",
+			workflow: {
+				"48": { class_type: "LoadAudio", inputs: { audio: "old-1.mp3" } },
+				"49": { class_type: "LoadAudio", inputs: { audio: "old-2.mp3" } },
+				"51": { class_type: "LoadImage", inputs: { image: "old-1.png" } },
+				"52": { class_type: "LoadImage", inputs: { image: "old-2.png" } },
+				"263": { inputs: { UNKNOWN: "old prompt" } },
+			},
+		}] } }, "minimax-h3").workflowVariants[0]!;
+		const media = [
+			{ type: "image" as const, role: "reference" as const, url: "https://example.test/1.png", filename: "1.png" },
+			{ type: "audio" as const, role: "audio" as const, url: "https://example.test/1.mp3", filename: "1.mp3" },
+			{ type: "image" as const, role: "reference" as const, url: "https://example.test/2.png", filename: "2.png" },
+			{ type: "audio" as const, role: "audio" as const, url: "https://example.test/2.mp3", filename: "2.mp3" },
+		];
+		const result = applyComfyUiWorkflowInputs(variant, { kind: "image_to_video", prompt: "双人对话", extras: {} }, [], 9, media);
+		expect(result["51"]?.inputs?.image).toBe("1.png");
+		expect(result["52"]?.inputs?.image).toBe("2.png");
+		expect(result["48"]?.inputs?.audio).toBe("1.mp3");
+		expect(result["49"]?.inputs?.audio).toBe("2.mp3");
+		expect(() => applyComfyUiWorkflowInputs(variant, { kind: "image_to_video", prompt: "缺少音频", extras: {} }, [], 9, media.slice(0, 3))).toThrow("音频加载节点数与输入不一致");
+		expect(() => applyComfyUiWorkflowInputs(variant, { kind: "image_to_video", prompt: "缺少图片", extras: {} }, [], 9, [media[0]!, media[1]!, media[3]!])).toThrow("图片加载节点数与输入不一致");
+	});
+
 	it("H3 将分辨率规范化为 ComfyUI 大写枚举", () => {
 		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
 			id: "text", h3Mode: "image", h3InputMode: "text", taskKind: "text_to_video", referenceImageCount: 0,
@@ -167,6 +233,7 @@ describe("ComfyUI 工作流目录", () => {
 			{ id: "edit", taskKind: "image_edit", referenceImageCount: 1, workflow },
 			{ id: "character-3view", capability: "character-3view", taskKind: "image_edit", referenceImageCount: 1, workflow },
 		] } }, "klein9b");
+		expect(selectComfyUiWorkflowVariant(config, { modelKey: "klein9b", taskKind: "image_edit", referenceImageCount: 1 }).id).toBe("edit");
 		expect(selectComfyUiWorkflowVariant(config, { modelKey: "klein9b", taskKind: "image_edit", referenceImageCount: 1, capability: "character-3view" }).id).toBe("character-3view");
 	});
 

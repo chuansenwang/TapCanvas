@@ -39,6 +39,8 @@ type WorkflowVariant = {
 	outputNodeIds?: string[];
 	outputMediaType?: "image" | "video" | "audio";
 	audioLoaderNodeIds?: string[];
+	mediaInputNodeBinding?: "legacy_loaders";
+	promptInputBindings?: Array<{ nodeId: string; inputKey: string }>;
 	emotionControlNodeIds?: string[];
 	audioEmotionMode?: "basic" | "vector" | "text";
 };
@@ -103,9 +105,21 @@ export function parseComfyUiWorkflowConfig(meta: unknown, modelKey: string): Com
 		if (h3Mode === "digital_human" && h3InputMode !== "digital_human") throw new AppError(`ComfyUI 工作流变体 ${id} 的 h3Mode 与 h3InputMode 不一致`, { status: 500, code: "comfyui_h3_input_mode_invalid" });
 		const outputMediaType = raw.outputMediaType === "image" || raw.outputMediaType === "video" || raw.outputMediaType === "audio" ? raw.outputMediaType : undefined;
 		const audioLoaderNodeIds = Array.isArray(raw.audioLoaderNodeIds) ? raw.audioLoaderNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
+		const mediaInputNodeBinding = raw.mediaInputNodeBinding === "legacy_loaders" ? "legacy_loaders" : undefined;
+		const promptInputBindings = Array.isArray(raw.promptInputBindings)
+			? raw.promptInputBindings.flatMap((value) => {
+				if (!isRecord(value)) return [];
+				const nodeId = readString(value.nodeId);
+				const inputKey = readString(value.inputKey);
+				return nodeId && inputKey ? [{ nodeId, inputKey }] : [];
+			})
+			: undefined;
+		if (mediaInputNodeBinding && (!imageNodeIds?.length || !audioLoaderNodeIds?.length)) {
+			throw new AppError(`ComfyUI 工作流变体 ${id} 的传统媒体绑定必须声明图片和音频加载节点`, { status: 500, code: "comfyui_legacy_media_binding_invalid" });
+		}
 		const emotionControlNodeIds = Array.isArray(raw.emotionControlNodeIds) ? raw.emotionControlNodeIds.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).map((v) => v.trim()) : undefined;
 		const audioEmotionMode = raw.audioEmotionMode === "basic" || raw.audioEmotionMode === "vector" || raw.audioEmotionMode === "text" ? raw.audioEmotionMode : undefined;
-		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), ...(h3Mode ? { h3Mode } : {}), ...(h3InputMode ? { h3InputMode } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(mediaLoaderNodeIds?.length ? { mediaLoaderNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}), ...(outputMediaType ? { outputMediaType } : {}), ...(audioLoaderNodeIds?.length ? { audioLoaderNodeIds } : {}), ...(emotionControlNodeIds?.length ? { emotionControlNodeIds } : {}), ...(audioEmotionMode ? { audioEmotionMode } : {}) });
+		variants.push({ id, name: readString(raw.name) || undefined, ...(capability ? { capability } : {}), ...(h3Mode ? { h3Mode } : {}), ...(h3InputMode ? { h3InputMode } : {}), taskKind, referenceImageCount: count, workflow: parseWorkflow(raw.workflow, `ComfyUI 工作流变体 ${id}`), ...(promptNodeIds?.length ? { promptNodeIds } : {}), ...(promptInputBindings?.length ? { promptInputBindings } : {}), ...(imageNodeIds?.length ? { imageNodeIds } : {}), ...(mediaLoaderNodeIds?.length ? { mediaLoaderNodeIds } : {}), ...(outputNodeIds?.length ? { outputNodeIds } : {}), ...(outputMediaType ? { outputMediaType } : {}), ...(audioLoaderNodeIds?.length ? { audioLoaderNodeIds } : {}), ...(mediaInputNodeBinding ? { mediaInputNodeBinding } : {}), ...(emotionControlNodeIds?.length ? { emotionControlNodeIds } : {}), ...(audioEmotionMode ? { audioEmotionMode } : {}) });
 	}
 	return { workflowVariants: variants };
 }
@@ -161,7 +175,9 @@ export function selectComfyUiWorkflowVariant(
 		if (input.taskKind !== "text_to_video" && input.taskKind !== "image_to_video" && input.taskKind !== "text_to_audio" && variant.referenceImageCount !== input.referenceImageCount) return false;
 		if (variant.h3InputMode && variant.h3InputMode !== resolvedH3InputMode) return false;
 		return true;
-	}).filter((variant) => !input.capability || variant.capability === input.capability || variant.id === input.capability);
+	}).filter((variant) => input.capability
+		? variant.capability === input.capability || variant.id === input.capability
+		: !variant.capability);
 	if (matches.length !== 1) throw new AppError(`ComfyUI 工作流无法唯一匹配：${input.modelKey}/${input.taskKind}${typeof input.referenceImageCount === "number" ? `/参考图${input.referenceImageCount}张` : typeof input.mediaInputCount === "number" ? `/媒体${input.mediaInputCount}项` : ""}`, { status: 400, code: "comfyui_workflow_route_not_unique", details: { modelKey: input.modelKey, taskKind: input.taskKind, referenceImageCount: input.referenceImageCount ?? null, mediaInputCount: input.mediaInputCount ?? mediaInputs.length, mediaInputRoles: mediaInputs.map((item) => item.role ?? null), matches: matches.map((variant) => variant.id) } });
 	return matches[0]!;
 }
@@ -218,7 +234,8 @@ export function applyComfyUiWorkflowInputs(
 		}
 	}
 	const promptIds = variant.promptNodeIds ?? discoverNodeIds(workflow, "prompt");
-	if (promptIds.length === 0 && variant.taskKind !== "text_to_audio") throw new AppError(`ComfyUI 工作流 ${variant.id} 未找到提示词节点`, { status: 500, code: "comfyui_prompt_node_missing" });
+	const promptBindings = variant.promptInputBindings ?? [];
+	if (promptIds.length === 0 && promptBindings.length === 0 && variant.taskKind !== "text_to_audio") throw new AppError(`ComfyUI 工作流 ${variant.id} 未找到提示词节点`, { status: 500, code: "comfyui_prompt_node_missing" });
 	for (const id of promptIds) {
 		const inputs = workflow[id]?.inputs;
 		if (!inputs) throw new AppError(`ComfyUI 提示词节点 ${id} 不存在`, { status: 500, code: "comfyui_prompt_node_invalid" });
@@ -236,6 +253,14 @@ export function applyComfyUiWorkflowInputs(
 					: extras[extraKey];
 			}
 		}
+	}
+	for (const binding of promptBindings) {
+		const inputs = workflow[binding.nodeId]?.inputs;
+		if (!inputs) throw new AppError(`ComfyUI 提示词绑定节点 ${binding.nodeId} 不存在`, { status: 500, code: "comfyui_prompt_binding_node_invalid" });
+		if (!Object.prototype.hasOwnProperty.call(inputs, binding.inputKey)) {
+			throw new AppError(`ComfyUI 提示词绑定节点 ${binding.nodeId} 缺少输入字段 ${binding.inputKey}`, { status: 500, code: "comfyui_prompt_binding_input_missing" });
+		}
+		inputs[binding.inputKey] = request.prompt;
 	}
 	if (variant.h3Mode) {
 		const h3NodeIds = Object.entries(workflow)
@@ -281,9 +306,43 @@ export function applyComfyUiWorkflowInputs(
 			} else if (Object.prototype.hasOwnProperty.call(controlInputs, "mode")) controlInputs.mode = "basic";
 		}
 	}
-	// H3 的所有图片/视频/音频都通过 MiniMaxH3EasyMediaLoader 的 media_state
+	if (variant.mediaInputNodeBinding === "legacy_loaders") {
+		if (uploadedNames.length > 0) {
+			throw new AppError(`ComfyUI 工作流 ${variant.id} 的传统媒体绑定只接受 extras.mediaInputs`, { status: 400, code: "comfyui_legacy_media_source_invalid" });
+		}
+		const imageMedia = mediaInputs.filter((item) => item.type === "image");
+		const audioMedia = mediaInputs.filter((item) => item.type === "audio");
+		const unsupportedMedia = mediaInputs.filter((item) => item.type === "video");
+		const imageIds = variant.imageNodeIds!;
+		const audioIds = variant.audioLoaderNodeIds!;
+		if (unsupportedMedia.length > 0) {
+			throw new AppError(`ComfyUI 工作流 ${variant.id} 不支持视频媒体输入`, { status: 400, code: "comfyui_legacy_media_type_unsupported", details: { unsupportedTypes: unsupportedMedia.map((item) => item.type) } });
+		}
+		if (imageMedia.length !== imageIds.length) {
+			throw new AppError(`ComfyUI 工作流 ${variant.id} 的图片加载节点数与输入不一致`, { status: 400, code: "comfyui_legacy_image_node_mismatch", details: { expected: imageIds.length, received: imageMedia.length } });
+		}
+		if (audioMedia.length !== audioIds.length) {
+			throw new AppError(`ComfyUI 工作流 ${variant.id} 的音频加载节点数与输入不一致`, { status: 400, code: "comfyui_legacy_audio_node_mismatch", details: { expected: audioIds.length, received: audioMedia.length } });
+		}
+		for (let index = 0; index < imageIds.length; index += 1) {
+			const nodeId = imageIds[index]!;
+			const inputs = workflow[nodeId]?.inputs;
+			if (!inputs || !Object.prototype.hasOwnProperty.call(inputs, "image")) {
+				throw new AppError(`ComfyUI 图片节点 ${nodeId} 缺少 image 输入字段`, { status: 500, code: "comfyui_legacy_image_input_missing" });
+			}
+			inputs.image = imageMedia[index]!.filename;
+		}
+		for (let index = 0; index < audioIds.length; index += 1) {
+			const nodeId = audioIds[index]!;
+			const inputs = workflow[nodeId]?.inputs;
+			if (!inputs || !Object.prototype.hasOwnProperty.call(inputs, "audio")) {
+				throw new AppError(`ComfyUI 音频节点 ${nodeId} 缺少 audio 输入字段`, { status: 500, code: "comfyui_legacy_audio_input_missing" });
+			}
+			inputs.audio = audioMedia[index]!.filename;
+		}
+	// H3 Easy 的所有图片/视频/音频都通过 MiniMaxH3EasyMediaLoader 的 media_state
 	// 传入，不使用传统 LoadImage 节点；因此不能再用参考图节点数量校验拦截 H3。
-	if (!variant.h3InputMode) {
+	} else if (!variant.h3InputMode) {
 		const imageIds = variant.imageNodeIds ?? discoverNodeIds(workflow, "image");
 		if (imageIds.length !== uploadedNames.length) throw new AppError(`ComfyUI 工作流 ${variant.id} 的参考图节点数与输入不一致`, { status: 400, code: "comfyui_reference_node_mismatch", details: { expected: imageIds.length, received: uploadedNames.length } });
 		for (let index = 0; index < imageIds.length; index += 1) {

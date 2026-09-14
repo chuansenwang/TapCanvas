@@ -727,7 +727,7 @@ CREATE TABLE IF NOT EXISTS model_catalog_models (
 	vendor_key TEXT NOT NULL,
 	model_alias TEXT,
 	label_zh TEXT NOT NULL,
-	kind TEXT NOT NULL, -- text | image | video
+	kind TEXT NOT NULL, -- text | image | video | audio
 	enabled INTEGER NOT NULL DEFAULT 1,
 	meta TEXT,
 	created_at TEXT NOT NULL,

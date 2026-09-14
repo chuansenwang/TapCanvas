@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   FILM_FUNCTION_NAMES,
   parseFilmImageGenArguments,
+  parseFilmVideoGenArguments,
   registerTapCanvasRuntime,
   tapCanvasWorkspaceKey,
   type TapCanvasScope,
@@ -115,5 +116,15 @@ describe('影视原生 Function 契约', () => {
       'film_task_read',
     ]))
     expect(FILM_FUNCTION_NAMES).toHaveLength(18)
+  })
+
+  it('视频生成可显式携带自定义工作流能力，不会隐式填充', () => {
+    expect(parseFilmVideoGenArguments({ prompt: '角色对话', title: '测试镜头' }))
+      .not.toHaveProperty('workflow_capability')
+    expect(parseFilmVideoGenArguments({
+      prompt: '角色对话',
+      title: '测试镜头',
+      workflow_capability: 'reference-audio-legacy',
+    })).toMatchObject({ workflow_capability: 'reference-audio-legacy' })
   })
 })

@@ -2,8 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppContext } from "../../types";
 import type { NewApiModelDto } from "./new-api-models.service";
 
-const { listNewApiModels } = vi.hoisted(() => ({
+const { listNewApiModels, listModelCatalogModels, listModelCatalogVendors } = vi.hoisted(() => ({
 	listNewApiModels: vi.fn(),
+	listModelCatalogModels: vi.fn<[], Promise<unknown[]>>(),
+	listModelCatalogVendors: vi.fn<[], Promise<unknown[]>>(),
+}));
+
+vi.mock("../model-catalog/model-catalog.service", () => ({
+	listModelCatalogModels,
+	listModelCatalogVendors,
 }));
 
 vi.mock("./new-api-models.service", () => ({
@@ -50,6 +57,8 @@ function audioModel(input: {
 describe("requireSelectableAudioModel", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		listModelCatalogModels.mockResolvedValue([]);
+		listModelCatalogVendors.mockResolvedValue([]);
 	});
 
 	it("rejects a missing model without selecting a local default", async () => {
@@ -69,6 +78,26 @@ describe("requireSelectableAudioModel", () => {
 
 		await expect(requireSelectableAudioModel(context, "speech-display-alias", "speech"))
 			.resolves.toMatchObject({ requestModelKey: "speech-upstream-key" });
+	});
+
+	it("resolves an enabled local ComfyUI audio model from the configured catalog", async () => {
+		listNewApiModels.mockResolvedValueOnce([]);
+		listModelCatalogVendors.mockResolvedValueOnce([{ key: "comfyui", enabled: true }]);
+		listModelCatalogModels.mockResolvedValueOnce([{
+			modelKey: "indextts-2.5",
+			vendorKey: "comfyui",
+			modelAlias: "index-local",
+			labelZh: "IndexTTS 本地",
+			kind: "audio",
+			enabled: true,
+			meta: { tags: ["tapcanvas:audio-type=speech", "tapcanvas:audio-engine=comfyui"] },
+			pricing: { cost: 0, enabled: true, specCosts: [] },
+			createdAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		}]);
+
+		await expect(requireSelectableAudioModel(context, "index-local", "speech"))
+			.resolves.toMatchObject({ requestModelKey: "indextts-2.5", tags: ["tapcanvas:audio-type=speech", "tapcanvas:audio-engine=comfyui"] });
 	});
 
 	it("rejects a music model for a speech task", async () => {

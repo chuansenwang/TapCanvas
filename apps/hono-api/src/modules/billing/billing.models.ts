@@ -1,4 +1,4 @@
-export type BillingModelKind = "text" | "image" | "video";
+export type BillingModelKind = "text" | "image" | "video" | "audio";
 
 function stripModelsPrefix(modelKey: string): string {
 	const raw = (modelKey || "").trim();

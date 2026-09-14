@@ -44,7 +44,7 @@ function normalizeHttpStatus(value: unknown, fallback: ContentfulStatusCode): Co
 	return status as ContentfulStatusCode;
 }
 
-function isAppErrorLike(err: unknown): err is {
+export function isAppErrorLike(err: unknown): err is {
 	name?: unknown;
 	message?: unknown;
 	status?: unknown;

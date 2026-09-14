@@ -15,7 +15,7 @@ import { createTaskWorkspace } from "../../platform/node/task-workspace";
 
 const execFileAsync = promisify(execFile);
 
-// 包装层短片段渲染，不是整片合成器——限额据此设定。
+// 确定性短片段渲染：包装层和透明部件二维动画，不是整片合成器。
 const MAX_HTML_CHARS = 512 * 1024;
 const MAX_ASSETS = 24;
 const MAX_TOTAL_ASSET_BYTES = 200 * 1024 * 1024;
@@ -53,9 +53,10 @@ function sanitizeAssetName(name: string): string {
 
 /**
  * Render a single-file HyperFrames composition (authored by the 剪辑师 agent) to
- * an mp4 and upload it to object storage. Designed for the "packaging layer" of
- * the video pipeline — title cards, animated captions, intros/outros — NOT for
- * full-film assembly (that stays on ffmpeg concat).
+ * an mp4 and upload it to object storage. It is intended for deterministic
+ * packaging clips (title cards, captions, intros/outros) and transparent-part
+ * 2D character animation; full-film assembly stays on ffmpeg concat. It does
+ * not synthesize a character, a scene, or missing visual layers.
  *
  * Remote assets are pre-downloaded into `<project>/assets/<name>` (S3-aware for
  * our own storage domain) so headless Chromium never fetches through the

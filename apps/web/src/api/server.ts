@@ -10075,6 +10075,7 @@ export async function fetchPublicTaskResultWithAuth(payload: PublicFetchTaskResu
 export type SynthesizeSpeechRequestDto = {
   text: string
   model: string
+  runtimeParameters?: Record<string, string | number | boolean>
   voiceId?: string
   emotion?: string
   speed?: number
@@ -10088,10 +10089,7 @@ export type SynthesizeSpeechRequestDto = {
   // 音色克隆参考（图优先、与音频互斥）
   referenceAudioUrls?: string[]
   referenceImageUrl?: string
-  // MiniMax H3 本地服务参数
-  duration?: number
-  steps?: number
-  unet?: 'fl2va' | 'ref2va'
+  // MiniMax H3 本地执行器不接受模型参数：时长由台词推导，步数与 UNET 取工作流配置。
 }
 
 // 豆包语音富音色元数据（来自 hono /public/audio/doubao-voices → 火山 ListSpeakers）
@@ -10156,6 +10154,7 @@ export type GenerateMusicRequestDto = {
   lyrics?: string
   lyricsMode?: 'auto' | 'custom' | 'instrumental'
   model: string
+  runtimeParameters?: Record<string, string | number | boolean>
 }
 
 export type GenerateMusicResponseDto = {

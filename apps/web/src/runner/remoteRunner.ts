@@ -2925,6 +2925,7 @@ type GenericVideoTaskOptions = {
   referenceVideoDurationSeconds?: number | null
   autoReferenceImageUrls?: string[]
   mediaInputs?: Array<{ type: 'image' | 'audio' | 'video'; url: string; role?: 'reference' | 'video' | 'audio' }>
+  workflowCapability?: string | null
 }
 
 type PreparedVideoTaskInput = {
@@ -3484,6 +3485,7 @@ function buildVeoTaskExtras(input: {
   referenceSheet?: UploadedReferenceSheet | null
   upstreamVideoUrl?: string | null
   referenceVideoDurationSeconds?: number | null
+  workflowCapability?: string | null
 }): Record<string, unknown> {
   const extras: Record<string, unknown> = {
     nodeKind: input.kind,
@@ -3491,6 +3493,9 @@ function buildVeoTaskExtras(input: {
     modelKey: input.model,
     aspectRatio: input.aspectRatio,
     awaitResult: false,
+  }
+  if (input.workflowCapability && input.workflowCapability.trim()) {
+    extras.workflowCapability = input.workflowCapability.trim()
   }
   if (input.size && input.size.trim()) {
     extras.size = input.size.trim()
@@ -3682,6 +3687,7 @@ async function runVideoTask(ctx: RunnerContext) {
       referenceVideoDurationSeconds: prepared.referenceVideoDurationSeconds,
       autoReferenceImageUrls: prepared.autoReferenceImageUrls,
       mediaInputs: prepared.mediaInputs,
+      workflowCapability: typeof data.workflowCapability === 'string' ? data.workflowCapability : null,
     })
   } catch (error: unknown) {
     const msg = error instanceof Error && error.message ? error.message : '视频任务执行失败'
@@ -3793,6 +3799,7 @@ async function runGenericVideoTask(ctx: RunnerContext, options: GenericVideoTask
       referenceSheet: options.referenceSheet,
       upstreamVideoUrl: options.upstreamVideoUrl,
       referenceVideoDurationSeconds: options.referenceVideoDurationSeconds,
+      workflowCapability: options.workflowCapability,
     })
     extras.durationSeconds = options.durationSeconds
     extras.orientation = options.orientation

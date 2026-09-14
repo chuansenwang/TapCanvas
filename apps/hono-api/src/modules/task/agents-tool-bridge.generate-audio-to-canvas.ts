@@ -4,12 +4,16 @@ import type { FlowRow } from "../flow/flow.repo";
 import {
   synthesizeSpeechToStorage,
 	synthesizeDoubaoSpeechToStorage,
-	synthesizeMiniMaxH3SpeechToStorage,
-	isDoubaoSpeechModel,
+  synthesizeMiniMaxH3SpeechToStorage,
+	isDoubaoSpeechCatalogModel,
 	isMiniMaxH3SpeechModel,
   generateMusicToStorage,
 } from "../apiKey/audio-speech";
-import { requireSelectableAudioModel } from "../new-api-models/new-api-audio-model";
+import {
+  requireSelectableAudioModel,
+  validateAudioRuntimeParameters,
+  type AudioRuntimeParameters,
+} from "../new-api-models/new-api-audio-model";
 import { resolveTeamCreditsCostForTask } from "../billing/billing.service";
 import {
   releaseTeamCreditsOnFailure,
@@ -29,6 +33,7 @@ import { getPrismaClient } from "../../platform/node/prisma";
 import { persistFlowPatch, readFlowNodes } from "./video-orchestrator.flow-io";
 import { maybeAutoRegisterVoiceCard } from "./material-auto-register";
 import { registerGeneratedMediaAsset } from "../asset/asset.hosting";
+import { runComfyUiTask } from "./comfyui-workflow";
 
 // 【音频节点生成工具·补工具缺口】此前 agent(小T) 唯一的语音工具是 tapcanvas_voice_card_dub，它必须挂在
 // 一个已有视频节点上（做「TTS + mux 到视频」），画布无视频节点时就无法凭空出一段音频/试听音色/建配音卡。
@@ -116,17 +121,18 @@ export async function generateAudioToCanvas(input: {
   const voiceId =
     readTrimmedString(nodeData.voiceId) || readTrimmedString(nodeData.doubaoVoiceId);
   const requireExactVoiceId = nodeData.requireExactVoiceId === true;
-  const audioType = (readTrimmedString(nodeData.audioType) || "speech").toLowerCase();
+  const audioType = readTrimmedString(nodeData.audioType).toLowerCase();
   if (audioType !== "speech" && audioType !== "music" && audioType !== "voice_card") {
-    throw new AppError("audioType 必须是 speech、music 或 voice_card", {
+    throw new AppError("audioType 必须明确指定为 speech、music 或 voice_card", {
       status: 400,
-      code: "audio_gen_type_invalid",
+      code: audioType ? "audio_gen_type_invalid" : "audio_gen_type_required",
       details: { audioType },
     });
   }
   const voiceCharacter =
     readTrimmedString(nodeData.voiceCharacter) || readTrimmedString(nodeData.roleName);
   const requestedModel = readTrimmedString(nodeData.audioModel);
+  let runtimeParameters: AudioRuntimeParameters = {};
   const emotion = readTrimmedString(nodeData.emotion);
   const speed = readNumber(nodeData.speed);
   const mixExclude =
@@ -177,6 +183,29 @@ export async function generateAudioToCanvas(input: {
       details: { requestedModel, expectedEngine: "doubao" },
     });
   }
+  const audioEngine = catalogModel.tags
+    .map((tag) => tag.trim().toLowerCase())
+    .find((tag) => tag.startsWith("tapcanvas:audio-engine="))
+    ?.slice("tapcanvas:audio-engine=".length)
+    .trim() || "";
+	if (audioType !== "music" && !audioEngine) {
+    throw new AppError("所选语音模型未声明可执行引擎", {
+      status: 400,
+      code: "audio_model_engine_missing",
+      details: { requestedModel },
+    });
+	}
+	if (audioType === "music" && audioEngine === "comfyui") {
+		throw new AppError("当前 ComfyUI 音频目录未声明音乐工作流", {
+			status: 400,
+			code: "audio_model_workflow_missing",
+			details: { requestedModel, engine: audioEngine, audioType },
+		});
+	}
+  runtimeParameters = validateAudioRuntimeParameters(
+    catalogModel,
+    nodeData.runtimeParameters ?? nodeData.audioRuntimeParameters,
+  );
   const model = catalogModel.requestModelKey;
 
   // 【音色路由 + 有效性解析】模型来自实时目录。此前 bug：无论模型是不是豆包，
@@ -186,7 +215,7 @@ export async function generateAudioToCanvas(input: {
   // 根治：豆包模型走豆包合成路径；voiceId 若空 or 不在真实豆包目录，则按「角色名+性别」
   // 确定性从 414 富音色目录挑一把有效音色（与 asset-selfheal / VOICE_CARD_AUTO_DUB 同口径：
   // 同角色跨镜跨章恒定同一把嗓），彻底消除假 speaker id 与哑卡。
-	const useDoubao = isDoubaoSpeechModel(model);
+	const useDoubao = isDoubaoSpeechCatalogModel(catalogModel);
 	const useMiniMaxH3 = isMiniMaxH3SpeechModel(catalogModel);
   let resolvedVoiceId = voiceId;
   if (useDoubao) {
@@ -299,6 +328,7 @@ export async function generateAudioToCanvas(input: {
         lyrics: lyrics || null,
         lyricsMode,
         model,
+        runtimeParameters,
       });
       audioUrl = r.url;
       durationSec = r.durationSec;
@@ -323,16 +353,29 @@ export async function generateAudioToCanvas(input: {
       throw err;
     }
 	} else if (effectiveText) {
-		if (useMiniMaxH3) {
+		if (audioEngine === "comfyui") {
+			const response = await runComfyUiTask(input.c, {
+				kind: "text_to_audio",
+				prompt: effectiveText,
+				extras: {
+					modelKey: model,
+					runtimeParameters,
+					...(readTrimmedString(nodeData.voiceReferenceUrl) ? { voiceReferenceUrl: readTrimmedString(nodeData.voiceReferenceUrl) } : {}),
+					...(nodeData.workflowCapability ? { workflowCapability: readTrimmedString(nodeData.workflowCapability) } : {}),
+				},
+			});
+			const asset = response.assets.find((item) => item.type === "audio" && item.url.trim());
+			if (!asset) throw new AppError("ComfyUI 音频工作流未返回音频资产", { status: 502, code: "comfyui_audio_output_missing" });
+			audioUrl = asset.url;
+			durationSec = null;
+		} else if (useMiniMaxH3) {
 			const referenceAudioUrls = Array.isArray(nodeData.referenceAudioUrls)
 				? nodeData.referenceAudioUrls.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
 				: [];
 			const r = await synthesizeMiniMaxH3SpeechToStorage(input.c, input.requestUserId, {
 				prompt: effectiveText,
 				model,
-				duration: readNumber(nodeData.duration),
-				steps: readNumber(nodeData.steps),
-			unet: readTrimmedString(nodeData.unet) || null,
+				runtimeParameters,
 				referenceAudioUrls,
 			});
 			audioUrl = r.url;
@@ -347,19 +390,21 @@ export async function generateAudioToCanvas(input: {
         text: effectiveText,
         model,
         voiceId: resolvedVoiceId || null,
-        ...(speechRate !== null ? { speechRate } : {}),
+				...(speechRate !== null ? { speechRate } : {}),
+				runtimeParameters,
       });
       audioUrl = r.url;
       durationSec = r.durationSec;
       usedVoiceId = r.voiceId || resolvedVoiceId;
     } else {
-      const r = await synthesizeSpeechToStorage(input.c, input.requestUserId, {
-        text: effectiveText,
-        model,
+			const r = await synthesizeSpeechToStorage(input.c, input.requestUserId, {
+				text: effectiveText,
+				model,
+				runtimeParameters,
         voiceId: voiceId || null,
         ...(emotion ? { emotion } : {}),
         ...(speed !== null ? { speed } : {}),
-      } as never);
+			});
       audioUrl = r.url;
       durationSec = r.durationSec;
       usedVoiceId = r.voiceId || voiceId;
@@ -430,7 +475,8 @@ export async function generateAudioToCanvas(input: {
     // 独立素材标记：true = 不被 collectComposeAudioNodeIds 收编进成片混音（章级 BGM 用户自行剪辑拼接）。
     ...(mixExclude ? { mixExclude: true } : {}),
 		audioModel: model,
-		audioModelEngine: useMiniMaxH3 ? "minimax-h3" : useDoubao ? "doubao" : catalogModel.tags.find((tag) => tag.trim().toLowerCase().startsWith("tapcanvas:audio-engine="))?.split("=").slice(1).join("=") || "minimax",
+		audioModelEngine: audioEngine,
+		audioRuntimeParameters: runtimeParameters,
 		label,
     status: "success",
   };

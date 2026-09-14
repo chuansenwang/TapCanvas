@@ -1323,6 +1323,7 @@ export async function generateVideoToCanvas(input: {
 
   const taskNode = parsedArgs.data.node;
   const nodeData = taskNode.data as Record<string, unknown>;
+  const workflowCapability = readTrimmedString(nodeData.workflowCapability);
   let referenceAudioRequired = nodeData.referenceAudioRequired === true;
   const referenceAudioExplicitlyOptional = nodeData.referenceAudioRequired === false;
   const workflowEffectId = readTrimmedString(nodeData.workflowEffectId);
@@ -2249,6 +2250,7 @@ export async function generateVideoToCanvas(input: {
     extras: {
       ...(modelAlias ? { modelAlias } : {}),
       ...(modelKey ? { modelKey } : {}),
+      ...(workflowCapability ? { workflowCapability } : {}),
       ...(aspectRatio ? { aspectRatio } : {}),
       ...(size ? { size } : {}),
       ...(resolution ? { resolution } : {}),

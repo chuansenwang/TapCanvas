@@ -402,6 +402,7 @@ export const PublicFlowTaskNodeDataSchema = z
 	.object({
 		kind: PublicFlowTaskNodeKindSchema,
 		label: z.string().optional(),
+		workflowCapability: z.string().min(1).optional(),
 		referenceImages: z.array(z.string().min(1)).optional(),
 		anchorBindings: z.array(PublicFlowAnchorBindingSchema).optional(),
 		assetInputs: z

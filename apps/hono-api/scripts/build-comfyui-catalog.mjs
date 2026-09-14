@@ -20,11 +20,13 @@ function variant(id, fileName, taskKind, referenceImageCount, options = {}) {
     ...(options.h3Mode ? { h3Mode: options.h3Mode } : {}),
     ...(options.h3InputMode ? { h3InputMode: options.h3InputMode } : {}),
     ...(options.promptNodeIds ? { promptNodeIds: options.promptNodeIds } : {}),
+    ...(options.promptInputBindings ? { promptInputBindings: options.promptInputBindings } : {}),
     ...(options.imageNodeIds ? { imageNodeIds: options.imageNodeIds } : {}),
     ...(options.outputNodeIds ? { outputNodeIds: options.outputNodeIds } : {}),
     ...(options.mediaLoaderNodeIds ? { mediaLoaderNodeIds: options.mediaLoaderNodeIds } : {}),
     ...(options.outputMediaType ? { outputMediaType: options.outputMediaType } : {}),
     ...(options.audioLoaderNodeIds ? { audioLoaderNodeIds: options.audioLoaderNodeIds } : {}),
+    ...(options.mediaInputNodeBinding ? { mediaInputNodeBinding: options.mediaInputNodeBinding } : {}),
     ...(options.emotionControlNodeIds ? { emotionControlNodeIds: options.emotionControlNodeIds } : {}),
     ...(options.audioEmotionMode ? { audioEmotionMode: options.audioEmotionMode } : {}),
   };
@@ -47,6 +49,25 @@ const models = [
       variant("emotion-basic", "INDEX2.5音频基础.json", "text_to_audio", 0, { capability: "emotion-basic", audioLoaderNodeIds: ["4"], outputNodeIds: ["3"], outputMediaType: "audio" }),
       variant("emotion-vector", "INDEX2.5音频情感向量模式.json", "text_to_audio", 0, { capability: "emotion-vector", audioLoaderNodeIds: ["5"], emotionControlNodeIds: ["4"], audioEmotionMode: "vector", outputNodeIds: ["1"], outputMediaType: "audio" }),
       variant("emotion-text", "INDEX2.5音频文本情感.json", "text_to_audio", 0, { capability: "emotion-text", audioLoaderNodeIds: ["1"], emotionControlNodeIds: ["5"], audioEmotionMode: "text", outputNodeIds: ["4"], outputMediaType: "audio" }),
+    ],
+  },
+  {
+    modelKey: "minmax-h3-audio",
+    modelAlias: "minmax-h3-audio",
+    labelZh: "MiniMax H3 音频（本地 ComfyUI）",
+    kind: "audio",
+    audioTags: ["tapcanvas:audio-type=speech", "tapcanvas:audio-engine=minimax-h3"],
+    // H3 音频没有对外暴露的模型参数：时长由提示词里的台词与时间轴推导，采样步数取工作流
+    // 固定配置，可用 UNET 由执行前 `/object_info` 实时枚举校验。因此不声明 runtimeParameters，
+    // 避免节点上出现无实际选择权的输入框。
+    variants: [
+      variant("fl2va", "minih3_audio.json", "text_to_audio", 0, {
+        capability: "fl2va",
+        promptNodeIds: ["169"],
+        audioLoaderNodeIds: ["144"],
+        outputNodeIds: ["143"],
+        outputMediaType: "audio",
+      }),
     ],
   },
   {
@@ -107,6 +128,15 @@ const models = [
       variant("first-last-frame", "MiniMax_H3_Easy.json", "image_to_video", 0, { h3Mode: "image", h3InputMode: "first_last_frame", promptNodeIds: ["3"], mediaLoaderNodeIds: ["42"], outputNodeIds: ["21", "23"], outputMediaType: "video" }),
       variant("reference", "MiniMax_H3_Easy.json", "image_to_video", 0, { h3Mode: "reference", h3InputMode: "reference", promptNodeIds: ["3"], mediaLoaderNodeIds: ["42"], outputNodeIds: ["21", "23"], outputMediaType: "video" }),
       variant("digital-human", "MiniMax_H3_Easy.json", "image_to_video", 0, { h3Mode: "digital_human", h3InputMode: "digital_human", promptNodeIds: ["3"], mediaLoaderNodeIds: ["42"], outputNodeIds: ["21", "23"], outputMediaType: "video" }),
+      variant("reference-audio-legacy", "H3至尊全能工作流【鱼佬框架+吃猪侠定制版】.json", "image_to_video", 0, {
+        capability: "reference-audio-legacy",
+        promptInputBindings: [{ nodeId: "263", inputKey: "UNKNOWN" }],
+        imageNodeIds: ["51"],
+        audioLoaderNodeIds: ["48"],
+        mediaInputNodeBinding: "legacy_loaders",
+        outputNodeIds: ["214"],
+        outputMediaType: "video",
+      }),
     ],
     videoOptions: {
       defaultDurationSeconds: 4,
@@ -133,7 +163,17 @@ const models = [
   labelZh: model.labelZh,
   kind: model.kind || "image",
   enabled: true,
-  meta: { ...(model.kind === "video" ? { videoOptions: model.videoOptions } : model.kind === "audio" ? { tags: ["tapcanvas:audio-type=speech"] } : { imageOptions }), comfyui: { workflowVariants: model.variants } },
+  meta: {
+    ...(model.kind === "video"
+      ? { videoOptions: model.videoOptions }
+      : model.kind === "audio"
+        ? {
+          tags: model.audioTags || ["tapcanvas:audio-type=speech", "tapcanvas:audio-engine=comfyui"],
+          ...(model.runtimeParameters ? { runtimeParameters: model.runtimeParameters } : {}),
+        }
+        : { imageOptions }),
+    comfyui: { workflowVariants: model.variants },
+  },
   pricing: { cost: 0, enabled: true, specCosts: [] },
 }));
 

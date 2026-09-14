@@ -4,6 +4,10 @@ import path from "path";
 export default defineConfig({
 	resolve: {
 		alias: {
+			"@tapcanvas/character-animation-protocol": path.resolve(
+				__dirname,
+				"../../packages/schemas/character-animation-protocol/index.ts",
+			),
 			"@tapcanvas/image-operation-protocol": path.resolve(
 				__dirname,
 				"../../packages/schemas/image-operation-protocol/index.ts",

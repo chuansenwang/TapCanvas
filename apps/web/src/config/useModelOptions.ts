@@ -409,9 +409,7 @@ async function getCatalogModelOptions(kind?: NodeKind, request?: ModelOptionsReq
   const promise = (async () => {
     try {
       const [configuredRows, newApiRows] = await Promise.all([
-        catalogKind === 'audio'
-          ? Promise.resolve<ModelCatalogModelDto[]>([])
-          : requestModelCatalogWithRetry(() => listModelCatalogModels({ kind: catalogKind, enabled: true })),
+        requestModelCatalogWithRetry(() => listModelCatalogModels({ kind: catalogKind, enabled: true })),
         requestModelCatalogWithRetry(() => listNewApiModels({
           kind: catalogKind,
           enabled: true,

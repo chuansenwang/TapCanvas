@@ -9,16 +9,88 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 import { AppError } from "../../middleware/error";
 import type { AppContext } from "../../types";
+import { resolvePublicAssetBaseUrl } from "../asset/asset.publicBase";
+import {
+	LOCAL_ASSET_ROUTE_PREFIX,
+	resolveLocalAssetStorageConfig,
+	writeLocalAssetBytes,
+	type LocalAssetStorageConfig,
+} from "../asset/local-asset-storage";
 import {
 	createObjectStorageClientFromConfig,
 	resolveObjectStorageConfig,
+	type ObjectStorageConfig,
 } from "../asset/rustfs.client";
-import { requireSelectableAudioModel } from "../new-api-models/new-api-audio-model";
+import {
+	requireSelectableAudioModel,
+	type AudioRuntimeParameters,
+} from "../new-api-models/new-api-audio-model";
 import type { NewApiModelDto } from "../new-api-models/new-api-models.service";
-import { validateH3AudioDuration, validateH3AudioPromptContract } from "../task/h3-prompt-contract";
+import { validateH3AudioPromptContract } from "../task/h3-prompt-contract";
+import { releaseComfyVramAfterRun } from "./comfyui-memory";
+import { resolveH3AudioPrompt } from "./h3-audio-prompt-builder";
 import { generateMiniMaxH3AudioWithComfy } from "./minimax-h3-comfy";
 
 const execFileAsync = promisify(execFile);
+
+type AudioAssetStorage = {
+	objectStorage: ObjectStorageConfig | null;
+	localStorage: LocalAssetStorageConfig | null;
+};
+
+/**
+ * 音频资产落地必须与图片/视频路径一致：对象存储优先，其次本机 local 资产目录。
+ * 两者都不可用时显式失败，不静默丢弃已生成的音频。
+ */
+export function resolveAudioAssetStorage(env: AppContext["env"]): AudioAssetStorage {
+	const objectStorage = resolveObjectStorageConfig(env);
+	const localStorage = objectStorage ? null : resolveLocalAssetStorageConfig();
+	if (!objectStorage && !localStorage) {
+		throw new AppError(
+			"音频资产需要可用的存储：请配置 OBJECT_STORAGE_PROVIDER 或 LOCAL_ASSET_STORAGE_DIR",
+			{
+				status: 503,
+				code: "audio_asset_storage_unavailable",
+			},
+		);
+	}
+	return { objectStorage, localStorage };
+}
+
+/** 将音频字节写入既定存储并返回可公开访问的 URL。 */
+async function persistAudioAsset(input: {
+	c: AppContext;
+	storage: AudioAssetStorage;
+	key: string;
+	bytes: Buffer;
+	contentType: string;
+}): Promise<string> {
+	const { objectStorage, localStorage } = input.storage;
+	if (objectStorage) {
+		const client = createObjectStorageClientFromConfig(objectStorage);
+		await client.send(
+			new PutObjectCommand({
+				Bucket: objectStorage.bucket,
+				Key: input.key,
+				Body: input.bytes,
+				ContentType: input.contentType,
+				CacheControl: "public, max-age=31536000, immutable",
+			}),
+		);
+	} else {
+		await writeLocalAssetBytes({
+			config: localStorage!,
+			key: input.key,
+			bytes: input.bytes,
+		});
+	}
+	const publicBase = (
+		objectStorage?.publicBase.trim() || resolvePublicAssetBaseUrl(input.c).trim()
+	).replace(/\/+$/, "");
+	return publicBase
+		? `${publicBase}/${input.key}`
+		: `${LOCAL_ASSET_ROUTE_PREFIX}/${input.key}`;
+}
 
 export const DEFAULT_SPEECH_VOICE = "male-qn-qingse";
 // 总文案上限（超过 t2a_v2 单请求限制的部分自动分段合成再拼接）。
@@ -127,6 +199,7 @@ export type SpeechSoundEffect = (typeof SPEECH_SOUND_EFFECTS)[number];
 export type SynthesizeSpeechInput = {
 	text: string;
 	model?: string | null;
+	runtimeParameters?: AudioRuntimeParameters;
 	voiceId?: string | null;
 	emotion?: string | null;
 	/** 0.5 ~ 2.0，MiniMax voice_setting.speed */
@@ -148,9 +221,7 @@ export type SynthesizeMiniMaxH3SpeechInput = {
 	/** H3 六段式或自由模式提示词。 */
 	prompt: string;
 	model?: string | null;
-	duration?: number | null;
-	steps?: number | null;
-	unet?: string | null;
+	runtimeParameters?: AudioRuntimeParameters;
 	/** 参考音频 URL；按顺序上传为兼容别名 ref_1..3。提示词可用 @1/@2/@3 引用。 */
 	referenceAudioUrls?: string[] | null;
 };
@@ -217,14 +288,14 @@ export function isMiniMaxH3SpeechModel(model: Pick<NewApiModelDto, "tags">): boo
 
 /**
  * H3 Prompt 合同要求首秒无人声：交付时移除这段预卷，并仅清理其后的连续起始静音。
- * 再保留 50ms 前导静音，避免播放器在 0 秒硬切入人声；不做尾端检测。
+ * 再保留 200ms 前导静音，避免播放器在 0 秒硬切入人声；不做尾端检测。
  */
 export function h3DeliveryAudioFilter(): string {
 	return [
 		"atrim=start=1",
 		"asetpts=PTS-STARTPTS",
 		"silenceremove=start_periods=1:start_duration=0.20:start_threshold=-45dB:start_silence=0.08",
-		"adelay=50:all=1",
+		"adelay=200:all=1",
 	].join(",");
 }
 
@@ -236,19 +307,10 @@ export async function synthesizeMiniMaxH3SpeechToStorage(
 ): Promise<SynthesizeMiniMaxH3SpeechResult> {
 	const prompt = input.prompt.trim();
 	if (!prompt) throw new Error("prompt is required");
-	const durationContract = validateH3AudioDuration(input.duration);
-	if (!durationContract.ok) {
-		throw new AppError(durationContract.reason, {
-			status: 400,
-			code: "minimax_h3_audio_duration_invalid",
-			details: { duration: input.duration ?? null, maxDuration: 15 },
-		});
-	}
 	const env = c.env as Record<string, unknown>;
 	const baseUrl = typeof env.MINIMAX_H3_TTS_BASE_URL === "string" ? env.MINIMAX_H3_TTS_BASE_URL.trim().replace(/\/+$/, "") : "";
 	if (!baseUrl) throw new Error("MINIMAX_H3_TTS_BASE_URL 未配置");
-	const storageConfig = resolveObjectStorageConfig(c.env);
-	if (!storageConfig) throw new Error("Object storage is not configured");
+	const storage = resolveAudioAssetStorage(c.env);
 	const catalogModel = await requireSelectableAudioModel(c, input.model, "speech");
 	if (!isMiniMaxH3SpeechModel(catalogModel)) {
 		throw new AppError("所选语音模型不支持 MiniMax H3 执行端点", {
@@ -258,7 +320,13 @@ export async function synthesizeMiniMaxH3SpeechToStorage(
 		});
 	}
 	const refs = (input.referenceAudioUrls ?? []).map((url) => url.trim()).filter(Boolean).slice(0, 3);
-	const promptContract = validateH3AudioPromptContract({ prompt, referenceAudioCount: refs.length });
+	// 简易模式：用户在节点里输入的普通台词先组装成 H3 结构化提示词；
+	// 已经是结构化提示词的原样透传，不被模板覆盖。
+	const resolved = resolveH3AudioPrompt({ prompt, referenceAudioCount: refs.length });
+	const promptContract = validateH3AudioPromptContract({
+		prompt: resolved.prompt,
+		referenceAudioCount: refs.length,
+	});
 	if (!promptContract.ok) {
 		throw new AppError(`MiniMax H3 音频提示词缺少必需段落：${promptContract.missing.join("、")}`, {
 			status: 400,
@@ -266,14 +334,17 @@ export async function synthesizeMiniMaxH3SpeechToStorage(
 			details: { mode: promptContract.mode, missing: promptContract.missing },
 		});
 	}
-	const generated = await generateMiniMaxH3AudioWithComfy({
-		baseUrl,
-		prompt,
-		duration: durationContract.duration,
-		steps: input.steps,
-		unet: input.unet,
-		referenceAudioUrls: refs,
-	});
+	// 生成结束（无论成功或失败）都按配置回收 ComfyUI 显存，避免 H3 模型常驻占满整卡。
+	let generated: Awaited<ReturnType<typeof generateMiniMaxH3AudioWithComfy>>;
+	try {
+		generated = await generateMiniMaxH3AudioWithComfy({
+			baseUrl,
+			prompt: resolved.prompt,
+			referenceAudioUrls: refs,
+		});
+	} finally {
+		await releaseComfyVramAfterRun(c.env, baseUrl);
+	}
 	const sourceAudioBuf = generated.audio;
 	let audioBuf: Buffer;
 	const workDir = await mkdtemp(join(tmpdir(), "h3-"));
@@ -313,21 +384,19 @@ export async function synthesizeMiniMaxH3SpeechToStorage(
 	} finally {
 		await rm(workDir, { recursive: true, force: true }).catch(() => {});
 	}
-	const client = createObjectStorageClientFromConfig(storageConfig);
 	const safeUser = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
 	const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 	const assetId = randomUUID();
 	const sourceKey = `gen/audio/${safeUser}/${datePrefix}/${assetId}.source.flac`;
 	const key = `gen/audio/${safeUser}/${datePrefix}/${assetId}.wav`;
-	await client.send(new PutObjectCommand({ Bucket: storageConfig.bucket, Key: sourceKey, Body: sourceAudioBuf, ContentType: "audio/flac", CacheControl: "public, max-age=31536000, immutable" }));
-	await client.send(new PutObjectCommand({ Bucket: storageConfig.bucket, Key: key, Body: audioBuf, ContentType: "audio/wav", CacheControl: "public, max-age=31536000, immutable" }));
-	const publicBase = storageConfig.publicBase.trim().replace(/\/+$/, "");
+	const sourceUrl = await persistAudioAsset({ c, storage, key: sourceKey, bytes: sourceAudioBuf, contentType: "audio/flac" });
+	const url = await persistAudioAsset({ c, storage, key, bytes: audioBuf, contentType: "audio/wav" });
 	return {
-		url: publicBase ? `${publicBase}/${key}` : `/${key}`,
+		url,
 		key,
 		bytes: audioBuf.byteLength,
 		durationSec,
-		sourceUrl: publicBase ? `${publicBase}/${sourceKey}` : `/${sourceKey}`,
+		sourceUrl,
 		sourceKey,
 		sourceDurationSec,
 		model: catalogModel.requestModelKey,
@@ -384,8 +453,7 @@ export async function synthesizeSpeechToStorage(
 	const relay = readNewApiRelayConfig(c);
 	if (!relay) throw new Error("NEW_API_INTERNAL_BASE_URL / NEW_API_INTERNAL_TOKEN 未配置");
 
-	const storageConfig = resolveObjectStorageConfig(c.env);
-	if (!storageConfig) throw new Error("Object storage is not configured");
+	const storage = resolveAudioAssetStorage(c.env);
 
 	const catalogModel = await requireSelectableAudioModel(c, input.model, "speech");
 	if (!catalogModel.tags.some((tag) => tag.trim().toLowerCase() === "tapcanvas:audio-engine=minimax")) {
@@ -410,6 +478,9 @@ export async function synthesizeSpeechToStorage(
 		output_format: "url",
 		voice_setting: voiceSetting,
 	};
+	if (input.runtimeParameters && Object.keys(input.runtimeParameters).length > 0) {
+		metadata.runtime_parameters = input.runtimeParameters;
+	}
 	if (soundEffects.length > 0) {
 		metadata.voice_modify = { sound_effects: soundEffects.join(",") };
 	}
@@ -499,22 +570,16 @@ export async function synthesizeSpeechToStorage(
 		await rm(workDir, { recursive: true, force: true }).catch(() => {});
 	}
 
-	const client = createObjectStorageClientFromConfig(storageConfig);
 	const safeUser = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
 	const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 	const key = `gen/audio/${safeUser}/${datePrefix}/${randomUUID()}.mp3`;
-	await client.send(
-		new PutObjectCommand({
-			Bucket: storageConfig.bucket,
-			Key: key,
-			Body: audioBuf,
-			ContentType: "audio/mpeg",
-			CacheControl: "public, max-age=31536000, immutable",
-		}),
-	);
-
-	const publicBase = storageConfig.publicBase.trim().replace(/\/+$/, "");
-	const url = publicBase ? `${publicBase}/${key}` : `/${key}`;
+	const url = await persistAudioAsset({
+		c,
+		storage,
+		key,
+		bytes: audioBuf,
+		contentType: "audio/mpeg",
+	});
 
 	return {
 		url,
@@ -545,12 +610,9 @@ const DOUBAO_SEGMENT_MAX_CHARS = 500;
 // 封顶 120s=2400/次）。最终以 relay 回桥的实际时长结算。
 const DOUBAO_CREDITS_PER_SECOND = 20;
 
-/** 模型是否为豆包语音（doubao-seed-audio 前缀）。 */
-export function isDoubaoSpeechModel(model: string | null | undefined): boolean {
-	return String(model || "")
-		.trim()
-		.toLowerCase()
-		.startsWith("doubao-seed-audio");
+/** 豆包能力必须来自实时模型目录标签，不从模型名称推断。 */
+export function isDoubaoSpeechCatalogModel(model: Pick<NewApiModelDto, "tags">): boolean {
+	return model.tags.some((tag) => tag.trim().toLowerCase() === "tapcanvas:audio-engine=doubao");
 }
 
 /** 按实际合成秒数计费（向上取整秒，封顶 120s，最低 1 积分）。 */
@@ -576,6 +638,7 @@ function clampNum(value: unknown, lo: number, hi: number): number | null {
 export type SynthesizeDoubaoSpeechInput = {
 	text: string;
 	model?: string | null;
+	runtimeParameters?: AudioRuntimeParameters;
 	/** 预设音色 speaker id（与克隆参考互斥，有参考时被 relay 清空）。 */
 	voiceId?: string | null;
 	/** 语速 -50~100（0=不变）。 */
@@ -620,8 +683,7 @@ export async function synthesizeDoubaoSpeechToStorage(
 	const relay = readNewApiRelayConfig(c);
 	if (!relay) throw new Error("NEW_API_INTERNAL_BASE_URL / NEW_API_INTERNAL_TOKEN 未配置");
 
-	const storageConfig = resolveObjectStorageConfig(c.env);
-	if (!storageConfig) throw new Error("Object storage is not configured");
+	const storage = resolveAudioAssetStorage(c.env);
 
 	const catalogModel = await requireSelectableAudioModel(c, input.model, "speech");
 	if (!catalogModel.tags.some((tag) => tag.trim().toLowerCase() === "tapcanvas:audio-engine=doubao")) {
@@ -650,6 +712,9 @@ export async function synthesizeDoubaoSpeechToStorage(
 				.slice(0, 3)
 		: [];
 	const metadata: Record<string, unknown> = {};
+	if (input.runtimeParameters && Object.keys(input.runtimeParameters).length > 0) {
+		metadata.runtime_parameters = input.runtimeParameters;
+	}
 	if (sampleRate) metadata.sample_rate = sampleRate;
 	if (loudnessRate !== null) metadata.loudness_rate = loudnessRate;
 	if (pitchRate !== null) metadata.pitch_rate = pitchRate;
@@ -750,22 +815,16 @@ export async function synthesizeDoubaoSpeechToStorage(
 		durationSec = Math.round(accumulatedDuration * 100) / 100;
 	}
 
-	const client = createObjectStorageClientFromConfig(storageConfig);
 	const safeUser = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
 	const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 	const key = `gen/audio/${safeUser}/${datePrefix}/${randomUUID()}.mp3`;
-	await client.send(
-		new PutObjectCommand({
-			Bucket: storageConfig.bucket,
-			Key: key,
-			Body: audioBuf,
-			ContentType: "audio/mpeg",
-			CacheControl: "public, max-age=31536000, immutable",
-		}),
-	);
-
-	const publicBase = storageConfig.publicBase.trim().replace(/\/+$/, "");
-	const url = publicBase ? `${publicBase}/${key}` : `/${key}`;
+	const url = await persistAudioAsset({
+		c,
+		storage,
+		key,
+		bytes: audioBuf,
+		contentType: "audio/mpeg",
+	});
 
 	return {
 		url,
@@ -785,6 +844,7 @@ export type GenerateMusicInput = {
 	/** auto=AI 自动填词 / custom=自定义歌词 / instrumental=纯音乐 */
 	lyricsMode?: "auto" | "custom" | "instrumental" | null;
 	model?: string | null;
+	runtimeParameters?: AudioRuntimeParameters;
 };
 
 export type GenerateMusicResult = {
@@ -811,8 +871,7 @@ export async function generateMusicToStorage(
 
 	const relay = readNewApiRelayConfig(c);
 	if (!relay) throw new Error("NEW_API_INTERNAL_BASE_URL / NEW_API_INTERNAL_TOKEN 未配置");
-	const storageConfig = resolveObjectStorageConfig(c.env);
-	if (!storageConfig) throw new Error("Object storage is not configured");
+	const storage = resolveAudioAssetStorage(c.env);
 
 	const catalogModel = await requireSelectableAudioModel(c, input.model, "music");
 	const model = catalogModel.requestModelKey;
@@ -820,6 +879,9 @@ export async function generateMusicToStorage(
 		model,
 		output_format: "url",
 	};
+	if (input.runtimeParameters && Object.keys(input.runtimeParameters).length > 0) {
+		body.runtime_parameters = input.runtimeParameters;
+	}
 	if (prompt) body.prompt = prompt;
 	if (lyricsMode === "instrumental") {
 		body.is_instrumental = true;
@@ -880,22 +942,18 @@ export async function generateMusicToStorage(
 		await rm(workDir, { recursive: true, force: true }).catch(() => {});
 	}
 
-	const client = createObjectStorageClientFromConfig(storageConfig);
 	const safeUser = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
 	const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 	const key = `gen/audio/${safeUser}/${datePrefix}/${randomUUID()}.mp3`;
-	await client.send(
-		new PutObjectCommand({
-			Bucket: storageConfig.bucket,
-			Key: key,
-			Body: audioBuf,
-			ContentType: "audio/mpeg",
-			CacheControl: "public, max-age=31536000, immutable",
-		}),
-	);
-	const publicBase = storageConfig.publicBase.trim().replace(/\/+$/, "");
+	const url = await persistAudioAsset({
+		c,
+		storage,
+		key,
+		bytes: audioBuf,
+		contentType: "audio/mpeg",
+	});
 	return {
-		url: publicBase ? `${publicBase}/${key}` : `/${key}`,
+		url,
 		key,
 		bytes: audioBuf.byteLength,
 		durationSec,

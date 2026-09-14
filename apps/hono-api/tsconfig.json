@@ -29,7 +29,8 @@
 			"@tapcanvas/project-directory-protocol": ["./src/modules/project-directory/project-directory.contract.ts"],
 			"@tapcanvas/image-prompt-spec": ["../../packages/schemas/image-prompt-spec/index.d.ts"],
 			"@tapcanvas/image-view-controls": ["../../packages/schemas/image-view-controls/index.d.ts"],
-			"@tapcanvas/image-operation-protocol": ["../../packages/schemas/image-operation-protocol/index.ts"],
+				"@tapcanvas/image-operation-protocol": ["../../packages/schemas/image-operation-protocol/index.ts"],
+				"@tapcanvas/character-animation-protocol": ["../../packages/schemas/character-animation-protocol/index.ts"],
 			"@tapcanvas/video-orchestrator-protocol": ["../../packages/schemas/video-orchestrator-protocol/index.ts"],
 			"@tapcanvas/workflow-kernel-protocol": ["../../packages/schemas/workflow-kernel-protocol/index.ts"]
 		}
