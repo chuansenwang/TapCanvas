@@ -2875,6 +2875,8 @@ verifier 充当完成证据。其
 - AI 链路的 HTTP 调试日志使用统一请求头脱敏合同：浏览器侧 `Authorization/Cookie/X-API-Key` 与服务间 `X-Internal-Token/X-Agent-Token/X-Auth-Token/X-Access-Token/X-Refresh-Token/Proxy-Authorization` 在安全模式下一律只记录协议类型或 `***`，不得因内部回调、ExecutionDO 广播或 continuation 调度而把服务凭据写入 trace。该规则只影响可观测性投影，不改变真实请求、鉴权、工具结果或恢复状态；显式 unsafe 调试开关仍属于人工高风险诊断能力，默认关闭。
 ### MiniMax H3 音频执行器
 
+音色设计（文生音色）：H3 是无参考音也能生成音色的生成模型，音色由提示词里 `<d>` **外面**的说话人描述决定（年龄、性别、音高、音色质感、语速、口音等），依据官方 H3 Video Prompt Writing Guide 第 4.4 节（仓库内副本 `.agents/skills/h3-prompt-writing/references/base-en.txt` 仅供开发查阅——`scripts/dev.mjs` 明确该根目录不属于原生 Agent 运行时 skill 根）。`<d>` 内只放语言标签与要念出的台词原文。这条能力由原生 Agent 负责（加载 `tapcanvas-h3-audio` Skill），`hono-api` 不承载音色描述方法论文本。边界：服务端的「简易模式」语义是「把这段文字原样念出来」，不做音色设计；用户要求设计某个声音时，Agent 必须手写含音色描述的完整结构，且不得把用户诉求原话当作台词提交。
+
 显存回收：ComfyUI 默认把加载过的模型权重留在显存里复用，H3 在 16G 卡上执行完会常驻约 13~14GB，占满整卡。执行器在每次生成本地 H3 之后（成功或失败都会）调用 ComfyUI `/free`（`unload_models` + `free_memory`）归还显存；该接口只给任务队列置标志、在队列空闲时才卸载，不会打断正在执行或排队中的任务。代价是下一次生成需要重新加载模型（约 1~2 分钟），因此由 `MINIMAX_H3_FREE_VRAM_AFTER_RUN` 控制，默认开启，设为 `0`/`false` 可在批量连续生成时保留缓存换速度。回收失败不覆盖主流程产物与原始错误，但会打印 `[minimax-h3] ComfyUI 显存回收失败` 日志，不静默跳过。
 
 简易模式：`text` 直接给普通台词即可。`resolveH3AudioPrompt`（`apps/hono-api/src/modules/apiKey/h3-audio-prompt-builder.ts`）会按「每个非空行一句台词」把普通文本组装成结构化提示词——开场 1 秒无人声、逐句 `At MM:SS.mmm` 时间戳、台词包在 `<d>[Language] ...</d>`；无参考音产出三段式，有参考音产出 Ref2VA 六段式并用 `@1` 引用音色（由执行器替换为 `<Audio 1>`）。若 `text` 本身已满足 H3 音频合同（段落名齐全）则原样透传，不被模板覆盖。该组装只做结构拼接与字符集语言标注（CJK 判 `Chinese`、纯拉丁判 `English`），不做语义理解、不改写台词文字。上游 `tts_api.py` 的同名 B 模式要求每个说话人都必须有参考音，本实现额外覆盖了无参考音的纯台词场景。

@@ -6137,6 +6137,19 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
     updateNodeData,
   ])
 
+  // 音频节点输入框的语义随能力分支。H3 语音里「设计音色」必须写在 <d> 外，
+  // 这里只说明结构，不识别用户意图、不自动改写文本。
+  const audioPromptPlaceholder = React.useMemo<string | undefined>(() => {
+    if (!isAudioNode) return undefined
+    if (audioDataRecord.audioType === 'music') {
+      return '描述曲风/氛围；切到歌词模式后此框填写歌词'
+    }
+    if (audioDataRecord.audioModelEngine === 'minimax-h3') {
+      return '输入要朗读的台词；要设计音色，请写完整 H3 结构——音色描述放在 <d> 外，例如：An elderly witch with a raspy, low-pitched voice (S1) says: <d>[Chinese] 你好啊</d>'
+    }
+    return '输入要朗读的口播文案，或连接上游文本节点'
+  }, [audioDataRecord.audioModelEngine, audioDataRecord.audioType, isAudioNode])
+
   const handleAudioUpload = React.useCallback(
     async (file: File) => {
       if (!isAudioNode || nodeReadOnly) return
@@ -10888,7 +10901,7 @@ const rewritePromptWithCharacters = React.useCallback(
                         ? '描述你想要生成的画面内容，@引用素材'
                         : isImageNode
                           ? '可直接文字生图，或上传图片输入文字指令对图片进行编辑，如：将背景改为雪夜'
-                          : undefined
+                          : audioPromptPlaceholder
                     }
                     minRows={2}
                     mentionOpen={mentionOpen}

@@ -57,3 +57,7 @@
 - **背景**：用户反馈 MiniMax H3 文生视频调用很快显示 `fetch failed`，此前曾把旧 Agents Bridge 的 30 分钟配置解释为当前原生 DSH Web 会话配置。
 - **现象与根因**：当前原生 DSH Web 使用独立的 profile；更直接的根因是 H3 的 `runComfyUiTask()` 在拿到 ComfyUI `prompt_id` 后仍同步轮询 `/history`，直到视频完成才返回 taskId，长连接断开时调用方只能看到 `fetch failed`，而 ComfyUI 任务仍在运行。
 - **处置与预防**：将 H3 视频改为提交 ComfyUI 后立即返回 `running + promptId`，通过统一任务轮询和画布 reconcile 收取终态；区分 `COMFYUI_POLL_TIMEOUT_MS`（后端轮询预算）与原生 Agent/浏览器连接生命周期，今后不得把旧 Bridge 配置当作原生 DSH 配置的证据。
+
+- **背景**：用户截图反馈文生视频节点提交后立刻失败，节点错误文案为 `data is not defined`。
+- **现象与根因**：`apps/web/src/runner/remoteRunner.ts` 的 `runVideoTask` 只从 `ctx` 解构了 `id`、`setNodeStatus`、`appendLog`，却直接引用 `data.workflowCapability`（上一个提交为透传节点能力标识而新增）。该能力标识实际位于 `ctx.data`，函数作用域内不存在 `data`，于是参数对象求值阶段抛出 `ReferenceError`，被同一段 `catch` 捕获后写成节点错误。根因是新增字段透传时未确认变量来源作用域，且此前只有不校验类型的 bundler 构建通过，未做类型检查或函数级运行验证。
+- **处置与预防**：已改为读取 `ctx.data.workflowCapability` 并做结构校验后透传；本地用真实函数体加替身依赖复现出同一 `ReferenceError`，修复后同法验证「带值 / 缺省」两种输入，`tsc --noEmit` 在该文件不再报 TS2304。今后在这类过程式大文件里新增字段透传，必须先做类型检查或函数级复现确认变量作用域，不得只凭构建成功判定可用。

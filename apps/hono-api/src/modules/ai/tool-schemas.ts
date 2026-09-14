@@ -896,7 +896,7 @@ export const canvasNodeSpecs = {
 				"enum (由所选 audioModel 的 `tapcanvas:audio-type` 能力标签投影；voice_card 仅表示配音卡特殊模式，不是独立模型筛选器)",
 			voiceCharacter:
 				"string (optional; 仅 voice_card：该音色归属的角色名，用于按名复用/入库（镜像角色卡）。缺省回退 roleName)",
-			text: "string (required — 语音=口播文案；音乐=曲风/氛围描述)。语音按所选模型分两种口径：MiniMax/豆包 relay 语音为最终口播文案（≤2万字，超长自动分段拼接）；`tapcanvas:audio-engine=minimax-h3` 的本地 H3 语音支持「简易模式」——直接给普通台词即可，服务端会按每行一句组装成 H3 结构化提示词（开场 1 秒无人声 + 逐句时间戳 + `<d>` 台词标签）；若 text 已经是完整的 H3 结构化提示词则原样透传，不被模板覆盖。H3 单次时长按台词推算且硬限制 1~15 秒，超限显式失败，需精简台词或拆成多条音频节点",
+			text: "string (required — 语音=口播文案；音乐=曲风/氛围描述)。语音按所选模型分两种口径：MiniMax/豆包 relay 语音为最终口播文案（≤2万字，超长自动分段拼接）；`tapcanvas:audio-engine=minimax-h3` 的本地 H3 语音支持「简易模式」——直接给普通台词即可，服务端会按每行一句组装成 H3 结构化提示词（开场 1 秒无人声 + 逐句时间戳 + `<d>` 台词标签）；若 text 已经是完整的 H3 结构化提示词则原样透传，不被模板覆盖。简易模式语义是「把这段文字原样念出来」，不设计音色：用户要求设计某个声音/音色时，必须由 Agent 按 tapcanvas-h3-audio Skill 手写含说话人音色描述的完整结构——音色描述（年龄/性别/音高/音色质感/语速/口音）写在 `<d>` 外，`<d>` 内只放真正的台词，严禁把用户诉求原话当台词。H3 单次时长按台词推算且硬限制 1~15 秒，超限显式失败，需精简台词或拆成多条音频节点",
 			lyrics: "string (optional; 音乐自定义歌词，lyricsMode=custom 时使用)",
 			lyricsMode: "enum (optional; 音乐歌词模式：auto AI填词 / custom 自定义歌词 / instrumental 纯音乐（默认）)",
 			audioModel:

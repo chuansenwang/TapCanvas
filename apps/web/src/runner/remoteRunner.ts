@@ -3653,6 +3653,11 @@ async function runVideoTask(ctx: RunnerContext) {
   const { id, setNodeStatus, appendLog } = ctx
   try {
     const prepared = await prepareVideoTaskInput(ctx)
+    // workflowCapability 是视频节点 data 上的能力标识（原生 Agent 生成画布时写入
+    // nodeData.workflowCapability），这里只做结构性透传，不做能力推断。
+    const workflowCapabilityData = ctx.data as Record<string, unknown> | null | undefined
+    const workflowCapability =
+      typeof workflowCapabilityData?.workflowCapability === 'string' ? workflowCapabilityData.workflowCapability : null
     if (prepared.referenceImagesForVideo.length) {
       appendLog(
         id,
@@ -3687,7 +3692,7 @@ async function runVideoTask(ctx: RunnerContext) {
       referenceVideoDurationSeconds: prepared.referenceVideoDurationSeconds,
       autoReferenceImageUrls: prepared.autoReferenceImageUrls,
       mediaInputs: prepared.mediaInputs,
-      workflowCapability: typeof data.workflowCapability === 'string' ? data.workflowCapability : null,
+      workflowCapability,
     })
   } catch (error: unknown) {
     const msg = error instanceof Error && error.message ? error.message : '视频任务执行失败'
