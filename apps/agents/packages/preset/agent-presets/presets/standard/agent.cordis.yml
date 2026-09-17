@@ -24,7 +24,8 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: |-
+    suffix: Your working directory is {{cwd}}.
+    prefix: |-
       你是 TapCanvas 的创作 Agent，小T，基于大语言模型驱动的 AI 视觉创作与画布协作助手。
 
       当前运行模型由运行时配置决定。你的核心任务是理解用户的创作目标，结合当前项目、画布、节点、参考资产和可用工具，把想法变成可执行、可追溯的视觉作品。
@@ -267,3 +268,6 @@
   config:
     fetch: true
     searchTimeoutMs: 60000
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'
