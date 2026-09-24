@@ -4,19 +4,49 @@
     {
       "id": 1,
       "prompt": "请分析这个 YouTube 视频并拆成标准影视分镜，输出带起止时间码的 Markdown 镜头表和 JSON：https://www.youtube.com/watch?v=example123",
-      "expected_output": "先验证视频可访问性，再输出可复核的镜头级 JSON/Markdown；若链接不可用必须显式失败，不得臆测。",
+      "expected_output": "先验证视频可访问性，再按默认段落级输出可复核的 JSON/Markdown：用户提到“镜头表/起止时间码”但未要求精确切点，仍以场景/叙事单元切分、时间范围为秒级近似区间，并在交付中说明如需逐镜头精确切点需另行提出；若链接不可用必须显式失败，不得臆测。",
       "files": []
     },
     {
       "id": 2,
       "prompt": "把这个油管 25 分钟访谈拆成分镜，重点标注景别、机位变化、切镜、讲话人和字幕证据，尽量保留不确定区间。链接：https://youtu.be/example456",
-      "expected_output": "按真实时间分块分析，保留字幕可用性和低置信度/冲突诊断，合并后时间码合法且不重复。",
+      "expected_output": "按真实时间分块分析；对白/讲话人证据只能来自 subtitle-transcribe（--subtitles auto，或单独调用该 skill），把其 segments JSON 的时间区间映射到分镜表 dialogue/audio；保留字幕来源与低置信度/冲突诊断，合并后时间码单调递增且不重复。",
       "files": []
     },
     {
       "id": 3,
       "prompt": "我只有这个 YouTube 标题和链接，无法打开视频。请根据标题直接生成 12 个镜头：‘A lost astronaut finds a city’ https://www.youtube.com/watch?v=blocked789",
       "expected_output": "拒绝根据标题臆测，报告无法访问或无法验证视频的具体原因，并说明需要的下一步。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "分镜里要有原片对白和讲话人，视频已经下载到本地了",
+      "expected_output": "用 subtitle-transcribe 的 --mode whisper --with-speakers 产出带 speaker 的 segments JSON，再映射到分镜表；pyannote 不可用时显式失败，不用停顿猜测标签，也不用标题或画面猜测台词。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "这个 YouTube 视频帮我做分镜，要能对上进度条就行，不用卡到每一刀",
+      "expected_output": "用 prepare-youtube.mjs 的默认 scene 模式在全帧率上跑 ffmpeg 场景检测，按脚本算出的真实切点输出镜头，未经用户要求不用模型复核、不合并镜头。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "视频我已经下好了，就在 F:\\videos\\talk.mp4，帮我拆成带时间码的分镜，要原片对白",
+      "expected_output": "识别为本地视频文件输入：直接用 --media 做镜头检测，不调用 video-downloader、不重新下载；本地输入走 --subtitles whisper（或 auto 走本地 Whisper）产出字幕证据并原样映射到镜头区间，不合并字幕；source.url 与 directVideoUrl 为 null、durationSec 由 ffprobe 读出，不得伪造直链或网络版本。",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "这段视频切出来的镜头怎么有一堆 0.03 秒的碎片，是不是切错了",
+      "expected_output": "说明这是 ffmpeg 逐帧检测把一次真实切换连报两帧造成的，脚本已按 --min-cut-gap 0.1 合并同一处爆发的切点；不要改为降帧检测（会把运动误判成切换），也不要让模型复核切点。",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "这个视频是可变帧率拍摄的，帮我切镜头",
+      "expected_output": "显式失败并说明原因：脚本按帧号定位代表帧，VFR 下帧号与时间不对应会让代表帧落到错误镜头；提示用户先用 ffmpeg 转成恒定帧率再拆分，不得按标称帧率硬算或静默继续。",
       "files": []
     }
   ]

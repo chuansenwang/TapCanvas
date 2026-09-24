@@ -201,6 +201,7 @@ export const ModelCatalogImageOptionsSchema = z
 			)
 			.default([]),
 		qualityOptions: z.array(z.string().min(1)).default([]),
+		maxReferenceImages: z.number().int().positive().optional(),
 		supportsReferenceImages: z.boolean().optional(),
 		supportsTextToImage: z.boolean().optional(),
 		supportsImageToImage: z.boolean().optional(),

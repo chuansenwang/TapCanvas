@@ -1,0 +1,150 @@
+[
+  {
+    "panel": 1,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p01.mp4",
+    "skipped": true
+  },
+  {
+    "panel": 2,
+    "prompt_id": "a53fc38d-5c5f-4d9d-bfbc-27c53f8a8e5d",
+    "aspect_ratio": "4:3",
+    "seconds": 4.0,
+    "elapsed_seconds": 145.3,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p02.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p02_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 3,
+    "prompt_id": "ddc69faa-3c43-40b6-8649-a89d741ad0f4",
+    "aspect_ratio": "4:3",
+    "seconds": 4.0,
+    "elapsed_seconds": 130.4,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p03.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p03_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 4,
+    "prompt_id": "3f7f5342-7394-42f8-b9a8-5e07053e3d14",
+    "aspect_ratio": "3:2",
+    "seconds": 4.0,
+    "elapsed_seconds": 125.6,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p04.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p04_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 5,
+    "prompt_id": "1be875f4-7ab8-448a-9713-e86b2dc50981",
+    "aspect_ratio": "16:9",
+    "seconds": 4.0,
+    "elapsed_seconds": 130.5,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p05.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p05_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 6,
+    "prompt_id": "ac337728-c107-4f16-b402-e163634405d7",
+    "aspect_ratio": "4:3",
+    "seconds": 4.0,
+    "elapsed_seconds": 130.4,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p06.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p06_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 7,
+    "prompt_id": "188fa90a-a986-437e-bfd5-d5f040410e37",
+    "aspect_ratio": "4:3",
+    "seconds": 4.0,
+    "elapsed_seconds": 130.3,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p07.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p07_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 8,
+    "prompt_id": "84180bc6-a029-4251-a262-46e04db59995",
+    "aspect_ratio": "3:2",
+    "seconds": 4.0,
+    "elapsed_seconds": 125.2,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p08.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p08_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 9,
+    "prompt_id": "00053809-8962-4a9e-bff6-17e7b60c8ff2",
+    "aspect_ratio": "16:9",
+    "seconds": 4.0,
+    "elapsed_seconds": 130.4,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p09.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p09_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 10,
+    "prompt_id": "136a5ba0-9444-4cd9-b6b8-753b1297ce1b",
+    "aspect_ratio": "3:2",
+    "seconds": 4.0,
+    "elapsed_seconds": 130.3,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p10.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p10_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 11,
+    "prompt_id": "0a1dd7aa-34c3-476d-aa4b-74a2339191b1",
+    "aspect_ratio": "3:2",
+    "seconds": 4.0,
+    "elapsed_seconds": 125.2,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p11.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p11_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "panel": 12,
+    "prompt_id": "07c2ed25-4402-459e-9c28-3a3512ab9417",
+    "aspect_ratio": "16:9",
+    "seconds": 4.0,
+    "elapsed_seconds": 130.3,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-storyboard\\out\\p12.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-storyboard-p12_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  }
+]

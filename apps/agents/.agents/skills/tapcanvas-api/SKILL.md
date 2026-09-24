@@ -22,7 +22,7 @@ description: TapCanvas 当前画布的原生 Agent 工具说明。
 
 影视工具已作为原生 Agent Function 注册，不是外部 MCP。可直接调用：
 
-- `film_image_gen`：提交图片节点并返回真实任务回执。
+- `film_image_gen`：提交图片节点并返回真实任务回执。参考图数量按所选图片模型的能力决定，不写死张数：模型目录 `meta.imageOptions.maxReferenceImages` 声明该模型单次执行的参考图上限（本地 `qwen-image-2.1` 图编辑为 16 张），未声明时沿用节点默认上限；超出上限时后端按上限截断并在节点日志记录，低于模型下限或模型不支持参考图时显式失败。
 - `film_video_gen`：提交视频节点并返回真实异步任务回执。相邻视频不默认连续；场景切换使用独立镜头。只有明确需要动作接力时才传 `continuation_from_node` 与 `continuation_mode`，工具会从当前画布真实上游视频抽取尾帧并登记为资产，`first_frame` 用作首帧，`reference` 用作全参考素材，二者不能混用。需要自定义 ComfyUI 工作流时，显式传 `workflow_capability`；`reference-audio-legacy` 必须同时提供当前画布中已生成的真实角色/场景图片和对白音频，运行时按工作流声明的顺序传入，不能把音频仅写在 prompt 里代替媒体输入。多角色对话应先确认每个角色图片与对应音频节点已取得真实资产 URL，再提交视频；只返回 `queued`/`running` 时不得宣称视频已完成。
 - `film_video_composite`：使用真实视频节点 ID 调用拼接执行器；成功后会在当前画布自动创建合片 `composeVideo` 节点，并建立源视频到合片节点的顺序连线，返回真实合片节点 ID 与资产 URL。
 - `film_ask_human`：通过当前会话的用户提问服务等待导演回答。

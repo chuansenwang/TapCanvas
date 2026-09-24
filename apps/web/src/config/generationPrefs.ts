@@ -6,7 +6,7 @@ import { getGenerationPreferences, putGenerationPreferences, type UserGeneration
 export const GENERATION_PREFS_EVENT = 'tapcanvas-generation-prefs-changed'
 
 export const DEFAULT_GENERATION_PREFS: Readonly<Required<UserGenerationPrefsDto>> = {
-  imageModel: 'gpt-image-2',
+  imageModel: 'qwen-image-2.1',
   imageSize: '1K',
   videoModel: 'minimax-h3',
   videoResolution: '768p',

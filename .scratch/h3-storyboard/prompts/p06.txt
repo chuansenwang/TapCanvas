@@ -1,0 +1,5 @@
+The video is a cinematic live-action shot adapted from the pencil storyboard panel: two dark naked motorcycles race side by side on a gravel road in the open, second one half a bike-length behind on the right. Both riders wear dark leather jackets, dark trousers and light grey helmets; both bikes have round headlights, wide bars and thick rear tyres. Keep the riders' forward-leaning shadows, both bike silhouettes and the open gravel corridor exactly consistent with the reference picture. The camera holds a tracking shot that travels forward alongside the pair at the same speed, as the leading bike drifts slightly left, the trailing bike closes the gap on the right side, both machines rocking over loose stones, dust rising and streaming backwards off the rear tyres while the riders hold their lean.
+
+overall_soundscape: Two engines run in step over a continuous rattle of gravel striking metal and plastic. Tyres grind and slip on loose stones, dust hisses past, and wind rushes across the open corridor.
+
+non_diegetic_music: A steady mid-tempo percussion pattern with a low pulsing bass, gradually increasing in volume toward the end of the shot.

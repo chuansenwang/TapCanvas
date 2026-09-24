@@ -14,7 +14,7 @@ export type UserGenerationPrefs = {
 };
 
 export const DEFAULT_USER_GENERATION_PREFS: Readonly<Required<UserGenerationPrefs>> = {
-	imageModel: "gpt-image-2",
+	imageModel: "qwen-image-2.1",
 	imageSize: "1K",
 	videoModel: "minimax-h3",
 	videoResolution: "768p",

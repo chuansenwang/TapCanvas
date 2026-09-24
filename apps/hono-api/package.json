@@ -34,6 +34,8 @@
 		"test:integration:continuation-chaos:external": "vitest run src/modules/task/continuation-settlement.chaos.integration.test.ts --environment node --reporter=verbose",
 		"async-image:worker": "node dist/async-image-worker.js",
 		"async-image:worker:health": "node dist/async-image-worker-health.js",
+		"async-image:worker:dev": "node --watch -r ts-node/register/transpile-only -r tsconfig-paths/register scripts/async-image-worker.ts",
+		"async-image:worker:health:dev": "node -r ts-node/register/transpile-only -r tsconfig-paths/register scripts/async-image-worker-health.ts",
 		"inprocess:worker": "node dist/inprocess-worker.js",
 		"inprocess:worker:health": "node dist/inprocess-worker-healthcheck.js",
 		"workflow-runtime:worker": "node dist/workflow-runtime-worker.js",

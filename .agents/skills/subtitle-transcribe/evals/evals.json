@@ -1,0 +1,29 @@
+{
+  "skill_name": "subtitle-transcribe",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "这个视频已经下载到 F:/videos/interview.mp4，帮我把字幕识别出来",
+      "expected_output": "使用 subtitle-transcribe，以本地媒体作为输入走 Whisper 识别，在 resources/podcast_outputs/interview/ 生成 transcript、source_subtitles、SRT、segments JSON 与识别报告，并说明来源为 whisper 与使用的模型。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把这个 YouTube 链接的原视频字幕抓下来，不要用语音识别：https://www.youtube.com/watch?v=BaW_jenozKc",
+      "expected_output": "使用 subtitle-transcribe 且 --mode youtube；人工字幕优先，报告记录 caption_kind；字幕缺失或网络不可达时显式失败，不退回 Whisper 转写。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "这段双人访谈视频要标注谁在说话，视频在我本地，路径是 D:/media/podcast.mp4",
+      "expected_output": "使用 subtitle-transcribe 的 --mode whisper --with-speakers；pyannote 不可用（缺 HF_TOKEN 等）时显式失败，不使用基于停顿的猜测标签。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "同一批视频我要做分镜，先把字幕识别出来再交给分镜拆解",
+      "expected_output": "使用 subtitle-transcribe 产出带时间码的 segments JSON；youtube-storyboard 读取该文件填充对话/声音证据，字幕缺失时标记 subtitleEvidence: unavailable，不用标题或常识补写。",
+      "files": []
+    }
+  ]
+}

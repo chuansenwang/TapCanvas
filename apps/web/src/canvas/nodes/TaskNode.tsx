@@ -72,6 +72,7 @@ import {
   parseImageModelCatalogConfig,
   constrainVideoModelCatalogConfigByPricing,
   DEFAULT_VIDEO_REFERENCE_IMAGE_LIMIT,
+  DEFAULT_IMAGE_REFERENCE_IMAGE_LIMIT,
   parseVideoModelCatalogConfig,
   type ImageModelControlBinding,
   type VideoModelControlBinding,
@@ -679,7 +680,7 @@ function invalidateProjectMentionRefCaches(projectId: string): void {
   projectRoleRefsPromiseByProjectId.delete(normalizedProjectId)
   projectAssetMentionRefsPromiseByProjectId.delete(normalizedProjectId)
 }
-const DEFAULT_IMAGE_NODE_REFERENCE_IMAGE_LIMIT = 12
+const DEFAULT_IMAGE_NODE_REFERENCE_IMAGE_LIMIT = DEFAULT_IMAGE_REFERENCE_IMAGE_LIMIT
 const areCharacterRefsEqual = (a: CharacterRef[], b: CharacterRef[]) => {
   if (a === b) return true
   if (a.length !== b.length) return false
@@ -2576,8 +2577,10 @@ function TaskNodeInner({ id, data, selected, dragging }: NodeProps<TaskNodeType>
       ? Math.max(1, Math.trunc(videoModelConfig.maxReferenceImages))
       : isVideoNode
         ? DEFAULT_VIDEO_REFERENCE_IMAGE_LIMIT
-        : DEFAULT_IMAGE_NODE_REFERENCE_IMAGE_LIMIT
-  }, [isVideoNode, videoModelConfig?.maxReferenceImages])
+        : imageModelConfig?.maxReferenceImages
+          ? Math.max(1, Math.trunc(imageModelConfig.maxReferenceImages))
+          : DEFAULT_IMAGE_NODE_REFERENCE_IMAGE_LIMIT
+  }, [isVideoNode, videoModelConfig?.maxReferenceImages, imageModelConfig?.maxReferenceImages])
   const configuredImageAspectOptions = React.useMemo(
     () =>
       (imageModelConfig?.aspectRatioOptions || []).map((option) => ({

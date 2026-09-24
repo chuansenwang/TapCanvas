@@ -47,6 +47,7 @@ import {
 } from '../config/useModelOptions'
 import {
   DEFAULT_VIDEO_REFERENCE_IMAGE_LIMIT,
+  parseImageModelCatalogConfig,
   parseVideoModelCatalogConfig,
 } from '../config/modelCatalogMeta'
 import { resolveCatalogVideoVendor } from '../config/modelRouting'
@@ -2469,6 +2470,23 @@ function resolveTaskKind(kind: string): TaskKind {
   if (IMAGE_NODE_KINDS.has(kind)) return 'text_to_image'
   if (isVideoRenderKind(kind)) return 'text_to_video'
   return 'prompt_refine'
+}
+
+/**
+ * 解析图片任务单次执行可携带的参考图上限。
+ *
+ * 模型目录通过 meta.imageOptions.maxReferenceImages 声明该模型真实可接收的参考图数量
+ * （例如本地 Qwen Image 2.1 图编辑为 16 张）；未声明时返回 null，由调用方沿用既有默认上限。
+ * 这里只读取目录声明，不做模型名特判。
+ */
+async function resolveDeclaredImageReferenceLimit(selectedModel: string): Promise<number | null> {
+  const model = String(selectedModel || '').trim()
+  if (!model) return null
+  const options = await preloadModelOptions('image')
+  const matched = findModelOptionByIdentifier(options, model)
+  const config = parseImageModelCatalogConfig(matched?.meta)
+  const declared = config?.maxReferenceImages
+  return typeof declared === 'number' && declared > 0 ? Math.trunc(declared) : null
 }
 
 type PromptBucketItem = { text: string; fromImage: boolean }
@@ -5400,6 +5418,14 @@ async function runGenericTask(ctx: RunnerContext) {
         sourceTag === 'main_role_card_confirmation' ||
         sourceTag === 'novel_upload_autoflow'
       )
+    // 参考图上限：模型目录声明了 meta.imageOptions.maxReferenceImages 时按声明执行，
+    // 未声明时保持既有路径默认值（普通图片 3 张、角色卡 8 张）。这里在收集前解析，
+    // 避免先按固定张数截断后无法恢复。
+    const declaredImageReferenceLimit =
+      isImageTask && storedImageModel
+        ? await resolveDeclaredImageReferenceLimit(storedImageModel)
+        : null
+    const imageReferenceLimit = isRoleCardTask ? 8 : declaredImageReferenceLimit ?? 3
     const selfPoseRefs = isImageTask
       ? (
           Array.isArray((data as any)?.poseReferenceImages)
@@ -5428,7 +5454,7 @@ async function runGenericTask(ctx: RunnerContext) {
           : [
               ...selfPoseRefs,
               ...(selfStickmanRef ? [selfStickmanRef] : []),
-              ...collectNodeReferenceImageUrls(data, 3),
+              ...collectNodeReferenceImageUrls(data, imageReferenceLimit),
               ...upstreamReferenceImages,
               ...mentionAssetRefs.urls,
               ...mentionRoleRefs.urls,
@@ -5467,7 +5493,7 @@ async function runGenericTask(ctx: RunnerContext) {
       }
     }
     const prioritized: string[] = []
-    const hardLimit = isRoleCardTask ? 8 : 3
+    const hardLimit = imageReferenceLimit
     const baseReferenceLimit = focusGuideUrl ? Math.max(1, hardLimit - 1) : hardLimit
     deduped.forEach((url) => {
       if (prioritized.length >= baseReferenceLimit) return
@@ -5477,6 +5503,13 @@ async function runGenericTask(ctx: RunnerContext) {
     let referenceImages = focusGuideUrl
       ? [...prioritized.slice(0, Math.max(0, hardLimit - 1)), focusGuideUrl]
       : prioritized.slice(0, hardLimit)
+    if (isImageTask && deduped.length > hardLimit) {
+      const limitSource = declaredImageReferenceLimit ? '模型目录声明' : '节点默认'
+      appendLog(
+        id,
+        `[${nowLabel()}] 参考图数量超过上限（${limitSource} ${hardLimit} 张）：收集 ${deduped.length} 张，按上限执行`,
+      )
+    }
     // 全局画风参考（项目「风格」槽 styleImages）：空项目里随手「文生图」也跟随锁定的全局参考画风。
     // 只对普通文生图注入，角色卡/故事板分镜/局部编辑/自带 style 资产的节点跳过（见 isEligibleForGlobalStyleReference）。
     // 与视频路径的全局风格注入语义一致：画风锚定图固定放最后一张、去重、限 hardLimit，
@@ -5562,7 +5595,7 @@ async function runGenericTask(ctx: RunnerContext) {
       assetInputs: [...mentionAssetRefs.assetInputs, ...explicitAssetInputs, ...injectedStyleAssetInputs],
       dynamicEntries: dynamicReferenceEntries,
       referenceImages,
-      limit: 8,
+      limit: hardLimit,
     })
     if (isRoleCardTask && referenceImages.length) {
       appendLog(id, `[${nowLabel()}] 角色卡任务已启用风格锚定：注入参考图 x${referenceImages.length}`)

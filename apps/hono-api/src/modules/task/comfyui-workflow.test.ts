@@ -251,6 +251,229 @@ describe("ComfyUI 工作流目录", () => {
 		expect(() => parseComfyUiWorkflowConfig({}, "klein9b")).toThrow("未配置 workflowVariants");
 	});
 
+	it("动态参考图区间按请求数量匹配，并把每张图接到 autogrow 槽位", () => {
+		const config = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 4 },
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [
+				{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 4 },
+				{ nodeId: "505", inputKeyTemplate: "images.image{index}", startIndex: 0, maxSlots: 4 },
+			],
+			promptNodeIds: ["502"],
+			outputNodeIds: ["494"],
+			workflow: {
+				"485": { class_type: "TextEncodeQwenImage21", inputs: { prompt: "old", "images.image_1": ["470", 0] } },
+				"505": { class_type: "BatchImagesNode", inputs: { "images.image0": ["470", 0] } },
+				"502": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+				"494": { class_type: "SaveImageAdvanced", inputs: {} },
+			},
+		}] } }, "qwen-image-2.1");
+
+		const twoImages = selectComfyUiWorkflowVariant(config, { modelKey: "qwen-image-2.1", taskKind: "image_edit", referenceImageCount: 2 });
+		expect(twoImages.id).toBe("edit");
+		const result = applyComfyUiWorkflowInputs(twoImages, { kind: "image_edit", prompt: "改成夜景", extras: {} }, ["ref-0.png", "ref-1.png"], 7);
+		expect(result["485"]?.inputs?.["images.image_1"]).toEqual(["tapcanvas-ref-0", 0]);
+		expect(result["485"]?.inputs?.["images.image_2"]).toEqual(["tapcanvas-ref-1", 0]);
+		expect(result["505"]?.inputs?.["images.image0"]).toEqual(["tapcanvas-ref-0", 0]);
+		expect(result["505"]?.inputs?.["images.image1"]).toEqual(["tapcanvas-ref-1", 0]);
+		expect(result["tapcanvas-ref-0"]?.inputs?.image).toBe("ref-0.png");
+		expect(result["tapcanvas-ref-1"]?.inputs?.image).toBe("ref-1.png");
+		// 未被请求使用的槽位不应被凭空创建。
+		expect(result["485"]?.inputs?.["images.image_3"]).toBeUndefined();
+	});
+
+	it("动态参考图数量超出声明区间时显式失败", () => {
+		const config = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 3 },
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 3 }],
+			workflow: { "485": { class_type: "TextEncodeQwenImage21", inputs: { "images.image_1": ["470", 0] } } },
+		}] } }, "qwen-image-2.1");
+		expect(() => selectComfyUiWorkflowVariant(config, { modelKey: "qwen-image-2.1", taskKind: "image_edit", referenceImageCount: 0 })).toThrow("无法唯一匹配");
+		expect(() => selectComfyUiWorkflowVariant(config, { modelKey: "qwen-image-2.1", taskKind: "image_edit", referenceImageCount: 4 })).toThrow("无法唯一匹配");
+	});
+
+	it("动态参考图槽位与定数 imageNodeIds 不能混用", () => {
+		expect(() => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 2 },
+			imageNodeIds: ["470"],
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 2 }],
+			workflow: { "485": { class_type: "TextEncodeQwenImage21", inputs: { "images.image_1": ["470", 0] } } },
+		}] } }, "qwen-image-2.1")).toThrow("不能同时声明");
+	});
+
+	it("动态参考图槽位容量不足以覆盖声明区间时显式失败", () => {
+		expect(() => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 5 },
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 3 }],
+			workflow: { "485": { class_type: "TextEncodeQwenImage21", inputs: { "images.image_1": ["470", 0] } } },
+		}] } }, "qwen-image-2.1")).toThrow("不足以覆盖");
+	});
+
+	it("动态参考图槽位残留 LoadImage 节点时显式失败", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 2 },
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 2 }],
+			promptNodeIds: ["502"],
+			workflow: {
+				"470": { class_type: "LoadImage", inputs: { image: "leftover.png" } },
+				"485": { class_type: "TextEncodeQwenImage21", inputs: { "images.image_1": ["470", 0] } },
+				"502": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+			},
+		}] } }, "qwen-image-2.1").workflowVariants[0]!;
+		expect(() => applyComfyUiWorkflowInputs(variant, { kind: "image_edit", prompt: "改成夜景", extras: {} }, ["ref-0.png"], 1)).toThrow("残留");
+	});
+
+	it("referenceImageCount 与 referenceImageRange 必须且只能声明其一", () => {
+		expect(() => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			workflow,
+		}] } }, "qwen-image-2.1")).toThrow("必须且只能声明");
+		expect(() => parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageCount: 1,
+			referenceImageRange: { min: 1, max: 2 },
+			workflow,
+		}] } }, "qwen-image-2.1")).toThrow("必须且只能声明");
+	});
+
+	it("参考图编码分辨率按工作流输出规模的等效边长换算并对齐 32", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 2 },
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 2 }],
+			imageResolutionInputBindings: [{ nodeId: "485", inputKey: "resolution", alignTo: 32, min: 32, max: 4096, megapixelsFromNodeId: "13" }],
+			promptNodeIds: ["502"],
+			workflow: {
+				"13": { class_type: "ResolutionSelector", inputs: { aspect_ratio: "4:3 (Standard)", megapixels: 2, multiple: 8 } },
+				"485": { class_type: "TextEncodeQwenImage21", inputs: { prompt: "old", resolution: 1280, "images.image_1": ["470", 0] } },
+				"502": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+			},
+		}] } }, "qwen-image-2.1").workflowVariants[0]!;
+
+		// megapixels=2 → 等效边长 1024*sqrt(2)=1448.2 → 对齐 32 得 1440。
+		const result = applyComfyUiWorkflowInputs(
+			variant,
+			{ kind: "image_edit", prompt: "改成夜景", extras: { aspectRatio: "16:9" } },
+			["ref-0.png"],
+			1,
+		);
+		expect(result["485"]?.inputs?.resolution).toBe(1440);
+		expect(Number(result["485"]?.inputs?.resolution) % 32).toBe(0);
+
+		// 切换画幅比例不改变 megapixels，因此编码分辨率保持稳定。
+		const portrait = applyComfyUiWorkflowInputs(
+			variant,
+			{ kind: "image_edit", prompt: "改成夜景", extras: { aspectRatio: "9:16" } },
+			["ref-0.png"],
+			1,
+		);
+		expect(portrait["485"]?.inputs?.resolution).toBe(1440);
+	});
+
+	it("工作流未声明输出规模且请求未携带像素尺寸时保留声明范围内的默认编码分辨率", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 2 },
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 2 }],
+			imageResolutionInputBindings: [{ nodeId: "485", inputKey: "resolution", alignTo: 32, min: 32, max: 4096 }],
+			promptNodeIds: ["502"],
+			workflow: {
+				"485": { class_type: "TextEncodeQwenImage21", inputs: { prompt: "old", resolution: 1280, "images.image_1": ["470", 0] } },
+				"502": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+			},
+		}] } }, "qwen-image-2.1").workflowVariants[0]!;
+		const result = applyComfyUiWorkflowInputs(variant, { kind: "image_edit", prompt: "改成夜景", extras: {} }, ["ref-0.png"], 1);
+		expect(result["485"]?.inputs?.resolution).toBe(1280);
+	});
+
+	it("无法确定画布输出规模且工作流默认值超出声明范围时显式失败", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "edit",
+			taskKind: "image_edit",
+			referenceImageRange: { min: 1, max: 2 },
+			referenceImageLoaderNodeIdTemplate: "tapcanvas-ref-{index}",
+			referenceImageSlots: [{ nodeId: "485", inputKeyTemplate: "images.image_{index}", startIndex: 1, maxSlots: 2 }],
+			imageResolutionInputBindings: [{ nodeId: "485", inputKey: "resolution", alignTo: 32, min: 32, max: 1024 }],
+			promptNodeIds: ["502"],
+			workflow: {
+				"485": { class_type: "TextEncodeQwenImage21", inputs: { prompt: "old", resolution: 4096, "images.image_1": ["470", 0] } },
+				"502": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+			},
+		}] } }, "qwen-image-2.1").workflowVariants[0]!;
+		expect(() => applyComfyUiWorkflowInputs(variant, { kind: "image_edit", prompt: "改成夜景", extras: {} }, ["ref-0.png"], 1)).toThrow("不在声明范围");
+	});
+
+	it("画幅绑定把请求比例写入尺寸控件枚举", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "text",
+			taskKind: "text_to_image",
+			referenceImageCount: 0,
+			promptNodeIds: ["480"],
+			outputNodeIds: ["479"],
+			aspectRatioInputBindings: [{ nodeId: "13", inputKey: "aspect_ratio", valueMap: { "16:9": "16:9 (Widescreen)" } }],
+			workflow: {
+				"13": { class_type: "ResolutionSelector", inputs: { aspect_ratio: "4:3 (Standard)", megapixels: 2, multiple: 8 } },
+				"480": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+				"479": { class_type: "SaveImageAdvanced", inputs: {} },
+			},
+		}] } }, "qwen-image-2.1").workflowVariants[0]!;
+		const result = applyComfyUiWorkflowInputs(variant, { kind: "text_to_image", prompt: "一只猫", extras: { aspectRatio: "16:9" } }, [], 7);
+		expect(result["480"]?.inputs?.prompt).toBe("一只猫");
+		expect(result["13"]?.inputs?.aspect_ratio).toBe("16:9 (Widescreen)");
+	});
+
+	it("画幅绑定未携带比例时保留已声明支持的默认值，映射外比例显式失败", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "text",
+			taskKind: "text_to_image",
+			referenceImageCount: 0,
+			promptNodeIds: ["480"],
+			aspectRatioInputBindings: [{ nodeId: "13", inputKey: "aspect_ratio", valueMap: { "16:9": "16:9 (Widescreen)", "4:3": "4:3 (Standard)" } }],
+			workflow: {
+				"13": { class_type: "ResolutionSelector", inputs: { aspect_ratio: "4:3 (Standard)" } },
+				"480": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+			},
+		}] } }, "qwen-image-2.1").workflowVariants[0]!;
+		const withoutAspect = applyComfyUiWorkflowInputs(variant, { kind: "text_to_image", prompt: "一只猫", extras: {} }, [], 7);
+		expect(withoutAspect["13"]?.inputs?.aspect_ratio).toBe("4:3 (Standard)");
+		expect(() => applyComfyUiWorkflowInputs(variant, { kind: "text_to_image", prompt: "一只猫", extras: { aspectRatio: "21:9" } }, [], 7)).toThrow("不支持画幅比例");
+	});
+
+	it("画幅绑定的工作流默认值不在支持列表内时显式失败", () => {
+		const variant = parseComfyUiWorkflowConfig({ comfyui: { workflowVariants: [{
+			id: "text",
+			taskKind: "text_to_image",
+			referenceImageCount: 0,
+			promptNodeIds: ["480"],
+			aspectRatioInputBindings: [{ nodeId: "13", inputKey: "aspect_ratio", valueMap: { "16:9": "16:9 (Widescreen)" } }],
+			workflow: {
+				"13": { class_type: "ResolutionSelector", inputs: { aspect_ratio: "21:9 (Ultrawide)" } },
+				"480": { class_type: "TextGenerateLTX2Prompt", inputs: { prompt: "old" } },
+			},
+		}] } }, "qwen-image-2.1").workflowVariants[0]!;
+		expect(() => applyComfyUiWorkflowInputs(variant, { kind: "text_to_image", prompt: "一只猫", extras: {} }, [], 7)).toThrow("不在支持列表内");
+	});
+
 	it("每次未指定种子时刷新工作流中的随机节点，并支持显式种子复现", () => {
 		const variant = {
 			id: "txt",

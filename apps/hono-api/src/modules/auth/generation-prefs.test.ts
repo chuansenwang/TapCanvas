@@ -99,7 +99,7 @@ describe("resolveImageGenerateDefaults", () => {
 				explicitImageModel: "",
 				explicitSize: "",
 			}),
-		).toEqual({ modelAlias: "gpt-image-2", imageSize: "1K" });
+		).toEqual({ modelAlias: "qwen-image-2.1", imageSize: "1K" });
 	});
 
 	it("nodeData.imageModel 形式的显式指定同样优先于偏好", () => {
@@ -134,7 +134,7 @@ describe("resolveEffectiveUserGenerationPrefs", () => {
 describe("buildGenerationPrefsContextBlock", () => {
 	it("新账号也获得固定初始偏好上下文", () => {
 		const block = buildGenerationPrefsContextBlock(null);
-		expect(block).toContain("gpt-image-2");
+		expect(block).toContain("qwen-image-2.1");
 		expect(block).toContain("minimax-h3");
 		expect(block).toContain("768p");
 		expect(block).toContain("16:9");

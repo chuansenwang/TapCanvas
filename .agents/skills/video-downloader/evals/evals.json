@@ -22,13 +22,13 @@
     {
       "id": 4,
       "prompt": "下载这个 YouTube 视频，顺便把能给播客流水线用的字幕也准备好：https://www.youtube.com/watch?v=BaW_jenozKc",
-      "expected_output": "使用 tapcanvas-video-downloader；下载视频后优先提取 YouTube 字幕，并在 resources/podcast_outputs/BaW_jenozKc/ 生成 BaW_jenozKc_transcript.txt 与字幕准备报告。",
+      "expected_output": "先用 video-downloader 下载视频，再把本地视频路径交给 subtitle-transcribe 识别字幕；字幕产物写入 resources/podcast_outputs/BaW_jenozKc/（transcript、source_subtitles、SRT、segments JSON 与识别报告），下载 skill 自身不承担转写。",
       "files": []
     },
     {
       "id": 5,
       "prompt": "这个本地 mp4 没字幕，转成 pipeline 能读的字幕文本，路径是 D:/media/interview.mp4",
-      "expected_output": "使用 tapcanvas-video-downloader 的 prepare_subtitles.py，以 Whisper 转写本地媒体，并生成 UTF-8 transcript 文件与报告；不重复下载视频。",
+      "expected_output": "使用 subtitle-transcribe，以本地媒体走 Whisper 转写并生成 UTF-8 transcript 文件与识别报告；不重复下载视频，也不需要 video-downloader 参与。",
       "files": []
     }
   ]

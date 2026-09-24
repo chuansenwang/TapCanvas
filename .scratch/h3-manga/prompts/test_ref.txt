@@ -1,0 +1,32 @@
+subject_definitions:
+<Picture 1> is the uploaded storyboard sheet: a grid of twelve pencil storyboard panels arranged in four columns and three rows, each panel showing one or two motorcyclists riding on roads, city streets, gravel tracks or an open channel. It provides the story beats, shot order, composition, rider appearance and environment for every shot.
+
+<Subject 1> is the lead rider: a motorcyclist in a dark leather riding jacket with a yellow-ochre patch band on the arm, dark trousers, dark boots and a light grey full-face helmet with a dark visor. <Subject 1> rides a dark naked motorcycle with a round headlight, wide handlebars and a thick rear tyre.
+
+<Subject 2> is the second rider: a motorcyclist in a dark leather jacket, dark trousers and a light grey helmet, riding a second dark motorcycle of the same kind, riding behind <Subject 1>.
+
+summary:
+[reference generation] Two riders on dark naked motorcycles race along a road in a short continuous action beat, following the shot composition shown in the uploaded storyboard sheet.
+
+retention_analysis:
+<Picture 1> is partially_preserved. It supplies the story beats, shot order, framing, rider appearance, motorcycle appearance and environment for every shot. The colour legend block in the top-left corner of the sheet, all coloured trajectory arrows and arrowheads, all panel labels such as P01 to P12, and all Chinese caption text beneath the panels are excluded and must never appear in the video.
+
+detailed_description:
+The target video is black-and-white. Character appearance follows <Picture 1>; environment appearance follows <Picture 1>; shot order and composition follow its storyboard content.
+
+[Shot 1] A wide view establishes the lead rider on a dark motorcycle leaning hard into a long right-hand curve on a wide multi-lane road, with the second rider half a bike length behind on the outside line. Both machines hold their lean as the tyres bite the surface.
+
+[Shot 2] At 00:02.500, the camera cuts to a low rear view behind the lead machine as it accelerates out of the curve, the rear tyre stepping slightly sideways before gripping again.
+
+overall_soundscape: Two motorcycle engines snarl and rise together over steady tyre roar against the road surface. Wind rushes past the riders, and small stones flick away from the tyres.
+
+non_diegetic_music:
+N/A
+
+[Prohibited items]
+
+Text / subtitles / UI / watermarks / logos / corner badges / letters / numbers / symbols / glyphs / pseudo-text / text-like graphic shapes / comic speech bubbles / comic sound-effect marks / real-world UI
+
+[Mandatory declaration]
+
+Clean full-screen animation footage, not a comic page or UI. No background music; keep only ambient sound, human voices, and sound effects. Do not render any subtitles, text, letters, numbers, symbols, glyphs, pseudo-text, watermarks, logos, speech bubbles, or sound-effect marks. Spoken dialogue inside <d> is audio only and must never appear visually.

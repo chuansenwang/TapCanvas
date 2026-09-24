@@ -1,0 +1,6 @@
+interface:
+  display_name: "字幕识别"
+  short_description: "把下载好的视频识别成带时间码字幕、SRT 与逐段事实文件"
+  default_prompt: "使用 $subtitle-transcribe 识别这个视频的字幕，并输出带时间码的字幕与识别报告。"
+policy:
+  allow_implicit_invocation: true

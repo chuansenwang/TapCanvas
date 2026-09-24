@@ -1,0 +1,41 @@
+{
+  "skill_name": "universal-replication",
+  "evals": [
+    {
+      "id": "replace-product-in-ad-layout",
+      "prompt": "我上传了一张香水广告和三张新香水瓶产品图。保持广告的构图、光线、留白和瓶子占比，把原瓶子换成我的产品，右下角文案改成我提供的中文，不要原品牌标识。输出可执行的复刻方案和最终生图提示词。",
+      "expected_output": "建立区分 target、subject、layout 的复刻契约，明确产品与文字替换、保留的广告版式和每张参考图职责，生成可执行提示词而不臆测文案。",
+      "files": []
+    },
+    {
+      "id": "character-storyboard-continuation",
+      "prompt": "用角色卡、咖啡馆场景图和上一组分镜最后一帧，续写下一组 6 个镜头。角色发型、外套、桌上红色笔记本、左侧窗光和镜头方向都不能变，但角色从坐着起身走向门口。",
+      "expected_output": "识别为镜头连续复刻，要求真实 tailFrameUrl 与上游资产，建立跨镜连续性锚点，按每镜动作和镜头约束产出计划；缺少真实 URL 时明确失败。",
+      "files": []
+    },
+    {
+      "id": "rebuild-unknown-object-from-one-view",
+      "prompt": "照着这张模糊的机械装置照片，给我做一张正面、侧面、背面三视图产品设定图，尽量把看不见的零件也补齐。",
+      "expected_output": "识别单视图无法证明侧背面和内部结构，输出可见事实与待确认缺口，并请求补充角度或允许的设计假设，而不是捏造零件。",
+      "files": []
+    },
+    {
+      "id": "extract-style-from-uploaded-mp4",
+      "prompt": "我上传了一段 MP4 广告视频。先从视频中抽取能代表风格的 PNG 分镜，再用这些图片提炼色彩、布光、材质和构图规则，给我的新产品做一套同类视觉风格的海报提示词。不要保留原品牌和文案。",
+      "expected_output": "将 MP4 标为待预处理输入，先检测镜头转换，再调用 extract-mp4-frames.mjs 在每个转换候选处生成含时间码的 PNG；仅基于经审查的 PNG 提炼风格，并记录每张帧的职责和时间码。无候选转换、无法读取 MP4 或没有证据支持风格结论时，显式失败，不按固定时间补帧。",
+      "files": []
+    },
+    {
+      "id": "replicate-content-form-from-one-video",
+      "prompt": "我想复刻这种视频的内容形式，就用我这一段视频当参考。",
+      "expected_output": "区分“形式”与“具体内容”：先用 youtube-storyboard 的 prepare-youtube.mjs（scene 模式）与 subtitle-transcribe 产出镜头边界和字幕事实，再用 build-form-profile.mjs 聚合出镜头层（剪辑密度、镜头时长中位与分布）与文本层（语速、单段字数中位）的实测指纹，作为复刻契约的保留项；明确说明单段视频无法提供角色三视图等跨视角证据，不得从一段视频臆测背面与被遮挡结构。",
+      "files": []
+    },
+    {
+      "id": "form-profile-rejects-interval-mode",
+      "prompt": "用 interval 模式抽出来的帧给我算一下这个视频的形式指纹。",
+      "expected_output": "显式说明 interval 模式只产出均匀抽样证据点、没有镜头边界，build-form-profile.mjs 会拒绝该输入；要求改用 prepare-youtube.mjs 的默认 scene 模式重新产出镜头边界后再说。不得从抽样间隔反推镜头节奏。",
+      "files": []
+    }
+  ]
+}

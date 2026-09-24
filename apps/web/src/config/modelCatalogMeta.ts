@@ -80,6 +80,11 @@ export type ImageModelCatalogConfig = {
   resolutionOptions: ImageModelResolutionOption[]
   qualityOptions: ImageModelResolutionOption[]
   controls: ImageModelControlConfig[]
+  /**
+   * 该图片模型单次执行可接收的参考图上限，来自模型目录 meta.imageOptions.maxReferenceImages。
+   * 未声明时不设模型级上限，由节点默认上限约束。
+   */
+  maxReferenceImages?: number
   supportsReferenceImages?: boolean
   supportsTextToImage?: boolean
   supportsImageToImage?: boolean
@@ -135,6 +140,12 @@ export type VideoModelCatalogConfig = {
 }
 
 export const DEFAULT_VIDEO_REFERENCE_IMAGE_LIMIT = 8
+
+/**
+ * 图片节点在模型未声明 meta.imageOptions.maxReferenceImages 时的参考图上限。
+ * 模型声明了上限时以模型目录为准（例如本地 Qwen Image 2.1 图编辑声明 16）。
+ */
+export const DEFAULT_IMAGE_REFERENCE_IMAGE_LIMIT = 12
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -643,6 +654,7 @@ export function parseImageModelCatalogConfig(meta: unknown): ImageModelCatalogCo
   )
   const defaultQuality = normalizeCompactString(root.defaultQuality ?? root.quality)
   const controls = parseImageControlConfigs(root)
+  const maxReferenceImages = asPositiveNumber(root.maxReferenceImages)
   const supportsReferenceImages = asOptionalBoolean(root.supportsReferenceImages)
   const supportsTextToImage = asOptionalBoolean(root.supportsTextToImage)
   const supportsImageToImage = asOptionalBoolean(root.supportsImageToImage)
@@ -658,7 +670,8 @@ export function parseImageModelCatalogConfig(meta: unknown): ImageModelCatalogCo
     !defaultQuality &&
     typeof supportsReferenceImages === 'undefined' &&
     typeof supportsTextToImage === 'undefined' &&
-    typeof supportsImageToImage === 'undefined'
+    typeof supportsImageToImage === 'undefined' &&
+    maxReferenceImages == null
   ) {
     return null
   }
@@ -672,6 +685,7 @@ export function parseImageModelCatalogConfig(meta: unknown): ImageModelCatalogCo
     resolutionOptions,
     qualityOptions,
     controls,
+    ...(maxReferenceImages != null ? { maxReferenceImages: Math.trunc(maxReferenceImages) } : {}),
     ...(typeof supportsReferenceImages === 'boolean' ? { supportsReferenceImages } : {}),
     ...(typeof supportsTextToImage === 'boolean' ? { supportsTextToImage } : {}),
     ...(typeof supportsImageToImage === 'boolean' ? { supportsImageToImage } : {}),
@@ -1085,6 +1099,7 @@ export function constrainImageModelCatalogConfigByPricing(
     resolutionOptions,
     qualityOptions,
     controls: base.controls.filter((control) => control.binding !== 'quality' || qualityOptions.length > 0),
+    ...(typeof base.maxReferenceImages === 'number' ? { maxReferenceImages: base.maxReferenceImages } : {}),
     ...(typeof base.supportsReferenceImages === 'boolean' ? { supportsReferenceImages: base.supportsReferenceImages } : {}),
     ...(typeof base.supportsTextToImage === 'boolean' ? { supportsTextToImage: base.supportsTextToImage } : {}),
     ...(typeof base.supportsImageToImage === 'boolean' ? { supportsImageToImage: base.supportsImageToImage } : {}),

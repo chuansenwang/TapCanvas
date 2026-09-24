@@ -1,0 +1,74 @@
+[
+  {
+    "unit": "P01",
+    "seconds": 8,
+    "prompt_id": "db5ac9fa-d79a-4c08-b2a8-c6d11683f883",
+    "elapsed_seconds": 282.2,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-manga\\out\\p01.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-manga-p01_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "unit": "P02",
+    "seconds": 9,
+    "prompt_id": "d9be0ea6-4d95-4bf2-a375-bb9a8705c1c5",
+    "elapsed_seconds": 312.5,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-manga\\out\\p02.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-manga-p02_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "unit": "P03",
+    "seconds": 9,
+    "prompt_id": "59e6c54b-9bbf-4bc7-a44d-d2773c577f08",
+    "elapsed_seconds": 331.6,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-manga\\out\\p03.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-manga-p03_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "unit": "P04",
+    "seconds": 8,
+    "prompt_id": "7bdfce30-b2eb-493f-afc7-947e7e9b07a5",
+    "elapsed_seconds": 316.6,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-manga\\out\\p04.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-manga-p04_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "unit": "P05",
+    "seconds": 12,
+    "prompt_id": "f35ce336-b05d-47ac-91c5-8951df3d0602",
+    "elapsed_seconds": 500.6,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-manga\\out\\p05.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-manga-p05_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  },
+  {
+    "unit": "P06",
+    "seconds": 6,
+    "prompt_id": "42f48f79-c42d-4aa9-bd36-ae15ef37fc7a",
+    "elapsed_seconds": 190.6,
+    "output": "F:\\aigc\\aigc\\TapCanvas\\.scratch\\h3-manga\\out\\p06.mp4",
+    "comfy_source": {
+      "filename": "tapcanvas-manga-p06_00001_.mp4",
+      "subfolder": "video",
+      "type": "output"
+    }
+  }
+]

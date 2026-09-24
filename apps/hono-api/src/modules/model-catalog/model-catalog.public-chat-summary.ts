@@ -43,6 +43,7 @@ export type PublicChatEnabledImageModelSummary = {
 			priceLabel: string | null;
 		}>;
 		resolutionOptions: string[];
+		maxReferenceImages: number | null;
 		supportsReferenceImages: boolean | null;
 		supportsTextToImage: boolean | null;
 		supportsImageToImage: boolean | null;
@@ -292,6 +293,9 @@ function readImageOptions(
 	const resolutionOptions = Array.isArray(imageOptions.resolutionOptions)
 		? normalizeStringArray(imageOptions.resolutionOptions)
 		: [];
+	const maxReferenceImages = normalizeOptionalPositiveInteger(
+		imageOptions.maxReferenceImages,
+	);
 	const supportsReferenceImages = normalizeOptionalBoolean(
 		imageOptions.supportsReferenceImages,
 	);
@@ -307,6 +311,7 @@ function readImageOptions(
 		aspectRatioOptions.length === 0 &&
 		imageSizeOptions.length === 0 &&
 		resolutionOptions.length === 0 &&
+		maxReferenceImages === null &&
 		supportsReferenceImages === null &&
 		supportsTextToImage === null &&
 		supportsImageToImage === null
@@ -319,6 +324,7 @@ function readImageOptions(
 		aspectRatioOptions,
 		imageSizeOptions,
 		resolutionOptions,
+		maxReferenceImages,
 		supportsReferenceImages,
 		supportsTextToImage,
 		supportsImageToImage,

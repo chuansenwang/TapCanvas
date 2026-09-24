@@ -746,7 +746,7 @@ export const canvasNodeSpecs = {
 			anchorBindings:
 				"Array<{ kind: 'character'|'scene'|'prop'|'shot'|'story'|'asset'|'context'|'authority_base_frame'; label?: string; refId?: string; entityId?: string; imageUrl?: string; sourceBookId?: string; referenceView?: 'three_view'|'role_card'; category?: string }> (canonical semantic anchor definition shared across characters, scenes, props, story beats and assets)",
 			referenceImages:
-				"string[] (optional but mandatory when this node must directly reuse request-carried reference images and no canvas edge carries them)",
+				"string[] (optional but mandatory when this node must directly reuse request-carried reference images and no canvas edge carries them; the accepted count is decided by the selected image model, not by a fixed number — read maxReferenceImages from the model catalog entry and fail explicitly when the model cannot take the required references)",
 			assetInputs:
 				"Array<{ url: string; role?: string; assetId?: string; assetRefId?: string; name?: string; note?: string }> (optional but preferred when role semantics such as character/context/target must survive execution)",
 			imageCameraControl:

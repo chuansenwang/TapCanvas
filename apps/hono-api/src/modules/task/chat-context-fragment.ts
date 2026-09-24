@@ -214,6 +214,13 @@ function buildEnabledImageModelBriefingLine(
 		);
 		parts.push(`resolutions=${formatBriefingList(model.imageOptions.resolutionOptions)}`);
 		parts.push(
+			`maxReferenceImages=${
+				model.imageOptions.maxReferenceImages === null
+					? "undeclared"
+					: model.imageOptions.maxReferenceImages
+			}`,
+		);
+		parts.push(
 			`supportsReferenceImages=${formatOptionalBoolean(
 				model.imageOptions.supportsReferenceImages,
 			)}`,

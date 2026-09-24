@@ -129,6 +129,12 @@ function stopServices() {
   if (stopping) return
   stopping = true
   for (const child of services) {
+    // Windows 上 child.kill() 只结束 cmd.exe 包装进程，pnpm / node --watch / vite
+    // 等孙进程会残留成孤儿并继续占用 8788、5175、3080，让下一次 pnpm dev 面对一个
+    // 「端口被占、服务却残缺」的栈。这里显式结束整棵进程树，失败才退回单进程 kill。
+    if (isWindows && child.pid) {
+      if (stopProcessTree(child.pid)) continue
+    }
     if (!child.killed) child.kill('SIGTERM')
   }
 }
@@ -168,7 +174,11 @@ async function isHonoApiHealthy(baseUrl) {
   }
 }
 
-async function waitForHonoApiReady(baseUrl, timeoutMs = 30_000) {
+// 冷启动时 API 要先用 ts-node 编译整棵源码树，实测可超过 30 秒（本机同时跑
+// ComfyUI 等高负载进程时更慢）。等待窗口太短会让整次 pnpm dev 在 API ready
+// 之前中止，从而留下「API 在跑、5175 没起来、浏览器 ERR_CONNECTION_REFUSED」
+// 的残缺栈。这里放宽到 120 秒，并在超时后如实报错，不做静默重试。
+async function waitForHonoApiReady(baseUrl, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (await isHonoApiHealthy(baseUrl)) return true
@@ -443,12 +453,16 @@ async function isAsyncImageWorkerHealthy() {
   }
   const result = spawnSync(
     pnpmCommand,
-    ['pnpm', '--filter', '@tapcanvas/api', 'async-image:worker:health'],
+    // 开发态 worker 与 API 一样从源码运行：dist 是生产产物，用 dist 探测会读到
+    // 与源码不一致的旧代码。health 只查询队列里的 worker 数量，必须用同一份源码。
+    ['pnpm', '--filter', '@tapcanvas/api', 'async-image:worker:health:dev'],
     {
       cwd: rootDirectory,
       env: workerEnvironment,
       encoding: 'utf8',
-      timeout: 8_000,
+      // 开发态健康检查要现场跑 ts-node，负载高时明显变慢；超时过短会把健康的
+      // worker 误判成不存在，进而重复拉起第二个 worker（同队列两个消费者）。
+      timeout: 30_000,
       windowsHide: true,
     },
   )
@@ -516,13 +530,14 @@ const honoEnvironment = {
 }
 
 if (shouldStartHonoApi) {
-  startService('hono-api', pnpmCommand, ['pnpm', '--filter', '@tapcanvas/api', 'dev'], rootDirectory, honoEnvironment)
-  console.log('[dev] TapCanvas API: http://localhost:8788')
-  const honoReady = await waitForHonoApiReady('http://127.0.0.1:8788')
-  if (!honoReady) {
-    stopServices()
-    throw new Error('[dev] TapCanvas API 在 30 秒内未达到 ready 状态，已停止本次开发启动。')
-  }
+    startService('hono-api', pnpmCommand, ['pnpm', '--filter', '@tapcanvas/api', 'dev'], rootDirectory, honoEnvironment)
+    console.log('[dev] TapCanvas API: http://localhost:8788')
+    console.log('[dev] 正在等待 TapCanvas API ready（首次启动需 ts-node 冷编译，通常 30-90 秒），期间请不要中断')
+    const honoReady = await waitForHonoApiReady('http://127.0.0.1:8788')
+    if (!honoReady) {
+      stopServices()
+      throw new Error('[dev] TapCanvas API 在 120 秒内未达到 ready 状态，已停止本次开发启动。')
+    }
   console.log('[dev] TapCanvas API 已 ready，继续启动 Web')
 }
 if (shouldStartNewApi) {
@@ -537,7 +552,12 @@ if (!(await isAsyncImageWorkerHealthy())) {
   startService(
     'async-image-worker',
     pnpmCommand,
-    ['pnpm', '--filter', '@tapcanvas/api', 'async-image:worker'],
+    // 开发态必须执行源码并跟随源码变更重启：此前的 dist 产物是 2026-09-12 构建的，
+    // 源码在 2026-09-22 新增了 referenceImageRange 支持，worker 却仍在跑旧校验，导致
+    // 画布报「ComfyUI 工作流变体 2 缺少 id/taskKind/referenceImageCount」。
+    // `--watch` 让改动 worker 侧代码后无需手动 build 或重启（与 API dev 脚本同一机制）；
+    // dist 仅用于 docker-compose / pnpm start 的生产链路。
+    ['pnpm', '--filter', '@tapcanvas/api', 'async-image:worker:dev'],
     rootDirectory,
     workerEnvironment,
   )

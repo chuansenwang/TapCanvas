@@ -14,6 +14,7 @@ description: 在用户要求生成或编辑图片时，直接使用 TapCanvas �
 - 无参考图时省略 `reference_nodes` 和 `reference_assets`，或使用 `mode_type: "text2image"`。
 - 需要参考图时只传当前画布真实节点 ID 或已授权资产 ID，并使用 `mode_type: "image2image"`；禁止复制或猜测 URL。
 - `prompt_template` 只在用户明确提供模板时传入，不要把旧脚本中的固定模板当作默认值。
+- 参考图数量按所选图片模型的能力决定，不写死张数：模型目录的 `meta.imageOptions.maxReferenceImages` 声明该模型单次执行可接收的参考图上限（例如本地 `qwen-image-2.1` 图编辑为 16 张）。模型未声明上限时沿用节点默认上限。实际传入张数超出模型上限时后端按上限截断并在节点日志中记录，低于下限（本地 Qwen 图编辑为 1 张）或模型不支持参考图时显式失败；不要靠增删参考图来绕过失败，也不要假设某个固定张数一定可用。
 
 ## 结果与失败
 
