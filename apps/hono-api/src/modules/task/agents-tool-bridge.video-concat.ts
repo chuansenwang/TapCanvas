@@ -1,7 +1,11 @@
 import type { AppContext } from "../../types";
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../middleware/error";
-import { concatVideosFromUrls, type ConcatClipSpec } from "../apiKey/video-concat";
+import {
+  concatVideosFromUrls,
+  muxAudioOntoVideo,
+  type ConcatClipSpec,
+} from "../apiKey/video-concat";
 import { mapFlowRowToDto, updateFlow, type FlowRow } from "../flow/flow.repo";
 import { sanitizeFlowDataForStorage } from "../flow/flow.service";
 import { PublicFlowGraphSchema } from "../flow/flow.public.schemas";
@@ -44,13 +48,58 @@ export type ConcatVideosToCanvasResult = {
   key: string;
   clipCount: number;
   bytes: number;
-  canvasNodeId: string;
+  /** 仅 createNode=true 时才会落画布并返回该节点 id。 */
+  canvasNodeId?: string;
+  /** 已合入的外部音轨节点 id（无音轨时为空数组）。 */
+  audioNodeIds: string[];
   concatPolicy: {
     joinMode: "hard_cut" | "xfade";
     xfadeSeconds: number;
     colorMatch: boolean;
   };
 };
+
+/**
+ * 解析当前画布上真实音频节点的 audioUrl。
+ * 只接受节点 ID（与图片引用同一合同）：调用方不得复制 URL，节点没有真实音频时显式失败。
+ */
+function resolveAudioUrlsFromFlowNodes(row: FlowRow, nodeIds: readonly string[]): string[] {
+  const dto = mapFlowRowToDto(row);
+  const data = sanitizeFlowDataForStorage(dto.data ?? {});
+  const nodes = Array.isArray((data as Record<string, unknown>).nodes)
+    ? ((data as Record<string, unknown>).nodes as Array<Record<string, unknown>>)
+    : [];
+  const nodeById = new Map<string, Record<string, unknown>>();
+  for (const node of nodes) {
+    const nodeId = readTrimmedString(node.id);
+    if (nodeId) nodeById.set(nodeId, node);
+  }
+  const urls: string[] = [];
+  for (const nodeId of nodeIds) {
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      throw new AppError(`音轨节点不在当前画布：${nodeId}`, {
+        status: 400,
+        code: "agents_tool_concat_audio_node_missing",
+        details: { nodeId },
+      });
+    }
+    const nodeData =
+      node.data && typeof node.data === "object" && !Array.isArray(node.data)
+        ? (node.data as Record<string, unknown>)
+        : {};
+    const audioUrl = readTrimmedString(nodeData.audioUrl);
+    if (!audioUrl) {
+      throw new AppError(`音轨节点还没有真实音频资产：${nodeId}`, {
+        status: 400,
+        code: "agents_tool_concat_audio_node_empty",
+        details: { nodeId },
+      });
+    }
+    urls.push(audioUrl);
+  }
+  return urls;
+}
 
 async function persistConcatResultNode(input: {
 	c: AppContext;
@@ -220,6 +269,33 @@ export async function concatVideosToCanvas(input: {
     readTrimmedString(args.aspect) || readTrimmedString(args.aspectRatio) || undefined;
   const xfadeSeconds = readOptionalNumber(args.xfadeSeconds);
   const colorMatch = typeof args.colorMatch === "boolean" ? args.colorMatch : undefined;
+  // 外部音轨：只接受当前画布真实音频节点 id，最多 3 条（与音频参考音色同一上限口径）。
+  const audioNodeIds = (Array.isArray(args.audioNodeIds) ? args.audioNodeIds : [])
+    .map(readTrimmedString)
+    .filter(Boolean);
+  if (audioNodeIds.length > 3) {
+    throw new AppError("合片音轨最多 3 条", {
+      status: 400,
+      code: "agents_tool_concat_audio_limit_exceeded",
+      details: { count: audioNodeIds.length },
+    });
+  }
+  const audioVolume = readOptionalNumber(args.audioVolume);
+  const videoVolume = readOptionalNumber(args.videoVolume);
+  if (audioVolume !== undefined && (audioVolume < 0 || audioVolume > 1)) {
+    throw new AppError("合片 audioVolume 必须在 0 到 1 之间", {
+      status: 400,
+      code: "agents_tool_concat_audio_volume_invalid",
+      details: { audioVolume },
+    });
+  }
+  if (videoVolume !== undefined && (videoVolume < 0 || videoVolume > 1)) {
+    throw new AppError("合片 videoVolume 必须在 0 到 1 之间", {
+      status: 400,
+      code: "agents_tool_concat_video_volume_invalid",
+      details: { videoVolume },
+    });
+  }
   try {
     const result = await concatVideosFromUrls(
       input.c,
@@ -229,14 +305,34 @@ export async function concatVideosToCanvas(input: {
       targetAspect,
       { xfadeSeconds, colorMatch, allowLocalMediaProcessing: true },
     );
+    // 音轨合入：首条替换原音轨，其后逐条 mix（与 muxAudioOntoVideo 的 mode 语义一致）。
+    // 任一音轨节点缺真实音频时在上方解析阶段已显式失败，不吞错、不跳过。
+    let mergedVideoUrl = result.url;
+    let mergedKey = result.key;
+    if (audioNodeIds.length > 0) {
+      if (!input.row) throw new AppError("Flow not found", { status: 404, code: "flow_not_found" });
+      const audioUrls = resolveAudioUrlsFromFlowNodes(input.row, audioNodeIds);
+      for (const [index, audioUrl] of audioUrls.entries()) {
+        const muxed = await muxAudioOntoVideo(input.c, input.requestUserId, {
+          videoUrl: mergedVideoUrl,
+          audioUrl,
+          mode: index === 0 ? "replace" : "mix",
+          ...(audioVolume === undefined ? {} : { audioVolume }),
+          ...(videoVolume === undefined ? {} : { originalVolume: videoVolume }),
+        });
+        mergedVideoUrl = muxed.url;
+        mergedKey = muxed.key;
+      }
+    }
     const createNode = args.createNode === true;
     if (!createNode) {
       return {
         ok: true,
-        videoUrl: result.url,
-        key: result.key,
+        videoUrl: mergedVideoUrl,
+        key: mergedKey,
         clipCount: result.clipCount,
         bytes: result.bytes,
+        audioNodeIds,
         concatPolicy: {
           joinMode: result.joinMode,
           xfadeSeconds: result.xfadeSeconds,
@@ -258,21 +354,22 @@ export async function concatVideosToCanvas(input: {
       c: input.c,
       requestUserId: input.requestUserId,
       row: input.row,
-      videoUrl: result.url,
-      key: result.key,
+      videoUrl: mergedVideoUrl,
+      key: mergedKey,
       clipCount: result.clipCount,
-      clipNodeIds: [...new Set(clipNodeIds)],
+      clipNodeIds: [...new Set([...clipNodeIds, ...audioNodeIds])],
       fileName,
       targetAspect,
       concatPolicy: { joinMode: result.joinMode, xfadeSeconds: result.xfadeSeconds, colorMatch: result.colorMatch },
     });
     return {
       ok: true,
-      videoUrl: result.url,
-      key: result.key,
+      videoUrl: mergedVideoUrl,
+      key: mergedKey,
       clipCount: result.clipCount,
       bytes: result.bytes,
       canvasNodeId,
+      audioNodeIds,
       concatPolicy: {
         joinMode: result.joinMode,
         xfadeSeconds: result.xfadeSeconds,

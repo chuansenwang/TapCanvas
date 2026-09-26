@@ -11,6 +11,7 @@ import {
 } from "../apiKey/audio-speech";
 import {
   requireSelectableAudioModel,
+  requireDefaultMiniMaxH3SpeechModel,
   validateAudioRuntimeParameters,
   type AudioRuntimeParameters,
 } from "../new-api-models/new-api-audio-model";
@@ -35,15 +36,18 @@ import { maybeAutoRegisterVoiceCard } from "./material-auto-register";
 import { registerGeneratedMediaAsset } from "../asset/asset.hosting";
 import { runComfyUiTask } from "./comfyui-workflow";
 
-// 【音频节点生成工具·补工具缺口】此前 agent(小T) 唯一的语音工具是 tapcanvas_voice_card_dub，它必须挂在
+// 【音频节点生成工具·唯一执行器】此前 agent(小T) 唯一的语音工具是 tapcanvas_voice_card_dub，它必须挂在
 // 一个已有视频节点上（做「TTS + mux 到视频」），画布无视频节点时就无法凭空出一段音频/试听音色/建配音卡。
-// 本工具直接走 /audio/speech 的 TTS 核心（synthesizeSpeechToStorage），把语音合成成独立音频节点落画布：
+// 本文件是「音频节点生成」的唯一服务端执行器，被原生 Agent 的 `tapcanvas_audio_generate_to_canvas`
+// 与持久工作流 runner 共同复用：把真实音频合成结果写成一个独立 audio 节点落画布。
 //  - audioType=speech（默认）：把 text 合成为配音/旁白音频节点（可连到视频/成片节点作音轨）。
 //  - audioType=voice_card：建「配音卡」（可复用音色锚，voiceCharacter=角色名）；带 text 则同时出一段试听。
 //  - audioType=music：曲风/氛围描述（text）→ MiniMax music 生成独立 BGM/环境音节点（与 /audio/music
 //    路由同口径按次计费；lyricsMode 默认 instrumental 纯音乐）。mixExclude=true 标记「独立素材」——
 //    collectComposeAudioNodeIds 收编混音时跳过（章级 BGM 用户在剪辑软件自行拼接，混进成片=双轨打架）。
 //    上游无时长参数：短曲诉求写进 prompt（如「30秒短引子/可循环」），成品时长以实际为准。
+// 默认执行器：调用方没有指定 audioModel 时，只按实时音频目录里声明的 MiniMax H3 语音模型标签解析，
+// 不做任何隐式模型兜底（目录缺该能力或存在多个候选时显式失败）。
 // 与角色卡「成对生成」：出角色卡时同时对该角色调本工具（audioType=voice_card + voiceCharacter）建声音卡。
 
 function readTrimmedString(value: unknown): string {
@@ -51,6 +55,58 @@ function readTrimmedString(value: unknown): string {
 }
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function readTrimmedStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => readTrimmedString(item)).filter((item) => item.length > 0);
+}
+
+/**
+ * 参考音频只接受当前画布真实节点 ID：执行器自行读取该节点已产出的真实 audioUrl，
+ * 调用方不得复制 URL，缺失真实资产时显式失败。
+ */
+function resolveCanvasAudioReferenceUrls(input: {
+  row: FlowRow | null;
+  nodeIds: readonly string[];
+}): string[] {
+  if (input.nodeIds.length > 3) {
+    throw new AppError("参考音频节点最多 3 个", {
+      status: 400,
+      code: "audio_reference_node_limit_exceeded",
+      details: { count: input.nodeIds.length },
+    });
+  }
+  const nodes = input.row ? readFlowNodes(input.row) : [];
+  const nodeById = new Map<string, Record<string, unknown>>();
+  for (const node of nodes as Array<Record<string, unknown>>) {
+    const nodeId = readTrimmedString(node?.id);
+    if (nodeId) nodeById.set(nodeId, node);
+  }
+  const urls: string[] = [];
+  for (const nodeId of input.nodeIds) {
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      throw new AppError(`参考音频节点不在当前画布：${nodeId}`, {
+        status: 400,
+        code: "audio_reference_node_missing",
+        details: { nodeId },
+      });
+    }
+    const data =
+      node.data && typeof node.data === "object" && !Array.isArray(node.data)
+        ? (node.data as Record<string, unknown>)
+        : {};
+    const audioUrl = readTrimmedString(data.audioUrl);
+    if (!audioUrl) {
+      throw new AppError(`参考音频节点还没有真实音频资产：${nodeId}`, {
+        status: 400,
+        code: "audio_reference_node_has_no_audio",
+        details: { nodeId },
+      });
+    }
+    urls.push(audioUrl);
+  }
+  return [...new Set(urls)];
 }
 
 export type GenerateAudioToCanvasResult = {
@@ -121,17 +177,37 @@ export async function generateAudioToCanvas(input: {
   const voiceId =
     readTrimmedString(nodeData.voiceId) || readTrimmedString(nodeData.doubaoVoiceId);
   const requireExactVoiceId = nodeData.requireExactVoiceId === true;
-  const audioType = readTrimmedString(nodeData.audioType).toLowerCase();
+  // 默认执行器类型是 speech：本仓库的默认音频引擎是 MiniMax H3 语音，调用方省略 audioType 时按配音处理。
+  const requestedAudioType = readTrimmedString(nodeData.audioType).toLowerCase();
+  const audioType = requestedAudioType || "speech";
   if (audioType !== "speech" && audioType !== "music" && audioType !== "voice_card") {
-    throw new AppError("audioType 必须明确指定为 speech、music 或 voice_card", {
+    throw new AppError("audioType 只能是 speech、music 或 voice_card", {
       status: 400,
-      code: audioType ? "audio_gen_type_invalid" : "audio_gen_type_required",
+      code: "audio_gen_type_invalid",
       details: { audioType },
     });
   }
   const voiceCharacter =
     readTrimmedString(nodeData.voiceCharacter) || readTrimmedString(nodeData.roleName);
   const requestedModel = readTrimmedString(nodeData.audioModel);
+  const referenceAudioNodeIds = readTrimmedStringList(nodeData.referenceAudioNodeIds);
+  const explicitReferenceAudioUrls = readTrimmedStringList(nodeData.referenceAudioUrls);
+  if (referenceAudioNodeIds.length > 0 && explicitReferenceAudioUrls.length > 0) {
+    throw new AppError("参考音频只能二选一：当前画布节点 ID 或上游已解析的真实 URL", {
+      status: 400,
+      code: "audio_reference_input_conflict",
+    });
+  }
+  if (
+    audioType === "music" &&
+    (referenceAudioNodeIds.length > 0 || explicitReferenceAudioUrls.length > 0)
+  ) {
+    // 音乐生成不接受参考音色；静默忽略入参会掩盖调用方的错误合同。
+    throw new AppError("音乐生成不接受参考音频输入", {
+      status: 400,
+      code: "audio_reference_not_supported_for_music",
+    });
+  }
   let runtimeParameters: AudioRuntimeParameters = {};
   const emotion = readTrimmedString(nodeData.emotion);
   const speed = readNumber(nodeData.speed);
@@ -168,7 +244,11 @@ export async function generateAudioToCanvas(input: {
 
   const catalogModel = await requireSelectableAudioModel(
     input.c,
-    requestedModel,
+    // 省略 audioModel 时只解析目录中声明的 MiniMax H3 语音模型，不做跨引擎兜底。
+    requestedModel ||
+      (audioType === "speech"
+        ? (await requireDefaultMiniMaxH3SpeechModel(input.c)).requestModelKey
+        : ""),
     audioType === "music" ? "music" : "speech",
   );
   if (
@@ -306,6 +386,10 @@ export async function generateAudioToCanvas(input: {
   let durationSec: number | null = null;
   let sourceDurationSec: number | null = null;
   let usedVoiceId = resolvedVoiceId;
+  // 参考音色：调用方给画布节点 ID 时由执行器读真实 audioUrl；给已解析 URL 的内部调用方沿用原值。
+  const referenceAudioUrls = referenceAudioNodeIds.length > 0
+    ? resolveCanvasAudioReferenceUrls({ row: input.row, nodeIds: referenceAudioNodeIds })
+    : explicitReferenceAudioUrls;
   if (audioType === "music") {
     // 与 /audio/music 路由同口径：只接受 new-api /api/pricing 实时按次价，缺价显式失败。
     const lyricsModeRaw = readTrimmedString(nodeData.lyricsMode).toLowerCase();
@@ -369,9 +453,6 @@ export async function generateAudioToCanvas(input: {
 			audioUrl = asset.url;
 			durationSec = null;
 		} else if (useMiniMaxH3) {
-			const referenceAudioUrls = Array.isArray(nodeData.referenceAudioUrls)
-				? nodeData.referenceAudioUrls.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-				: [];
 			const r = await synthesizeMiniMaxH3SpeechToStorage(input.c, input.requestUserId, {
 				prompt: effectiveText,
 				model,
@@ -392,6 +473,7 @@ export async function generateAudioToCanvas(input: {
         voiceId: resolvedVoiceId || null,
 				...(speechRate !== null ? { speechRate } : {}),
 				runtimeParameters,
+				...(referenceAudioUrls.length > 0 ? { referenceAudioUrls: [...referenceAudioUrls] } : {}),
       });
       audioUrl = r.url;
       durationSec = r.durationSec;
@@ -477,6 +559,7 @@ export async function generateAudioToCanvas(input: {
 		audioModel: model,
 		audioModelEngine: audioEngine,
 		audioRuntimeParameters: runtimeParameters,
+		...(referenceAudioNodeIds.length > 0 ? { referenceAudioNodeIds: [...referenceAudioNodeIds] } : {}),
 		label,
     status: "success",
   };

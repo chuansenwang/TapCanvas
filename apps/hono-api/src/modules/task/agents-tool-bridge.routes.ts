@@ -146,6 +146,7 @@ import { extractFramesAtForAgent } from "./agents-tool-bridge.extract-frames-at"
 import { createAssetRow } from "../asset/asset.repo";
 import { concatVideosToCanvas } from "./agents-tool-bridge.video-concat";
 import { dubVoiceCardToCanvas } from "./agents-tool-bridge.voice-card-dub";
+import { generateAudioToCanvas } from "./agents-tool-bridge.generate-audio-to-canvas";
 import { renderHyperframesToCanvas } from "./agents-tool-bridge.hyperframes";
 import { annotateShotToCanvas } from "./agents-tool-bridge.annotate-shot";
 import { renderBlockingDiagramToCanvas } from "./agents-tool-bridge.blocking-diagram";
@@ -179,7 +180,14 @@ import {
 } from "./video-orchestrator.generation-contract";
 import { resolveModelMediaOptions } from "./video-orchestrator.model-duration";
 import { loadPublicChatEnabledModelCatalogSummary } from "../model-catalog/model-catalog.public-chat-summary";
+import { listModelCatalogModels } from "../model-catalog/model-catalog.service";
 import { buildAgentImageExecutionCatalog } from "./agents-tool-bridge.model-execution-catalog";
+import {
+  buildAgentLocalAudioExecutionCatalog,
+  buildAgentLocalImageExecutionCatalog,
+  buildAgentLocalVideoExecutionCatalog,
+  type AgentLocalModelCatalogRow,
+} from "./agents-tool-bridge.model-execution-catalog";
 import { splitMasterStoryboardForAgent } from "./agents-tool-bridge.master-storyboard-split";
 import { captureDirectorScene, defineDirectorMotion, setDirectorCharacterMotion } from "./agents-tool-bridge.capture-director-scene";
 import { getTaskResultByTaskId, tryClaimTaskResult, upsertTaskResult } from "./task-result.repo";
@@ -327,10 +335,12 @@ export const AgentsToolExecuteRequestSchema = z.object({
     "tapcanvas_asset_add_to_canvas",
     "tapcanvas_image_generate_to_canvas",
     "tapcanvas_video_generate_to_canvas",
+    "tapcanvas_media_execution_catalog_get",
     "tapcanvas_video_extract_last_frame",
     "tapcanvas_video_extract_frames",
     "tapcanvas_video_concat",
     "tapcanvas_voice_card_dub",
+    "tapcanvas_audio_generate_to_canvas",
     "tapcanvas_hyperframes_render",
     "tapcanvas_annotate_shot",
     "tapcanvas_render_blocking_diagram",
@@ -1340,6 +1350,7 @@ const ID_ONLY_IMAGE_REFERENCE_TOOLS = new Set([
   "tapcanvas_asset_add_to_canvas",
   "tapcanvas_image_generate_to_canvas",
   "tapcanvas_video_generate_to_canvas",
+  "tapcanvas_audio_generate_to_canvas",
 ]);
 
 const LEGACY_AGENT_IMAGE_REFERENCE_FIELDS = new Set([
@@ -1347,6 +1358,7 @@ const LEGACY_AGENT_IMAGE_REFERENCE_FIELDS = new Set([
   "firstFrameUrl",
   "imageUrl",
   "lastFrameUrl",
+  "referenceAudioUrls",
   "referenceImages",
   "sourceImageUrl",
   "styleImages",
@@ -2322,10 +2334,12 @@ export function registerPublicAgentsToolBridgeRoutes(publicApiRouter: OpenAPIHon
       flowToolRequested ||
       body.toolName === "tapcanvas_image_generate_to_canvas" ||
       body.toolName === "tapcanvas_video_generate_to_canvas" ||
+      body.toolName === "tapcanvas_media_execution_catalog_get" ||
       body.toolName === "tapcanvas_video_extract_last_frame" ||
       body.toolName === "tapcanvas_video_extract_frames" ||
       body.toolName === "tapcanvas_video_concat" ||
       body.toolName === "tapcanvas_voice_card_dub" ||
+      body.toolName === "tapcanvas_audio_generate_to_canvas" ||
       body.toolName === "tapcanvas_annotate_shot" ||
       body.toolName === "tapcanvas_render_blocking_diagram" ||
       body.toolName === "tapcanvas_video_reconcile" ||
@@ -5204,6 +5218,79 @@ export function registerPublicAgentsToolBridgeRoutes(publicApiRouter: OpenAPIHon
       );
     }
 
+    if (body.toolName === "tapcanvas_media_execution_catalog_get") {
+      // 生成动作前的唯一模型身份来源：只读投影实时可执行媒体目录与真实物理档位。
+      // 该工具只读取事实，不选择模型、不推断默认值、不发起任何生成或计费。
+      // 真源是执行器解析 vendor 时查询的同一张目录表：系统渠道模型与本地执行器模型
+      // 都必须出现在这里，否则模型无法拿到本地 ComfyUI 的合法 modelKey。
+      const catalogRows = await listModelCatalogModels(c as never, { enabled: true });
+      const requestedKind =
+        body.args && typeof body.args === "object" && !Array.isArray(body.args)
+          ? readTrimmedString((body.args as Record<string, unknown>).kind)
+          : "";
+      if (requestedKind && requestedKind !== "image" && requestedKind !== "video" && requestedKind !== "audio" && requestedKind !== "all") {
+        throw new AppError("tapcanvas_media_execution_catalog_get.kind 只能是 image、video、audio 或 all", {
+          status: 400,
+          code: "media_model_catalog_kind_invalid",
+          details: { kind: requestedKind },
+        });
+      }
+      const toLocalRow = (model: (typeof catalogRows)[number]): AgentLocalModelCatalogRow => ({
+        modelKey: model.modelKey,
+        modelAlias: model.modelAlias ?? null,
+        vendorKey: model.vendorKey,
+        labelZh: model.labelZh,
+        pricingCost: model.pricing?.cost ?? null,
+        meta: model.meta,
+      });
+      const fetchedAt = new Date().toISOString();
+      const catalog = {
+        fetchedAt,
+        image: buildAgentLocalImageExecutionCatalog(
+          catalogRows.filter((model) => model.kind === "image").map(toLocalRow),
+          fetchedAt,
+        ),
+        video: buildAgentLocalVideoExecutionCatalog(
+          catalogRows.filter((model) => model.kind === "video").map(toLocalRow),
+          fetchedAt,
+        ),
+        audio: buildAgentLocalAudioExecutionCatalog(
+          catalogRows.filter((model) => model.kind === "audio").map(toLocalRow),
+          fetchedAt,
+        ),
+      };
+      const kind = requestedKind || "all";
+      const response =
+        kind === "image"
+          ? { fetchedAt: catalog.fetchedAt, image: catalog.image }
+          : kind === "video"
+            ? { fetchedAt: catalog.fetchedAt, video: catalog.video }
+            : kind === "audio"
+              ? { fetchedAt: catalog.fetchedAt, audio: catalog.audio }
+              : catalog;
+      if (kind === "video" && catalog.video.models.length === 0) {
+        throw new AppError("当前没有可执行的视频模型", {
+          status: 409,
+          code: "video_model_catalog_empty",
+          details: { catalogRevision: catalog.video.revision },
+        });
+      }
+      if (kind === "audio" && catalog.audio.models.length === 0) {
+        throw new AppError("当前没有可执行的音频模型", {
+          status: 409,
+          code: "audio_model_catalog_empty",
+          details: { catalogRevision: catalog.audio.revision },
+        });
+      }
+      return c.json(
+        AgentsToolExecuteResponseSchema.parse({
+          ok: true,
+          content: JSON.stringify(response),
+          data: response as unknown as Record<string, unknown>,
+        }),
+      );
+    }
+
     if (body.toolName === "tapcanvas_video_extract_last_frame") {
       const extracted = await extractLastFrameToImage({
         c: c as never,
@@ -5315,6 +5402,26 @@ export function registerPublicAgentsToolBridgeRoutes(publicApiRouter: OpenAPIHon
           ok: true,
           content: JSON.stringify(dubbed),
           data: dubbed as unknown as Record<string, unknown>,
+        }),
+      );
+    }
+
+    if (body.toolName === "tapcanvas_audio_generate_to_canvas") {
+      // 音频节点生成的唯一服务端执行器（与持久工作流 runner 共用同一实现）。
+      const generatedAudio = await generateAudioToCanvas({
+        c: c as never,
+        requestUserId,
+        devBypass,
+        flowId,
+        row,
+        bodyArgs: body.args,
+        ...(chapterCanvasId ? { chapterId: chapterCanvasId } : {}),
+      });
+      return c.json(
+        AgentsToolExecuteResponseSchema.parse({
+          ok: true,
+          content: stringifyAgentVisibleToolResult(generatedAudio),
+          data: generatedAudio as unknown as Record<string, unknown>,
         }),
       );
     }

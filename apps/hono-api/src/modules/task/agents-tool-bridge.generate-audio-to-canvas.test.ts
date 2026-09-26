@@ -15,6 +15,8 @@ const {
   mockedSynthesizeMiniMaxH3SpeechToStorage,
   mockedListDoubaoSeedAudioVoices,
   mockedRunComfyUiTask,
+  mockedRequireDefaultMiniMaxH3SpeechModel,
+  mockedReadFlowNodes,
 } = vi.hoisted(() => ({
   mockedSynthesizeSpeechToStorage: vi.fn(),
   mockedRequireSelectableAudioModel: vi.fn(),
@@ -27,6 +29,8 @@ const {
   mockedSynthesizeMiniMaxH3SpeechToStorage: vi.fn(),
   mockedListDoubaoSeedAudioVoices: vi.fn(),
   mockedRunComfyUiTask: vi.fn(),
+  mockedRequireDefaultMiniMaxH3SpeechModel: vi.fn(),
+  mockedReadFlowNodes: vi.fn((): Array<Record<string, unknown>> => []),
 }));
 
 vi.mock("../apiKey/audio-speech", () => ({
@@ -40,6 +44,7 @@ vi.mock("../apiKey/audio-speech", () => ({
 
 vi.mock("../new-api-models/new-api-audio-model", () => ({
   requireSelectableAudioModel: mockedRequireSelectableAudioModel,
+  requireDefaultMiniMaxH3SpeechModel: mockedRequireDefaultMiniMaxH3SpeechModel,
   validateAudioRuntimeParameters: mockedValidateAudioRuntimeParameters,
 }));
 
@@ -49,7 +54,7 @@ vi.mock("../apiKey/seed-audio-voices", () => ({
 
 vi.mock("./video-orchestrator.flow-io", () => ({
   persistFlowPatch: mockedPersistFlowPatch,
-  readFlowNodes: vi.fn(() => []),
+  readFlowNodes: mockedReadFlowNodes,
 }));
 
 vi.mock("../asset/asset.hosting", () => ({
@@ -65,6 +70,18 @@ vi.mock("./comfyui-workflow", () => ({
 }));
 
 import { generateAudioToCanvas } from "./agents-tool-bridge.generate-audio-to-canvas";
+
+function audioRow(id: string, data?: string): FlowRow {
+  return {
+    id,
+    name: "Audio flow",
+    data: data ?? JSON.stringify({ nodes: [], edges: [] }),
+    owner_id: "user-1",
+    project_id: "project-1",
+    created_at: "2026-08-23T00:00:00.000Z",
+    updated_at: "2026-08-23T00:00:00.000Z",
+  };
+}
 
 describe("generateAudioToCanvas asset contract", () => {
   beforeEach(() => {
@@ -82,7 +99,14 @@ describe("generateAudioToCanvas asset contract", () => {
 		mockedIsDoubaoSpeechCatalogModel.mockReturnValue(false);
 		mockedIsMiniMaxH3SpeechModel.mockReturnValue(false);
 		mockedValidateAudioRuntimeParameters.mockReturnValue({});
-		mockedListDoubaoSeedAudioVoices.mockResolvedValue([]);
+    mockedListDoubaoSeedAudioVoices.mockResolvedValue([]);
+    mockedRequireDefaultMiniMaxH3SpeechModel.mockReset();
+    mockedRequireDefaultMiniMaxH3SpeechModel.mockResolvedValue({
+      requestModelKey: "minimax-h3-speech",
+      tags: ["tapcanvas:audio-type=speech", "tapcanvas:audio-engine=minimax-h3"],
+    });
+    mockedReadFlowNodes.mockReset();
+    mockedReadFlowNodes.mockReturnValue([]);
     mockedRequireSelectableAudioModel.mockResolvedValue({
       requestModelKey: "speech-model-1",
       tags: ["tapcanvas:audio-type=speech", "tapcanvas:audio-engine=minimax"],
@@ -333,4 +357,125 @@ describe("generateAudioToCanvas asset contract", () => {
     expect(mockedPersistFlowPatch).not.toHaveBeenCalled();
     expect(mockedRegisterGeneratedMediaAsset).not.toHaveBeenCalled();
   });
+
+	it("resolves the catalog-declared MiniMax H3 speech default when audioModel is omitted", async () => {
+		const row = audioRow("flow-default-h3");
+		mockedIsMiniMaxH3SpeechModel.mockReturnValue(true);
+		mockedSynthesizeMiniMaxH3SpeechToStorage.mockResolvedValue({
+			url: "https://assets.example.com/h3-default.wav",
+			sourceUrl: "https://assets.example.com/h3-default.source.flac",
+			durationSec: 5,
+			sourceDurationSec: 6,
+			voiceId: "",
+		} as never);
+
+		await generateAudioToCanvas({
+			c: { env: { DB: {} } } as AppContext,
+			requestUserId: "user-1",
+			devBypass: false,
+			flowId: row.id,
+			row,
+			bodyArgs: { node: { id: "audio-default", data: { text: "默认 H3 配音" } } },
+		});
+
+		expect(mockedRequireDefaultMiniMaxH3SpeechModel).toHaveBeenCalledTimes(1);
+		expect(mockedRequireSelectableAudioModel).toHaveBeenCalledWith(
+			expect.anything(),
+			"minimax-h3-speech",
+			"speech",
+		);
+		expect(mockedSynthesizeMiniMaxH3SpeechToStorage).toHaveBeenCalledTimes(1);
+		expect(mockedSynthesizeSpeechToStorage).not.toHaveBeenCalled();
+	});
+
+	it("fails explicitly instead of falling back when no MiniMax H3 speech model is declared", async () => {
+		const row = audioRow("flow-default-missing");
+		mockedRequireDefaultMiniMaxH3SpeechModel.mockRejectedValue(
+			Object.assign(new Error("no default engine"), { code: "audio_default_model_unavailable" }),
+		);
+
+		await expect(generateAudioToCanvas({
+			c: { env: { DB: {} } } as AppContext,
+			requestUserId: "user-1",
+			devBypass: false,
+			flowId: row.id,
+			row,
+			bodyArgs: { node: { id: "audio-no-default", data: { text: "没有默认引擎" } } },
+		})).rejects.toMatchObject({ code: "audio_default_model_unavailable" });
+
+		expect(mockedSynthesizeSpeechToStorage).not.toHaveBeenCalled();
+		expect(mockedSynthesizeDoubaoSpeechToStorage).not.toHaveBeenCalled();
+		expect(mockedSynthesizeMiniMaxH3SpeechToStorage).not.toHaveBeenCalled();
+		expect(mockedPersistFlowPatch).not.toHaveBeenCalled();
+	});
+
+	it("resolves reference audio from real canvas nodes and refuses nodes without a real audio asset", async () => {
+		const row = audioRow("flow-reference-audio");
+		mockedIsMiniMaxH3SpeechModel.mockReturnValue(true);
+		mockedSynthesizeMiniMaxH3SpeechToStorage.mockResolvedValue({
+			url: "https://assets.example.com/h3-ref.wav",
+			sourceUrl: "https://assets.example.com/h3-ref.source.flac",
+			durationSec: 5,
+			sourceDurationSec: 6,
+			voiceId: "",
+		} as never);
+		mockedReadFlowNodes.mockReturnValue([
+			{ id: "voice-a", data: { kind: "audio", audioUrl: "https://assets.example.com/ref-a.mp3" } },
+		]);
+
+		await generateAudioToCanvas({
+			c: { env: { DB: {} } } as AppContext,
+			requestUserId: "user-1",
+			devBypass: false,
+			flowId: row.id,
+			row,
+			bodyArgs: {
+				node: {
+					id: "audio-ref",
+					data: { text: "延续上一镜音色", referenceAudioNodeIds: ["voice-a"] },
+				},
+			},
+		});
+
+		expect(mockedSynthesizeMiniMaxH3SpeechToStorage).toHaveBeenCalledWith(
+			expect.anything(),
+			"user-1",
+			expect.objectContaining({
+				referenceAudioUrls: ["https://assets.example.com/ref-a.mp3"],
+			}),
+		);
+
+		mockedReadFlowNodes.mockReturnValue([{ id: "voice-b", data: { kind: "audio" } }]);
+		await expect(generateAudioToCanvas({
+			c: { env: { DB: {} } } as AppContext,
+			requestUserId: "user-1",
+			devBypass: false,
+			flowId: row.id,
+			row,
+			bodyArgs: {
+				node: { id: "audio-ref-missing", data: { text: "缺失参考", referenceAudioNodeIds: ["voice-b"] } },
+			},
+		})).rejects.toMatchObject({ code: "audio_reference_node_has_no_audio" });
+	});
+
+	it("refuses reference audio for music generation instead of ignoring the input", async () => {
+		const row = audioRow("flow-music-reference");
+
+		await expect(generateAudioToCanvas({
+			c: { env: { DB: {} } } as AppContext,
+			requestUserId: "user-1",
+			devBypass: false,
+			flowId: row.id,
+			row,
+			bodyArgs: {
+				node: {
+					id: "music-ref",
+					data: { audioType: "music", text: "低沉氛围", referenceAudioNodeIds: ["voice-a"] },
+				},
+			},
+		})).rejects.toMatchObject({ code: "audio_reference_not_supported_for_music" });
+
+		expect(mockedReadFlowNodes).not.toHaveBeenCalled();
+		expect(mockedPersistFlowPatch).not.toHaveBeenCalled();
+	});
 });

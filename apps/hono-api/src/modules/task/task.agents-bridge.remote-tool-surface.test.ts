@@ -212,7 +212,7 @@ describe("deterministic agents bridge remote tool surface", () => {
 		expect(surface.explicitCapabilityTools.map((tool) => tool.name)).toEqual([
 			"tapcanvas_shot_table_critic",
 		]);
-		expect(surface.before.visibleToolCount).toBe(38);
+		expect(surface.before.visibleToolCount).toBe(39);
 		expect(surface.after.visibleToolCount).toBe(0);
 		expect(surface.catalogIndexMeasurement).toEqual({
 			visibleToolCount: 0,
@@ -574,19 +574,19 @@ describe("deterministic agents bridge remote tool surface", () => {
 			},
 		}).toEqual({
 			projectOnly: {
-				before: { visibleToolCount: 68, descriptionChars: 29168, schemaChars: 87329 },
+				before: { visibleToolCount: 69, descriptionChars: 29721, schemaChars: 88609 },
 				after: { visibleToolCount: 9, descriptionChars: 2437, schemaChars: 2337 },
-				catalog: { visibleToolCount: 6, descriptionChars: 1951, schemaChars: 1432 },
+				catalog: { visibleToolCount: 6, descriptionChars: 1724, schemaChars: 1870 },
 			},
 			flowWithoutBook: {
-				before: { visibleToolCount: 68, descriptionChars: 29168, schemaChars: 87329 },
+				before: { visibleToolCount: 69, descriptionChars: 29721, schemaChars: 88609 },
 				after: { visibleToolCount: 18, descriptionChars: 5140, schemaChars: 12209 },
-				catalog: { visibleToolCount: 32, descriptionChars: 18449, schemaChars: 56427 },
+				catalog: { visibleToolCount: 33, descriptionChars: 19002, schemaChars: 57707 },
 			},
 			bookFlow: {
-				before: { visibleToolCount: 68, descriptionChars: 29168, schemaChars: 87329 },
+				before: { visibleToolCount: 69, descriptionChars: 29721, schemaChars: 88609 },
 				after: { visibleToolCount: 23, descriptionChars: 6558, schemaChars: 15008 },
-				catalog: { visibleToolCount: 38, descriptionChars: 20018, schemaChars: 65332 },
+				catalog: { visibleToolCount: 39, descriptionChars: 20571, schemaChars: 66612 },
 			},
 		});
 	});
@@ -632,33 +632,33 @@ describe("deterministic agents bridge remote tool surface", () => {
 				},
 			},
 			flowWithoutBook: {
-				visibleToolCount: 32,
-				nameChars: 963,
-				enumJsonChars: 1060,
-				duplicatedWrapperEnumChars: 2120,
+				visibleToolCount: 33,
+				nameChars: 1003,
+				enumJsonChars: 1103,
+				duplicatedWrapperEnumChars: 2206,
 				capabilityCounts: {
 					material_persistence: 5,
 					material_read: 2,
 					project_persistence: 1,
-					canvas_extended: 6,
-					paid_media_generation: 8,
+					canvas_extended: 5,
+					paid_media_generation: 10,
 					media_analysis: 6,
 					director_console: 4,
 				},
 			},
 			bookFlow: {
-				visibleToolCount: 38,
-				nameChars: 1161,
-				enumJsonChars: 1276,
-				duplicatedWrapperEnumChars: 2552,
+				visibleToolCount: 39,
+				nameChars: 1201,
+				enumJsonChars: 1319,
+				duplicatedWrapperEnumChars: 2638,
 				capabilityCounts: {
 					book_persistence: 5,
 					book_read: 1,
 					material_persistence: 5,
 					material_read: 2,
 					project_persistence: 1,
-					canvas_extended: 6,
-					paid_media_generation: 8,
+					canvas_extended: 5,
+					paid_media_generation: 10,
 					media_analysis: 6,
 					director_console: 4,
 				},
@@ -765,9 +765,9 @@ describe("deterministic agents bridge remote tool surface", () => {
 			enum: ["speech", "music"],
 		});
 		expect(asSchemaRecord(taskNodeDataProperties.audioModel)).toMatchObject({ type: "string" });
-		expect(surface.catalog.map((tool) => tool.name)).not.toContain(
-			"tapcanvas_audio_generate_to_canvas",
-		);
+	expect(surface.catalog.map((tool) => tool.name)).toContain(
+		"tapcanvas_audio_generate_to_canvas",
+	);
 		expect(flowPatch?.description).toContain("分镜表 / shot table");
 		expect(flowPatch?.description).toContain("data.kind='shotTable' plus valid data.shotTable");
 		const shotTable = asSchemaRecord(taskNodeDataProperties.shotTable);

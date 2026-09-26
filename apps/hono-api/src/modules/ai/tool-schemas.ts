@@ -886,7 +886,7 @@ export const canvasNodeSpecs = {
 	audio: {
 		label: "音频",
 		purpose:
-			"语音合成（TTS）或音乐生成节点，经已配置的执行引擎产出可播放的音频 URL。audioModel 必须从本轮系统音频模型目录动态选择，并携带 `tapcanvas:audio-type=speech|music` 能力标签；当前模型的 `runtimeParameters` 是唯一参数来源，前端与 Agent 不得维护按模型名划分的静态参数表。模型目录未声明能力、未定价或不可路由时必须显式失败。带 `tapcanvas:audio-engine=minimax-h3` 的语音模型仍调用本机 H3 服务，且不接受任何模型参数：音频时长由提示词里的台词与时间轴预算推导，采样步数与可用 UNET 取工作流固定配置并可由执行前的 `/object_info` 实时枚举校验，禁止传入 `duration` / `steps` / `unet`。音频节点的 out-audio 可连到 video / composeVideo 节点作为配音轨输入。配音卡模式（`audioType=voice_card`）保留角色声音锚语义，但其执行模型也必须来自 speech 能力目录。",
+			"语音合成（TTS）或音乐生成节点，经已配置的执行引擎产出可播放的音频 URL。audioModel 必须从本轮系统音频模型目录动态选择，并携带 `tapcanvas:audio-type=speech|music` 能力标签；当前模型的 `runtimeParameters` 是唯一参数来源，前端与 Agent 不得维护按模型名划分的静态参数表。模型目录未声明能力、未定价或不可路由时必须显式失败。带 `tapcanvas:audio-engine=minimax-h3` 的语音模型仍调用本机 H3 服务，且不接受任何模型参数：音频时长由提示词里的台词与时间轴预算推导，采样步数与可用 UNET 取工作流固定配置并可由执行前的 `/object_info` 实时枚举校验，禁止传入 `duration` / `steps` / `unet`。原生 Agent 用 `tapcanvas_audio_generate_to_canvas` 提交该节点（影视别名 `film_audio_gen`）；省略 audioModel 且 audioType=speech 时只按实时目录声明的 MiniMax H3 语音模型执行，目录未声明该能力或存在多个候选时显式失败，不退回到别的引擎。音频节点的 out-audio 可连到 video / composeVideo 节点作为配音轨输入。配音卡模式（`audioType=voice_card`）保留角色声音锚语义，但其执行模型也必须来自 speech 能力目录。",
 		output: {
 			audioUrl: "string (mp3 公网 URL)",
 			audioDurationSec: "number (optional; 音频时长秒)",

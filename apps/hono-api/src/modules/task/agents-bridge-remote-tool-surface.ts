@@ -261,10 +261,14 @@ const REMOTE_TOOL_CONTRACTS: Readonly<Record<string, RemoteToolContract>> = {
 	),
 	tapcanvas_image_generate_to_canvas: contract(PROJECT_CANVAS, "paid_media_generation"),
 	tapcanvas_video_generate_to_canvas: contract(PROJECT_CANVAS, "paid_media_generation"),
+	// 媒体模型目录是只读事实查询：模型必须先拿到实时可执行的精确 modelKey 与物理档位，
+	// 才能按目录合同提交 film_video_gen/film_audio_gen，而不是猜测模型身份。
+	tapcanvas_media_execution_catalog_get: contract(PROJECT_CANVAS, "paid_media_generation"),
 	tapcanvas_video_extract_last_frame: contract(PROJECT_CANVAS, "paid_media_generation"),
 	tapcanvas_video_extract_frames: contract(PROJECT_CANVAS, "paid_media_generation"),
 	tapcanvas_video_concat: contract(PROJECT_CANVAS, "paid_media_generation"),
 	tapcanvas_voice_card_dub: contract(PROJECT_CANVAS, "paid_media_generation"),
+	tapcanvas_audio_generate_to_canvas: contract(PROJECT_CANVAS, "paid_media_generation"),
 	tapcanvas_hyperframes_render: contract(PROJECT, "paid_media_generation"),
 	tapcanvas_annotate_shot: contract(PROJECT_CANVAS, "canvas_extended"),
 	tapcanvas_render_blocking_diagram: contract(PROJECT_CANVAS, "paid_media_generation"),
@@ -291,11 +295,13 @@ const SAFE_READ_REMOTE_TOOLS = new Set([
 	"tapcanvas_storyboard_source_bundle_get", "tapcanvas_node_context_bundle_get", "tapcanvas_video_review_bundle_get", "tapcanvas_pipeline_runs_list", "tapcanvas_pipeline_run_get",
 	"tapcanvas_executions_list", "tapcanvas_execution_get", "tapcanvas_execution_node_runs_get", "tapcanvas_execution_events_list", "tapcanvas_workflow_execution_inspect",
 	"tapcanvas_flow_get", "tapcanvas_flow_search", "tapcanvas_image_refs_get", "tapcanvas_shot_table_critic",
+	"tapcanvas_media_execution_catalog_get",
 ]);
 
 const PAID_REMOTE_TOOLS = new Set([
 	"tapcanvas_image_generate_to_canvas", "tapcanvas_video_generate_to_canvas", "tapcanvas_video_extract_last_frame", "tapcanvas_video_extract_frames",
 	"tapcanvas_video_concat", "tapcanvas_voice_card_dub", "tapcanvas_hyperframes_render", "tapcanvas_render_blocking_diagram", "tapcanvas_analyze_image",
+	"tapcanvas_audio_generate_to_canvas",
 	"tapcanvas_analyze_video", "tapcanvas_decompose_video", "tapcanvas_distill_director_breakdown", "tapcanvas_video_compare", "tapcanvas_fetch_video_from_url",
 	"tapcanvas_capture_director_scene", "tapcanvas_render_director_clip",
 ]);

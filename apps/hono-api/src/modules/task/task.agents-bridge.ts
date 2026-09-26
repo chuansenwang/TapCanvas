@@ -7248,6 +7248,99 @@ function buildAgentsBridgeRemoteToolCatalog(
 			},
 		},
 		{
+			name: "tapcanvas_audio_generate_to_canvas",
+			description:
+				"【音频节点生成】把配音/旁白（audioType=speech）或 BGM/环境音（audioType=music）合成为独立 audio 节点并写入当前 flow，成功后返回 { nodeId, audioUrl, assetId, durationSec, voiceId, audioType }。audioModel 应从本轮 enabledAudioModels 复制精确 modelKey；省略 audioModel 且 audioType=speech 时，服务端只按实时目录声明 `tapcanvas:audio-engine=minimax-h3` 的语音模型执行（本机 H3 配音），目录未声明该能力或存在多个候选时显式失败，绝不回退到别的引擎或模型。H3 不接受任何模型参数：时长由台词与时间轴预算推导（单次 1~15 秒），runtimeParameters 只能使用所选目录项声明的字段。参考音色只传当前画布真实音频节点 ID（referenceAudioNodeIds，≤3，节点必须已有真实 audioUrl），禁止复制 URL；音乐生成不接受参考音频。缺正文、缺真实参考资产或模型未声明能力时必须显式失败。",
+			parameters: {
+				type: "object",
+				properties: {
+					node: {
+						type: "object",
+						description:
+							"音频节点规格。data.kind 固定 audio；data.text 必填（语音=口播文案，音乐=曲风/氛围描述）。",
+						properties: {
+							id: {
+								type: "string",
+								description: "可选：节点 id；省略时由服务端生成。",
+							},
+							position: {
+								type: "object",
+								properties: {
+									x: { type: "number" },
+									y: { type: "number" },
+								},
+								additionalProperties: false,
+							},
+							data: {
+								type: "object",
+								properties: {
+									kind: { type: "string", const: "audio" },
+									text: {
+										type: "string",
+										description:
+											"必填：语音=最终口播文案/台词；音乐=曲风或氛围描述。",
+									},
+									audioType: {
+										type: "string",
+										enum: ["speech", "music"],
+										description: "可选：省略按 speech（配音/旁白）执行。",
+									},
+									audioModel: {
+										type: "string",
+										description:
+											"可选：从 enabledAudioModels 复制的精确 modelKey；省略时按 MiniMax H3 语音默认执行器解析。",
+									},
+									label: {
+										type: "string",
+										description: "可选：音频节点标题。",
+									},
+									referenceAudioNodeIds: {
+										type: "array",
+										items: { type: "string" },
+										description:
+											"可选：参考音色来源的当前画布音频节点 id（≤3，节点必须已有真实 audioUrl）。",
+									},
+									runtimeParameters: {
+										type: "object",
+										additionalProperties: true,
+										description:
+											"可选：只能复制所选音频模型目录项声明的 runtimeParameters，不得自造键值。",
+									},
+									mixExclude: {
+										type: "boolean",
+										description:
+											"可选：true=标记为独立素材，成片混音不收编。",
+									},
+								},
+								required: ["kind", "text"],
+								additionalProperties: false,
+							},
+						},
+						required: ["data"],
+						additionalProperties: false,
+					},
+				},
+				required: ["node"],
+				additionalProperties: false,
+			},
+		},
+		{
+			name: "tapcanvas_media_execution_catalog_get",
+			description:
+				"【媒体模型目录·只读】读取当前账号实时可执行的图片、视频与音频模型目录，返回每个模型的精确 modelKey、厂商、可用性与真实物理档位（视频含 durationOptions/resolutionOptions/画幅/参考素材上限、音频含 audioType 与 engine）。这是生成动作前唯一合法的模型身份来源：film_video_gen.ai_model 必须逐字复制本回执 video.models[].modelKey，duration_sec/resolution/aspect_ratio 必须落在同一模型的声明档位内；film_audio_gen 只在 audio.models 里恰好声明一个 engine=minimax-h3 的 speech 模型时允许省略 ai_model。本工具不选择模型、不推断默认值、不发起任何生成；目录为空或读取失败时显式失败，禁止猜测或回填历史模型名。",
+			parameters: {
+				type: "object",
+				properties: {
+					kind: {
+						type: "string",
+						enum: ["image", "video", "audio", "all"],
+						description: "可选：只返回指定媒体类别的目录；省略按 all 返回三类。",
+					},
+				},
+				additionalProperties: false,
+			},
+		},
+		{
 			name: "tapcanvas_hyperframes_render",
 			description:
 				"确定性 HyperFrames 渲染（HTML 或透明角色部件动画→MP4）：服务端 headless Chromium 逐帧渲染并托管，返回 { videoUrl, key, bytes, durationSec }。适用于题卡、动态字幕、片头片尾和已由 See-through 给出真实 RGBA 部件、坐标与深度的二维角色动画；不生成角色、场景或缺失图层。整片组装仍走 tapcanvas_video_concat。HTML composition 根元素必须带 data-composition-id + data-width/data-height + data-duration；定时元素加 class=\"clip\" + data-start/data-duration；远程素材必须列进 assets，由服务端预下载后以 ./assets/<name> 引用。若提供 characterAnimation，服务端会按其部件坐标、深度和关键帧编译 composition，且不得再提供 html/assets。",

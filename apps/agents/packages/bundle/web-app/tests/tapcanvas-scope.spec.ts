@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,6 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import {
   FILM_FUNCTION_NAMES,
+  parseFilmAudioGenArguments,
   parseFilmImageGenArguments,
   parseFilmVideoGenArguments,
   registerTapCanvasRuntime,
@@ -126,5 +128,51 @@ describe('影视原生 Function 契约', () => {
       title: '测试镜头',
       workflow_capability: 'reference-audio-legacy',
     })).toMatchObject({ workflow_capability: 'reference-audio-legacy' })
+  })
+
+  it('配音生成默认不指定模型，由服务端按实时目录解析 MiniMax H3 语音执行器', () => {
+    expect(parseFilmAudioGenArguments({ prompt: '第一句台词', title: '旁白' }))
+      .toEqual({ prompt: '第一句台词', title: '旁白' })
+    expect(parseFilmAudioGenArguments({
+      prompt: '第一句台词',
+      title: '旁白',
+      type: 'music',
+      ai_model: 'minimax-h3-speech',
+      reference_nodes: ['audio-1'],
+    })).toMatchObject({
+      audio_type: 'music',
+      ai_model: 'minimax-h3-speech',
+      reference_nodes: ['audio-1'],
+    })
+    expect(() => parseFilmAudioGenArguments({ prompt: '台词', title: '旁白', type: 'voice_card' }))
+      .toThrow('type 只能是 speech 或 music')
+    expect(() => parseFilmAudioGenArguments({
+      prompt: '台词',
+      title: '旁白',
+      reference_nodes: ['a', 'b', 'c', 'd'],
+    })).toThrow('最多 3 个')
+  })
+
+  it('合片音轨按音频节点 ID 透传，不再声明能力缺口', () => {
+    // 回归点：audio_list 曾以「没有对应的原生合成执行器」直接抛错，
+    // 而服务端 concat 早已支持 audioNodeIds 合入外部音轨。
+    const source = readFileSync(new URL('../src/tapcanvas-scope.ts', import.meta.url), 'utf8')
+    expect(source).not.toContain('film_video_composite.audio_list 当前没有对应的 TapCanvas 原生合成执行器')
+    expect(source).toContain("tapcanvas_video_concat', { clips, createNode: true, ...(audioNodeIds.length ? { audioNodeIds } : {})")
+  })
+
+  it('媒体模型目录工具已注册，且要求先读目录再提交生成', () => {
+    const source = readFileSync(new URL('../src/tapcanvas-scope.ts', import.meta.url), 'utf8')
+    expect(source).toContain("registerFilmTool('film_media_catalog_get'")
+    expect(source).toContain('tapcanvas_media_execution_catalog_get')
+    // 提示段必须要求先取实时目录，禁止凭记忆填模型
+    expect(source).toContain('必须先调用 film_media_catalog_get')
+  })
+
+  it('提问工具的选项契约遵循 Harness 标准 {label, description}', () => {
+    const source = readFileSync(new URL('../src/tapcanvas-scope.ts', import.meta.url), 'utf8')
+    // 回归点：曾要求 option.content，而 Harness 的标准选项字段是 label/description。
+    expect(source).toContain("readRequiredText(option, 'film_ask_human.options', 'label')")
+    expect(source).not.toContain("readRequiredText(option, 'film_ask_human.options', 'content')")
   })
 })

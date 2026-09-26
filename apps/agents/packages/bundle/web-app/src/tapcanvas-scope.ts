@@ -166,6 +166,14 @@ interface FilmVideoCompositeArguments {
   reuse_clip_node_key?: string
 }
 
+interface FilmAudioGenArguments {
+  prompt: string
+  title: string
+  audio_type?: 'speech' | 'music'
+  ai_model?: string
+  reference_nodes?: readonly string[]
+}
+
 interface UserQuestionsLike {
   ask(request: { questions: readonly {
     id: string
@@ -319,6 +327,25 @@ export function parseFilmVideoGenArguments(value: unknown): FilmVideoGenArgument
   }
   if (value.need_bgm !== undefined && typeof value.need_bgm !== 'boolean') throw new Error('film_video_gen.need_bgm 必须是布尔值')
   if (typeof value.need_bgm === 'boolean') result.need_bgm = value.need_bgm
+  return result
+}
+
+export function parseFilmAudioGenArguments(value: unknown): FilmAudioGenArguments {
+  if (!isRecord(value)) throw new Error('film_audio_gen 参数必须是对象')
+  const result: FilmAudioGenArguments = {
+    prompt: readRequiredText(value, 'film_audio_gen', 'prompt'),
+    title: readRequiredText(value, 'film_audio_gen', 'title'),
+  }
+  const type = value.type
+  if (type !== undefined && type !== 'speech' && type !== 'music') {
+    throw new Error('film_audio_gen.type 只能是 speech 或 music')
+  }
+  if (type !== undefined) result.audio_type = type
+  const aiModel = readOptionalText(value, 'film_audio_gen', 'ai_model')
+  if (aiModel !== undefined) result.ai_model = aiModel
+  const references = readStringList(value.reference_nodes, 'film_audio_gen', 'reference_nodes')
+  if (references.length > 3) throw new Error('film_audio_gen.reference_nodes 最多 3 个')
+  if (references.length) result.reference_nodes = references
   return result
 }
 
@@ -509,7 +536,7 @@ export function registerTapCanvasRuntime(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:tapcanvas-native',
     order: ctx.systemPrompt.getSectionOrder('TOOL_WEB_FETCH'),
-    text: '当前会话包含 TapCanvas 画布作用域。需要读取画布事实时调用 tapcanvas_get_current_canvas；影视创作可直接调用 film_image_gen、film_video_gen、film_video_composite、film_ask_human、film_file_read/write、film_memory_recall、film_task_create/update/list/read。若作用域缺失，必须明确报告无法读取，不得猜测项目或流程。',
+    text: '当前会话包含 TapCanvas 画布作用域。需要读取画布事实时调用 tapcanvas_get_current_canvas；影视创作可直接调用 film_image_gen、film_video_gen、film_audio_gen、film_video_composite、film_ask_human、film_file_read/write、film_memory_recall、film_task_create/update/list/read。提交任何视频或音频生成前，必须先调用 film_media_catalog_get 取回实时可执行模型目录，并把其中的精确 modelKey 作为 ai_model 提交；禁止凭记忆、历史名称或猜测填写模型。若作用域缺失，必须明确报告无法读取，不得猜测项目或流程。',
   })
 
   ctx.tools.register(defineTool({
@@ -571,6 +598,13 @@ export function registerTapCanvasRuntime(ctx: Context): void {
     return scope
   }
 
+  registerFilmTool('film_media_catalog_get', '读取当前账号实时可执行的图片、视频与音频模型目录，返回精确 modelKey 与真实物理档位（视频含 durationOptions/resolutionOptions/画幅/参考上限，音频含 audioType 与 engine）。这是生成动作前唯一合法的模型身份来源：film_video_gen.ai_model 必须逐字复制本回执 video.models[].modelKey；film_audio_gen 只在 audio.models 里恰好声明一个 engine=minimax-h3 的 speech 模型时才可省略 ai_model。本工具只读事实，不选择模型、不推断默认值、不发起生成。', { kind: { type: 'string', enum: ['image', 'video', 'audio', 'all'], description: '可选：只读取指定媒体类别；省略返回全部三类' } }, async (args, exec) => {
+    const scope = scopeOrThrow(exec.agent)
+    const kind = isRecord(args) && typeof args.kind === 'string' && args.kind.trim() ? args.kind.trim() : ''
+    if (kind && kind !== 'image' && kind !== 'video' && kind !== 'audio' && kind !== 'all') throw new Error('film_media_catalog_get.kind 只能是 image、video、audio 或 all')
+    return executeNativeBridgeTool(scope, 'tapcanvas_media_execution_catalog_get', kind ? { kind } : {}, exec.signal, exec.callId)
+  })
+
   registerFilmTool('film_video_gen', '直接生成影视分镜视频并写入当前 TapCanvas 画布，返回真实节点、任务和异步状态。', {
     prompt: { type: 'string', required: true }, title: { type: 'string', required: true }, tag: { type: 'string' }, duration_sec: { type: 'integer' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, ai_model: { type: 'string' }, workflow_capability: { type: 'string', description: '可选的动态工作流能力标识；使用自定义 ComfyUI 工作流时必须显式传入' }, start_frame_image_node: { type: 'string' }, end_frame_image_node: { type: 'string' }, reference_nodes: { type: 'array', items: { type: 'string' } }, reference_assets: { type: 'array', items: { type: 'string' } }, continuation_from_node: { type: 'string' }, continuation_mode: { type: 'string', enum: ['first_frame', 'reference'] }, sound: { type: 'string', enum: ['on', 'off'] }, need_bgm: { type: 'boolean' }, video_subtype: { type: 'string', enum: ['ai_transition'] },
   }, async (args, exec) => {
@@ -604,15 +638,15 @@ export function registerTapCanvasRuntime(ctx: Context): void {
     return executeNativeBridgeTool(scope, 'tapcanvas_video_generate_to_canvas', { node: { id: nodeId, type: 'taskNode', position: { x: 0, y: 0 }, data: nodeData } }, exec.signal, exec.callId)
   })
 
-  registerFilmTool('film_video_composite', '将已生成的视频按顺序拼接并写入当前画布。素材必须使用节点 ID；不支持把 URL 作为隐式输入。', {
+  registerFilmTool('film_video_composite', '将已生成的视频按顺序拼接并写入当前画布，可同时合入外部音轨。视频与音频素材都必须使用当前画布真实节点 ID；不支持把 URL 作为隐式输入。audio_list 里的节点必须是已有真实 audioUrl 的音频节点（最多 3 条）：第 1 条替换原音轨，其后逐条混音；节点缺真实音频时显式失败。', {
     video_list: { type: 'array', items: { type: 'object', additionalProperties: true } }, audio_list: { type: 'array', items: { type: 'object', additionalProperties: true } }, reference_nodes: { type: 'array', items: { type: 'string' }, required: true }, video_volume: { type: 'number' }, audio_volume: { type: 'number' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, fit: { type: 'string', enum: ['contain', 'cover'] }, format: { type: 'string' }, title: { type: 'string' }, tag: { type: 'string' }, reuse_clip_node_key: { type: 'string' },
   }, async (args, exec) => {
     const scope = scopeOrThrow(exec.agent)
     const input = readFilmVideoCompositeArguments(args)
-    if (input.audio_list && input.audio_list.length > 0) throw new Error('film_video_composite.audio_list 当前没有对应的 TapCanvas 原生合成执行器；请先使用支持音轨的画布节点')
     const clips = input.video_list?.map((item) => ({ nodeId: item.src, ...(item.start_position === undefined ? {} : { inSec: item.start_position }), ...(item.end_position === undefined ? {} : { outSec: item.end_position }) }))
     if (!clips || clips.length < 2) throw new Error('film_video_composite.video_list 至少需要两个视频节点')
-    return executeNativeBridgeTool(scope, 'tapcanvas_video_concat', { clips, createNode: true, ...(input.aspect_ratio ? { aspect: input.aspect_ratio } : {}), ...(input.title ? { fileName: input.title } : {}), ...(input.video_volume === undefined ? {} : { videoVolume: input.video_volume }), ...(input.audio_volume === undefined ? {} : { audioVolume: input.audio_volume }) }, exec.signal, exec.callId)
+    const audioNodeIds = (input.audio_list ?? []).map((item) => item.src.trim()).filter((nodeId) => nodeId.length > 0)
+    return executeNativeBridgeTool(scope, 'tapcanvas_video_concat', { clips, createNode: true, ...(audioNodeIds.length ? { audioNodeIds } : {}), ...(input.aspect_ratio ? { aspect: input.aspect_ratio } : {}), ...(input.title ? { fileName: input.title } : {}), ...(input.video_volume === undefined ? {} : { videoVolume: input.video_volume }), ...(input.audio_volume === undefined ? {} : { audioVolume: input.audio_volume }) }, exec.signal, exec.callId)
   })
 
   registerFilmTool('film_scene_director', '编排当前画布的导演台场景。当前版本要求直接提供 TapCanvas 导演台 scene 协议；旧版 commands 指令尚未有等价执行器，会显式失败。', { commands: { type: 'array', items: { type: 'object', additionalProperties: true }, required: true }, target_node: { type: 'string' }, base_revision: { type: 'string' } }, async () => { throw new Error('film_scene_director.commands 尚未接入 TapCanvas 导演台 scene 执行协议；请改用 tapcanvas_capture_director_scene 或 tapcanvas_render_director_clip 的 scene 参数') })
@@ -627,7 +661,7 @@ export function registerTapCanvasRuntime(ctx: Context): void {
       if (!isRecord(item)) throw new Error(`film_ask_human.questions[${index}] 必须是对象`)
       const question = readRequiredText(item, 'film_ask_human.questions', 'question')
       const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `question-${index + 1}`
-      return { id, question, ...(typeof item.header === 'string' ? { header: item.header } : {}), ...(Array.isArray(item.options) ? { options: item.options.map((option, optionIndex) => { if (!isRecord(option)) throw new Error(`film_ask_human.questions[${index}].options[${optionIndex}] 必须是对象`); return { label: readRequiredText(option, 'film_ask_human.options', 'content') } }) } : {}), ...(typeof item.multiSelect === 'boolean' ? { multiSelect: item.multiSelect } : {}) }
+      return { id, question, ...(typeof item.header === 'string' ? { header: item.header } : {}), ...(Array.isArray(item.options) ? { options: item.options.map((option, optionIndex) => { if (!isRecord(option)) throw new Error(`film_ask_human.questions[${index}].options[${optionIndex}] 必须是对象`); return { label: readRequiredText(option, 'film_ask_human.options', 'label'), ...(typeof option.description === 'string' && option.description.trim() ? { description: option.description.trim() } : {}) } }) } : {}), ...(typeof item.multiSelect === 'boolean' ? { multiSelect: item.multiSelect } : {}) }
     })
     return JSON.stringify(await questionsService.ask({ questions, agent: exec.agent, signal: exec.signal }))
   })
@@ -676,7 +710,30 @@ export function registerTapCanvasRuntime(ctx: Context): void {
     return JSON.stringify({ status: parsed.length === 0 ? 'not_found' : 'found', records: parsed })
   })
 
-  registerFilmTool('film_audio_gen', '配音生成函数。当前请使用 TapCanvas 画布的具体音频节点执行器；该影视别名尚未接入统一原生提交器。', { prompt: { type: 'string', required: true }, title: { type: 'string', required: true }, type: { type: 'string' }, ai_model: { type: 'string' }, settings_spec: { type: 'string' }, reference_nodes: { type: 'array', items: { type: 'string' } } }, async () => { throw new Error('film_audio_gen 当前没有统一的 TapCanvas 原生音频生成执行器') })
+  registerFilmTool('film_audio_gen', '把配音/旁白（type=speech，默认）或 BGM/环境音（type=music）合成为当前画布的音频节点，返回真实的节点、资产与音频回执。省略 ai_model 时按实时音频模型目录声明的 MiniMax H3 语音执行器生成；目录未声明该能力或存在多个候选时显式失败。', {
+    prompt: { type: 'string', required: true, description: '语音=最终口播文案/台词；音乐=曲风或氛围描述' },
+    title: { type: 'string', required: true, description: '音频节点标题' },
+    type: { type: 'string', enum: ['speech', 'music'], description: '音频类型；省略按 speech（配音/旁白）执行' },
+    ai_model: { type: 'string', description: '实时音频模型目录中的精确 modelKey；省略时使用 MiniMax H3 语音默认执行器' },
+    reference_nodes: { type: 'array', items: { type: 'string' }, description: '参考音色来源的当前画布音频节点 ID（最多 3 个，节点必须已有真实音频）' },
+  }, async (args, exec) => {
+    const scope = scopeOrThrow(exec.agent)
+    const input = parseFilmAudioGenArguments(args)
+    const nodeId = crypto.randomUUID()
+    const x = scope.canvas?.nodes.length ? Math.max(...scope.canvas.nodes.map((node) => node.position.x)) + 420 : 0
+    const y = scope.canvas?.nodes.length ? scope.canvas.nodes[scope.canvas.nodes.length - 1]?.position.y ?? 0 : 0
+    const nodeData: Record<string, unknown> = {
+      kind: 'audio',
+      text: input.prompt,
+      label: input.title,
+      ...(input.audio_type ? { audioType: input.audio_type } : {}),
+      ...(input.ai_model ? { audioModel: input.ai_model } : {}),
+      ...(input.reference_nodes ? { referenceAudioNodeIds: [...input.reference_nodes] } : {}),
+    }
+    return executeNativeBridgeTool(scope, 'tapcanvas_audio_generate_to_canvas', {
+      node: { id: nodeId, type: 'taskNode', position: { x, y }, data: nodeData },
+    }, exec.signal, exec.callId)
+  })
   registerFilmTool('film_sfx_gen', '音效生成函数。当前请使用 TapCanvas 画布的具体音频节点执行器；该影视别名尚未接入统一原生提交器。', { prompt: { type: 'string', required: true }, title: { type: 'string', required: true }, type: { type: 'string' }, ai_model: { type: 'string' } }, async () => { throw new Error('film_sfx_gen 当前没有统一的 TapCanvas 原生音频生成执行器') })
   registerFilmTool('film_asset_save', '把当前画布中已验收的节点同步到项目素材库。保存动作由 TapCanvas 真实素材同步执行器完成。', { node_key: { type: 'string', required: true }, asset_type: { type: 'integer', required: true }, folder_name: { type: 'string' }, name: { type: 'string' } }, async (args, exec) => {
     if (!isRecord(args)) throw new Error('film_asset_save 参数必须是对象')

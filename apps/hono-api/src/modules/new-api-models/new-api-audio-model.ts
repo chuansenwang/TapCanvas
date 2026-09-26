@@ -16,13 +16,26 @@ function normalizeIdentifier(value: unknown): string {
 	return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+const AUDIO_TYPE_TAG_PREFIX = "tapcanvas:audio-type=";
+const AUDIO_ENGINE_TAG_PREFIX = "tapcanvas:audio-engine=";
+
 function catalogAudioType(model: Pick<NewApiModelDto, "tags">): AudioCatalogType | null {
 	for (const rawTag of model.tags) {
 		const tag = rawTag.trim().toLowerCase();
-		if (tag === "tapcanvas:audio-type=speech") return "speech";
-		if (tag === "tapcanvas:audio-type=music") return "music";
+		if (tag === `${AUDIO_TYPE_TAG_PREFIX}speech`) return "speech";
+		if (tag === `${AUDIO_TYPE_TAG_PREFIX}music`) return "music";
 	}
 	return null;
+}
+
+export function readAudioCatalogEngine(model: Pick<NewApiModelDto, "tags">): string {
+	for (const rawTag of model.tags) {
+		const tag = rawTag.trim().toLowerCase();
+		if (tag.startsWith(AUDIO_ENGINE_TAG_PREFIX)) {
+			return tag.slice(AUDIO_ENGINE_TAG_PREFIX.length).trim();
+		}
+	}
+	return "";
 }
 
 function findCatalogAudioModel(
@@ -136,6 +149,53 @@ export async function requireSelectableAudioModel(
 		});
 	}
 	return matched;
+}
+
+/**
+ * 默认执行器解析：调用方没有指定 audioModel 时，只按实时音频目录里已声明的能力标签
+ * 选择 MiniMax H3 语音模型（`tapcanvas:audio-type=speech` + `tapcanvas:audio-engine=minimax-h3`）。
+ *
+ * 这里不做任何隐式兜底：目录未声明该能力时显式失败，声明多个候选时同样显式失败并回报候选，
+ * 由调用方给出精确 modelKey；不会退回到别的引擎或别的模型。
+ */
+export async function requireDefaultMiniMaxH3SpeechModel(
+	c: AppContext,
+): Promise<NewApiModelDto> {
+	const collectCandidates = async (fresh: boolean): Promise<NewApiModelDto[]> => {
+		const models = await listSelectableAudioModels(c, fresh);
+		return models.filter(
+			(model) =>
+				catalogAudioType(model) === "speech" &&
+				readAudioCatalogEngine(model) === "minimax-h3",
+		);
+	};
+	let candidates = await collectCandidates(false);
+	if (candidates.length === 0) candidates = await collectCandidates(true);
+	if (candidates.length === 0) {
+		throw new AppError(
+			"当前音频模型目录没有声明 MiniMax H3 语音模型，无法使用默认执行器；请显式传入目录中的精确 audioModel",
+			{
+				status: 409,
+				code: "audio_default_model_unavailable",
+				details: { expectedEngine: "minimax-h3", expectedType: "speech" },
+			},
+		);
+	}
+	if (candidates.length > 1) {
+		throw new AppError(
+			"当前音频模型目录声明了多个 MiniMax H3 语音模型，无法确定默认执行器；请显式传入精确 audioModel",
+			{
+				status: 409,
+				code: "audio_default_model_ambiguous",
+				details: {
+					expectedEngine: "minimax-h3",
+					expectedType: "speech",
+					candidates: candidates.map((model) => model.requestModelKey).sort(),
+				},
+			},
+		);
+	}
+	return candidates[0]!;
 }
 
 function readRuntimeParameterSpecs(model: Pick<NewApiModelDto, "meta">): ModelParamSpec[] {

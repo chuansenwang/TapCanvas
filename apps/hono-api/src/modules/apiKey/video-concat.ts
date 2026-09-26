@@ -356,8 +356,11 @@ export async function muxAudioOntoVideo(
 	}
 
 	const storageConfig = resolveObjectStorageConfig(c.env);
-	if (!storageConfig) throw new Error("Object storage is not configured");
-	const client = createObjectStorageClientFromConfig(storageConfig);
+	const localStorage = storageConfig ? null : resolveLocalAssetStorageConfig();
+	if (!storageConfig && !localStorage) {
+		throw new Error("Object storage and local asset storage are not configured");
+	}
+	const client = storageConfig ? createObjectStorageClientFromConfig(storageConfig) : null;
 
 	const clampVolume = (value: unknown, fallback: number, max: number): number => {
 		const n = typeof value === "number" ? value : Number.NaN;
@@ -390,8 +393,8 @@ export async function muxAudioOntoVideo(
 	try {
 		const videoFile = join(workDir, "video.mp4");
 		const audioFile = join(workDir, "audio.mp3");
-		await downloadTo(videoUrl, videoFile, storageConfig, client);
-		await downloadTo(audioUrl, audioFile, storageConfig, client);
+		await downloadTo(videoUrl, videoFile, storageConfig, client, localStorage);
+		await downloadTo(audioUrl, audioFile, storageConfig, client, localStorage);
 
 		const videoHasAudio = await hasAudioStream(videoFile);
 		const mode = input.mode === "mix" && videoHasAudio ? "mix" : "replace";
@@ -439,16 +442,21 @@ export async function muxAudioOntoVideo(
 		const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 		const key = `gen/videos/${safeUser}/${datePrefix}/${randomUUID()}.mp4`;
 		// Stream the on-disk output to storage — never readFile the whole mp4 into heap.
-		await putFileToStorage({
-			client,
-			bucket: storageConfig.bucket,
-			key,
-			filePath: outFile,
-			contentType: "video/mp4",
-		});
+		if (storageConfig && client) {
+			await putFileToStorage({
+				client,
+				bucket: storageConfig.bucket,
+				key,
+				filePath: outFile,
+				contentType: "video/mp4",
+			});
+		} else if (localStorage) {
+			await commitLocalAssetFile({ config: localStorage, key, filePath: outFile });
+		}
 
-		const publicBase = storageConfig.publicBase.trim().replace(/\/+$/, "");
-		const url = publicBase ? `${publicBase}/${key}` : `/${key}`;
+		const publicBase = storageConfig?.publicBase.trim().replace(/\/+$/, "")
+			|| resolvePublicAssetBaseUrl(c).trim().replace(/\/+$/, "");
+		const url = publicBase ? `${publicBase}/${key}` : `/assets/local/${key}`;
 		return { url, key, bytes: sizeBytes, durationSec };
 	} finally {
 		await workspace.cleanup().catch((error: unknown) => {

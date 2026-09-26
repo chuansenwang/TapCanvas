@@ -24,14 +24,16 @@ description: TapCanvas 当前画布的原生 Agent 工具说明。
 
 - `film_image_gen`：提交图片节点并返回真实任务回执。参考图数量按所选图片模型的能力决定，不写死张数：模型目录 `meta.imageOptions.maxReferenceImages` 声明该模型单次执行的参考图上限（本地 `qwen-image-2.1` 图编辑为 16 张），未声明时沿用节点默认上限；超出上限时后端按上限截断并在节点日志记录，低于模型下限或模型不支持参考图时显式失败。
 - `film_video_gen`：提交视频节点并返回真实异步任务回执。相邻视频不默认连续；场景切换使用独立镜头。只有明确需要动作接力时才传 `continuation_from_node` 与 `continuation_mode`，工具会从当前画布真实上游视频抽取尾帧并登记为资产，`first_frame` 用作首帧，`reference` 用作全参考素材，二者不能混用。需要自定义 ComfyUI 工作流时，显式传 `workflow_capability`；`reference-audio-legacy` 必须同时提供当前画布中已生成的真实角色/场景图片和对白音频，运行时按工作流声明的顺序传入，不能把音频仅写在 prompt 里代替媒体输入。多角色对话应先确认每个角色图片与对应音频节点已取得真实资产 URL，再提交视频；只返回 `queued`/`running` 时不得宣称视频已完成。
-- `film_video_composite`：使用真实视频节点 ID 调用拼接执行器；成功后会在当前画布自动创建合片 `composeVideo` 节点，并建立源视频到合片节点的顺序连线，返回真实合片节点 ID 与资产 URL。
+- `film_video_composite`：使用真实视频节点 ID 调用拼接执行器；成功后会在当前画布自动创建合片 `composeVideo` 节点，并建立源视频到合片节点的顺序连线，返回真实合片节点 ID 与资产 URL。`audio_list` 可同时合入外部音轨：只接受当前画布真实音频节点 ID（≤3，节点必须已有真实 `audioUrl`），第 1 条替换原音轨、其后逐条混音；节点缺真实音频时显式失败。
+- `film_audio_gen`：把配音/旁白（默认 `type: "speech"`）或 BGM/环境音（`type: "music"`）合成为当前画布的音频节点，返回真实 `nodeId`、`audioUrl`、`assetId` 与时长。`ai_model` 省略时执行器按实时音频模型目录声明的 `tapcanvas:audio-engine=minimax-h3` 语音模型生成；目录未声明该能力或存在多个候选时显式失败，不会回退到别的引擎或模型。参考音色只传当前画布真实音频节点 ID（`reference_nodes`，最多 3 个，节点必须已有真实音频），不复制 URL；音乐生成不接受参考音频；H3 单次时长由台词与时间轴预算推导（1~15 秒）。
 - `film_ask_human`：通过当前会话的用户提问服务等待导演回答。
+- `film_media_catalog_get`：读取当前账号实时可执行的图片、视频与音频模型目录，返回精确 `modelKey` 与真实物理档位。这是提交生成前唯一合法的模型身份来源：`film_video_gen.ai_model` 必须逐字复制回执 `video.models[].modelKey`，`duration_sec`/`resolution`/`aspect_ratio` 必须落在同一模型的声明档位内；`film_audio_gen` 只在目录恰好声明一个 `engine=minimax-h3` 的 speech 模型时才可省略 `ai_model`。本地执行器模型（如 ComfyUI 的 `minimax-h3`）与系统渠道模型都会出现在该目录中；目录为空或读取失败时显式失败，禁止凭记忆、历史名称或猜测填写模型。
 - `film_file_read`、`film_file_write`：在当前画布隔离的 Agent Workspace 中读写相对路径文件。
 - `film_memory_recall`：从当前隔离 Workspace 的影视任务记录中召回历史；没有记录时返回 `not_found`。
 - `film_task_create`、`film_task_update`、`film_task_list`、`film_task_read`：管理当前隔离 Workspace 的影视任务清单。
 - `film_asset_search` / `film_asset_save`：分别调用项目素材列举和素材同步执行器，使用真实节点 ID，不返回或复制存储 URL。
 
-以下附件别名也已注册，但当前仓库没有对应的统一原生执行器，因此调用会返回明确能力错误，不会伪造成功：`film_scene_director`（旧 commands 协议）、`film_video_edit`、`film_audio_gen`、`film_sfx_gen`、`film_color_grade`。已有具体 TapCanvas 工具时，应直接使用其真实协议，例如 `tapcanvas_capture_director_scene`、`tapcanvas_render_director_clip`、`tapcanvas_material_assets_list`。
+以下附件别名也已注册，但当前仓库没有对应的统一原生执行器，因此调用会返回明确能力错误，不会伪造成功：`film_scene_director`（旧 commands 协议）、`film_video_edit`、`film_sfx_gen`、`film_color_grade`。已有具体 TapCanvas 工具时，应直接使用其真实协议，例如 `tapcanvas_capture_director_scene`、`tapcanvas_render_director_clip`、`tapcanvas_material_assets_list`。
 
 音频节点使用动态模型目录。模型必须带 `tapcanvas:audio-type=speech` 或 `tapcanvas:audio-type=music` 能力标签；节点右侧参数只允许使用所选目录项的 `meta.runtimeParameters`，不得按模型名称维护静态参数表或自动补默认模型。模型能力、价格、路由或参数契约缺失时必须显式失败。模型带 `tapcanvas:audio-engine=minimax-h3` 标签时，执行端调用后端显式配置的 `MINIMAX_H3_TTS_BASE_URL`（本机默认 `http://127.0.0.1:8188`）直连 ComfyUI：上传真实上游参考音频、提交 H3 工作流、轮询任务历史并读取音频产物；H3 音频没有任何模型参数，只接受 `prompt`：音频时长由提示词里的台词与时间轴预算推导，采样步数与可用 UNET 取工作流固定配置并由执行前 `/object_info` 实时枚举校验，节点不暴露也不接受 `duration`/`steps`/`unet`，最多 3 条参考音频。H3 语音支持简易模式：节点文本是普通台词时后端会自动组装成结构化提示词（每行一句、开场 1 秒无人声、逐句时间戳、台词包 `<d>`），已是完整结构则原样透传；需要多人对白与多角色音色绑定时仍应按 `tapcanvas-h3-audio` Skill 手写结构。服务未配置、参考资产缺失或下载失败时必须显式失败，不得改走其他 TTS 引擎。`audioType` 是模型能力的投影；`voice_card` 仅是可复用音色锚的特殊节点模式，不重新筛选模型类型。
 

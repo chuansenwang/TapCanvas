@@ -14,6 +14,27 @@
 
 import { validateH3AudioPromptContract } from "../task/h3-prompt-contract";
 
+/**
+ * H3 音频提示词的全部段落名。用于区分「用户输入的是普通台词」与
+ * 「用户写了结构化提示词但结构损坏」——后者必须显式失败，不得降级重打包。
+ */
+const H3_AUDIO_SECTION_NAMES = [
+  "integrated_multimodal_description",
+  "subject_definitions",
+  "summary",
+  "retention_analysis",
+  "detailed_description",
+  "overall_soundscape",
+  "non_diegetic_music",
+] as const;
+
+/** 该行是否是某个 H3 段落名声明（与契约校验同口径的结构判定）。 */
+function hasSectionField(prompt: string, field: string): boolean {
+  return prompt
+    .split(/\r?\n/u)
+    .some((line) => line.trimStart().startsWith(`${field}:`));
+}
+
 /** 中文语速经验值（字/秒），与执行器时长估算和 H3 音频 Skill 保持一致。 */
 const CHARS_PER_SECOND = 4.5;
 /** 开场静默秒数：规避 H3 段首约 1 秒的伪影区。 */
@@ -118,7 +139,7 @@ export function planH3DialogueDuration(shoots: readonly H3DialogueShot[]): numbe
 
 function renderShots(shoots: readonly H3DialogueShot[], options: { voice: string }): string[] {
   // Shot 1 不写时间戳，只声明开场无人声；后续镜头逐句挂时间戳，与 H3 Skill 一致。
-  const header = "[Shot 1] 画面开始的一秒内只有环境声淡入，没有任何人声、杂声或呓语。";
+  const header = "[Shot 1] 画面开始的一秒内没有任何人声、杂声或呓语。";
   return [
     header,
     ...shoots.map((shot) =>
@@ -127,17 +148,27 @@ function renderShots(shoots: readonly H3DialogueShot[], options: { voice: string
   ];
 }
 
+/**
+ * 声场段落：默认 `N/A`（只出干净人声）。
+ *
+ * H3 官方指南规定 `overall_soundscape` 只有在用户明确要求「全程静音」时才写 `N/A`，
+ * 但只要在正文里描述环境声，模型就会真的铺一层环境床——这正是此前「所有音色都带背景音」
+ * 的来源。简易模式的语义是「把这段台词念出来」，用户没有要求环境声，
+ * 因此默认输出 `N/A`，不主动追加任何环境声、底噪或配乐描述。
+ */
+const SOUNDSCAPE_SILENT = "N/A";
+
 /** 无参考音：基础三段结构。 */
-function buildTextModePrompt(lines: readonly string[], shots: readonly H3DialogueShot[], duration: number): string {
+function buildTextModePrompt(shots: readonly H3DialogueShot[]): string {
   return [
     "integrated_multimodal_description:",
     ...renderShots(shots, { voice: "旁白说话人以 (S1) 的声音" }),
     "",
     "overall_soundscape:",
-    "轻微的室内环境底噪，人声清晰，除台词外没有任何其他人声、杂声或呓语。",
+    SOUNDSCAPE_SILENT,
     "",
     "non_diegetic_music:",
-    `N/A（本段为约 ${duration.toFixed(1)} 秒的纯语音，共 ${lines.length} 句台词）`,
+    "N/A",
   ].join("\n");
 }
 
@@ -159,7 +190,7 @@ function buildReferenceModePrompt(lines: readonly string[], shots: readonly H3Di
     ...renderShots(shots, { voice: "说话人以 (S1) 的声音、@1 的音色" }),
     "",
     "overall_soundscape:",
-    "轻微的室内环境底噪，人声清晰，除台词外没有任何其他人声、杂声或呓语。",
+    SOUNDSCAPE_SILENT,
     "",
     "non_diegetic_music:",
     "N/A",
@@ -182,7 +213,7 @@ export function buildH3AudioPromptFromDialogue(input: {
   const duration = planH3DialogueDuration(shots);
   return input.referenceAudioCount > 0
     ? buildReferenceModePrompt(lines, shots, duration)
-    : buildTextModePrompt(lines, shots, duration);
+    : buildTextModePrompt(shots);
 }
 
 /**
@@ -199,6 +230,18 @@ export function resolveH3AudioPrompt(input: {
     referenceAudioCount: input.referenceAudioCount,
   });
   if (existing.ok) return { prompt: text, source: "structured" };
+  // 已经写了 H3 段落名、却缺必需段落时，说明这是「损坏的结构化提示词」，
+  // 不是普通台词。此时套用简易模式会把整段结构当成台词逐行重打包
+  // （`<d>` 嵌套、段落名被念出来），把 1 句台词放大成几十秒的伪请求。
+  // 按仓库的显式失败原则，这里必须原地报错并指明缺失段落，不得降级重打包。
+  const declaredSections = H3_AUDIO_SECTION_NAMES.filter((field) => hasSectionField(text, field));
+  if (declaredSections.length > 0) {
+    throw new Error(
+      "H3 音频提示词结构不完整：已声明段落 " +
+      `${declaredSections.join("、")}，但缺少必需段落 ${existing.missing.join("、")}。` +
+      "请补齐缺失段落；如果只想生成普通配音，请改为只输入纯台词文本，不要混入段落名。",
+    );
+  }
   return {
     prompt: buildH3AudioPromptFromDialogue({
       text,
