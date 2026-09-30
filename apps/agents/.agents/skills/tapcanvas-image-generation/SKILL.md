@@ -16,6 +16,12 @@ description: 在用户要求生成或编辑图片时，直接使用 TapCanvas �
 - `prompt_template` 只在用户明确提供模板时传入，不要把旧脚本中的固定模板当作默认值。
 - 参考图数量按所选图片模型的能力决定，不写死张数：模型目录的 `meta.imageOptions.maxReferenceImages` 声明该模型单次执行可接收的参考图上限（例如本地 `qwen-image-2.1` 图编辑为 16 张）。模型未声明上限时沿用节点默认上限。实际传入张数超出模型上限时后端按上限截断并在节点日志中记录，低于下限（本地 Qwen 图编辑为 1 张）或模型不支持参考图时显式失败；不要靠增删参考图来绕过失败，也不要假设某个固定张数一定可用。
 
+## 角色卡
+
+当本次生成的是角色卡（角色资产、角色设定图、人物身份板，或用户要求「三视图」）时，先加载 `tapcanvas-character-card` Skill，再按其契约生成：角色卡必须携带 `character_asset_role`、`role_name`、`identity_board_spec`、`identity_anchors`、`prohibited_drift`，基础身份板用 `identity_anchor`，可见状态变化用 `state_variant` 并附 `state_key`/`state_description` 与精确上游引用。
+
+只传 `prompt` 而不传这些字段的图不会被识别为角色卡，也不会进入项目素材库，后续镜头无法按 `@角色名` 复用。
+
 ## 结果与失败
 
 函数返回真实的 `nodeId`、`flowId`、`taskId`、状态和资产信息。`running` 只表示任务已受理并已写入画布，不能宣称图片已经完成；只有返回 `success` 且存在真实资产 URL 时才报告已生成。

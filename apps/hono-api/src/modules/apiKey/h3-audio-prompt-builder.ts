@@ -13,6 +13,14 @@
  */
 
 import { validateH3AudioPromptContract } from "../task/h3-prompt-contract";
+import {
+  H3_LINE_GAP_SECONDS,
+  H3_MIN_LINE_SECONDS,
+  H3_OPENING_SILENCE_SECONDS,
+  H3_TAIL_SECONDS,
+  h3SpeakingSeconds,
+  isH3CjkChar,
+} from "./h3-speech-rate";
 
 /**
  * H3 音频提示词的全部段落名。用于区分「用户输入的是普通台词」与
@@ -35,34 +43,12 @@ function hasSectionField(prompt: string, field: string): boolean {
     .some((line) => line.trimStart().startsWith(`${field}:`));
 }
 
-/** 中文语速经验值（字/秒），与执行器时长估算和 H3 音频 Skill 保持一致。 */
-const CHARS_PER_SECOND = 4.5;
-/** 开场静默秒数：规避 H3 段首约 1 秒的伪影区。 */
-const OPENING_SILENCE_SECONDS = 1;
-/** 句间停顿秒数。 */
-const LINE_GAP_SECONDS = 0.6;
-/** 单句最短占位秒数。 */
-const MIN_LINE_SECONDS = 1.5;
-/** 收尾留白秒数。 */
-const TAIL_SECONDS = 1.5;
-
 export type H3AudioPromptSource = "structured" | "plain_text";
 
 export type ResolvedH3AudioPrompt = {
   prompt: string;
   source: H3AudioPromptSource;
 };
-
-function isCjkChar(char: string): boolean {
-  const code = char.codePointAt(0) ?? 0;
-  return (
-    (code >= 0x2e80 && code <= 0x9fff) ||
-    (code >= 0xac00 && code <= 0xd7af) ||
-    (code >= 0xf900 && code <= 0xfaff) ||
-    (code >= 0x3000 && code <= 0x303f) ||
-    (code >= 0xff00 && code <= 0xffef)
-  );
-}
 
 /**
  * 台词语言标签。按字符集判定 CJK，属于机械分类而非语义识别；
@@ -72,7 +58,7 @@ function resolveLanguageTag(text: string): string {
   let cjk = 0;
   let latinOrDigit = 0;
   for (const char of text) {
-    if (isCjkChar(char)) cjk += 1;
+    if (isH3CjkChar(char)) cjk += 1;
     else if (/[A-Za-z0-9]/.test(char)) latinOrDigit += 1;
   }
   if (cjk === 0 && latinOrDigit > 0) return "English";
@@ -87,14 +73,9 @@ function formatTimestamp(seconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${remainder.toFixed(3).padStart(6, "0")}`;
 }
 
-/** 去掉空白后的字符数，用于语速预算。 */
-function spokenLength(text: string): number {
-  return text.replace(/\s/gu, "").length;
-}
-
-/** 单句占位秒数：不短于最短占位，按语速线性换算。 */
+/** 单句占位秒数：不短于最短占位，按语种语速线性换算。 */
 function lineSeconds(text: string): number {
-  return Math.max(MIN_LINE_SECONDS, spokenLength(text) / CHARS_PER_SECOND);
+  return Math.max(H3_MIN_LINE_SECONDS, h3SpeakingSeconds(text));
 }
 
 /** 逐行拆出台词：每个非空行是一句独立台词，与上游 lines 数组语义一致。 */
@@ -116,7 +97,7 @@ export type H3DialogueShot = {
 /** 按「开场静默 + 逐句语速」排布时间轴，供提示词与时长预算共用。 */
 export function planH3DialogueShots(lines: readonly string[]): H3DialogueShot[] {
   const shots: H3DialogueShot[] = [];
-  let cursor = OPENING_SILENCE_SECONDS;
+  let cursor = H3_OPENING_SILENCE_SECONDS;
   for (const [index, text] of lines.entries()) {
     shots.push({
       index: index + 1,
@@ -125,7 +106,7 @@ export function planH3DialogueShots(lines: readonly string[]): H3DialogueShot[] 
       languageTag: resolveLanguageTag(text),
       text,
     });
-    cursor += lineSeconds(text) + LINE_GAP_SECONDS;
+    cursor += lineSeconds(text) + H3_LINE_GAP_SECONDS;
   }
   return shots;
 }
@@ -133,8 +114,8 @@ export function planH3DialogueShots(lines: readonly string[]): H3DialogueShot[] 
 /** 由时间轴推算的整段时长（秒），用于摘要文案与超限提示。 */
 export function planH3DialogueDuration(shoots: readonly H3DialogueShot[]): number {
   const last = shoots.at(-1);
-  if (!last) return OPENING_SILENCE_SECONDS + TAIL_SECONDS;
-  return last.startSeconds + lineSeconds(last.text) + TAIL_SECONDS;
+  if (!last) return H3_OPENING_SILENCE_SECONDS + H3_TAIL_SECONDS;
+  return last.startSeconds + lineSeconds(last.text) + H3_TAIL_SECONDS;
 }
 
 function renderShots(shoots: readonly H3DialogueShot[], options: { voice: string }): string[] {

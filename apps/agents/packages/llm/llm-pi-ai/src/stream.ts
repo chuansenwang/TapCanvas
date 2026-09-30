@@ -56,6 +56,13 @@ function classifyPiAiError(message: string): string {
   // finish_reason`). The connection dropped mid-response, so this is a transport
   // truncation, not a model-level error.
   if (/stream ended (?:before|without)\b/i.test(message)) return 'TRANSPORT'
+  // A newline-delimited SSE/NDJSON frame whose bytes stopped mid-JSON: the
+  // reader handed the parser an incomplete frame instead of the provider's
+  // terminal event, so the wire closed mid-response exactly as above. Both the
+  // OpenAI SDK (`Unexpected end of JSON input`, `Unterminated string in JSON`)
+  // and other line-delimited readers surface the bare V8/JSC `JSON.parse`
+  // wording here, with no transport noun left in the string.
+  if (isJsonFrameTruncation(message)) return 'TRANSPORT'
   if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b/i.test(message)
     || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)
     // undici renders a mid-stream socket drop as a bare `terminated` (its
@@ -65,6 +72,23 @@ function classifyPiAiError(message: string): string {
     return 'TRANSPORT'
   }
   return 'PI_AI_ERROR'
+}
+
+/**
+ * Recognize an incomplete JSON frame surfaced by a line-delimited stream reader.
+ *
+ * These wordings describe bytes that ran out inside one frame, which for a
+ * streaming response means the connection closed before the provider's terminal
+ * event. A *complete* malformed frame is a different failure and deliberately
+ * falls through to the non-retryable catch-all: `Expected property name or '}'`
+ * and `Unexpected token … is not valid JSON` report a provider that sent
+ * well-formed framing with broken content, where resending cannot help.
+ * @param message - provider error text produced by the transport.
+ * @returns whether the text describes JSON that ended before it was complete.
+ */
+function isJsonFrameTruncation(message: string): boolean {
+  return /unexpected end of json input/i.test(message)
+    || /unterminated string in json/i.test(message)
 }
 
 /**

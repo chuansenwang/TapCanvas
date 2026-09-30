@@ -39,6 +39,8 @@ wrangler.jsonc
 .agents
 # Keep TapCanvas skills shipped with the native Agent under version control.
 !.agents/
+!.agents/skills/
+!.agents/skills/**
 apps/agents/.agents/*
 !apps/agents/.agents/skills/
 apps/agents/.agents/skills/*

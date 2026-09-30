@@ -130,6 +130,45 @@ function comfyUrl(baseUrl: string, path: string): string {
 	return new URL(path.replace(/^\/+/, ""), `${baseUrl}/`).toString();
 }
 
+/**
+ * ComfyUI 历史输出的媒体条目类型。
+ *
+ * ComfyUI 官方输出节点（SaveImage/SaveVideo/PreviewAudio）统一把媒体放在
+ * `images`/`videos`/`audio` 这类已知键下，条目自带 filename/subfolder/type。
+ * 但自定义输出节点会声明自己的 UI 键：例如小珠光音频保存节点返回 `audio_saved`、
+ * 音频加载器返回 `audio_info`。这里按「条目里带非空 filename 字符串」这一唯一事实
+ * 判定媒体条目，避免再为每个自定义节点维护键名白名单。
+ *
+ * `type` 是 ComfyUI 存储位置的事实声明（output/temp/input），也是 `/view` 能够取回
+ * 该文件的必要参数。只有 filename 而没有 type 的条目是节点自带的元数据（例如音频加载器
+ * 回显的输入音频信息），既不是本次产出，也无法通过 `/view` 下载，必须排除。
+ */
+type ComfyOutputFile = { filename: string; subfolder: string; type: string };
+
+function readComfyOutputFile(item: unknown): ComfyOutputFile | null {
+	if (!isRecord(item)) return null;
+	const filename = readString(item.filename);
+	const type = readString(item.type);
+	if (!filename || !type) return null;
+	return { filename, subfolder: readString(item.subfolder), type };
+}
+
+function extractComfyOutputFiles(outputs: JsonRecord, allowedNodeIds?: ReadonlySet<string>): ComfyOutputFile[] {
+	const files: ComfyOutputFile[] = [];
+	for (const [nodeId, raw] of Object.entries(outputs)) {
+		if (allowedNodeIds && allowedNodeIds.size && !allowedNodeIds.has(nodeId)) continue;
+		if (!isRecord(raw)) continue;
+		for (const items of Object.values(raw)) {
+			if (!Array.isArray(items)) continue;
+			for (const item of items) {
+				const file = readComfyOutputFile(item);
+				if (file) files.push(file);
+			}
+		}
+	}
+	return files;
+}
+
 function parseWorkflow(value: unknown, field: string): ComfyWorkflow {
 	if (!isRecord(value)) throw new AppError(`${field} 必须是 ComfyUI API 工作流对象`, { status: 500, code: "comfyui_workflow_invalid" });
 	const entries = Object.entries(value);
@@ -722,20 +761,7 @@ function extractComfyHistoryStatus(history: JsonRecord): "running" | "succeeded"
 
 function extractComfyHistoryFiles(history: JsonRecord): Array<{ filename: string; subfolder: string; type: string }> {
 	const outputs = isRecord(history.outputs) ? history.outputs : {};
-	const files: Array<{ filename: string; subfolder: string; type: string }> = [];
-	for (const raw of Object.values(outputs)) {
-		if (!isRecord(raw)) continue;
-		for (const key of ["images", "gifs", "videos", "video", "audio", "audios"] as const) {
-			const items = raw[key];
-			if (!Array.isArray(items)) continue;
-			for (const item of items) {
-				if (!isRecord(item)) continue;
-				const filename = readString(item.filename);
-				if (filename) files.push({ filename, subfolder: readString(item.subfolder), type: readString(item.type) || "output" });
-			}
-		}
-	}
-	return files;
+	return extractComfyOutputFiles(outputs);
 }
 
 /**
@@ -769,24 +795,17 @@ export async function fetchComfyUiTaskResult(
 	return TaskResultSchema.parse({ id: promptId, kind: input.taskKind, status: "succeeded", assets, raw: { provider: "comfyui", promptId, history } });
 }
 
-function extractOutputFiles(history: JsonRecord, variant: WorkflowVariant, workflow: ComfyWorkflow): Array<{ filename: string; subfolder: string; type: string }> {
+/**
+ * 按变体声明的 outputNodeIds 取回本次产出。
+ *
+ * 该入口服务于文字转音频等同步等待任务，必须同时满足两点：只认本变体声明的输出节点，
+ * 且只认真正可下载的媒体条目（带 type 的文件引用）。两处判据与轮询入口共用同一实现，
+ * 避免出现「轮询能取回、同步报未产出媒体」的双轨行为。
+ */
+export function extractOutputFiles(history: JsonRecord, variant: WorkflowVariant, workflow: ComfyWorkflow): Array<{ filename: string; subfolder: string; type: string }> {
 	const outputs = isRecord(history.outputs) ? history.outputs : {};
 	const allowedIds = new Set(variant.outputNodeIds ?? discoverNodeIds(workflow, "output"));
-	const files: Array<{ filename: string; subfolder: string; type: string }> = [];
-	for (const [nodeId, raw] of Object.entries(outputs)) {
-		if (allowedIds.size && !allowedIds.has(nodeId)) continue;
-		if (!isRecord(raw)) continue;
-		for (const key of ["images", "gifs", "videos", "audio", "audios"] as const) {
-			const items = raw[key];
-			if (!Array.isArray(items)) continue;
-			for (const item of items) {
-				if (!isRecord(item)) continue;
-				const filename = readString(item.filename);
-				if (filename) files.push({ filename, subfolder: readString(item.subfolder), type: readString(item.type) || "output" });
-			}
-		}
-	}
-	return files;
+	return extractComfyOutputFiles(outputs, allowedIds);
 }
 
 export async function runComfyUiTask(c: AppContext, req: TaskRequestDto): Promise<TaskResultDto> {

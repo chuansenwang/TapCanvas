@@ -44,15 +44,27 @@ H3 是生成模型：**没有参考音频时，音色靠文字描述设计出来
 
 触发条件：用户说“设计一个 X 的声音”“给我一个沙哑的老巫师嗓子”“要慵懒御姐音”等，都属于本场景。
 
-正确写法（描述在 `<d>` 外，台词在 `<d>` 内）：
+正确写法（描述在 `<d>` 外，台词在 `<d>` 内；**音色设计一律干声**）：
 
 ```text
 integrated_multimodal_description:
-[Shot 1] Audio-only scene in a dim stone chamber. An elderly witch with a cracked, gravelly, low-pitched and raspy voice (S1) speaks slowly and menacingly, savoring each word: <d>[Chinese] 你好啊亲爱的，我等你很久了，快进来吧。</d>
+[Shot 1] A completely dry, close-miked vocal take: no room tone, no ambience, no music and no reverberation of any kind; every gap between sentences is absolutely silent. Solo spoken piece with exactly one speaker in the entire clip. (S1) is an elderly witch with a cracked, gravelly, low-pitched and raspy voice, speaking slowly and menacingly, savoring each word.
+[Shot 2] At exactly 00:01.000 the witch (S1) begins speaking immediately: <d>[Chinese] 你好啊亲爱的，我等你很久了，快进来吧。</d>
 
-overall_soundscape: Distant dripping water and a faint crackling fire.
+overall_soundscape: N/A
 non_diegetic_music: N/A
 ```
+
+### 音色设计必须干声（强制）
+
+**`overall_soundscape` 写了什么，H3 就真的会生成什么。** 在 `overall_soundscape` 里写雨、水、门、脚步、房间底噪，声音里就一定会出现这些背景声——这不是元数据，是实质指令。
+
+音色锚点的用途是作为 Ref2VA 的参考音去锁定 timbre，参考音里的一切都会被一起克隆。**混在音色锚点里的雨声、水声、房间底噪会跟着 timbre 污染后续所有镜头**，且事后无法分离。因此音色设计场景：
+
+- `overall_soundscape` 与 `non_diegetic_music` **必须都写 `N/A`**。
+- `[Shot 1]` 里显式写明干声约束（no room tone / no ambience / no music / no reverberation / every gap absolutely silent）；只描述音色，不描写场景环境。
+- **`integrated_multimodal_description` 里也不要写场景环境**（雨、水、船、房间、电梯、金属门等）。官方指南允许该段落承载画面与 diegetic audio，写了就会被生成；音色设计只需要「说话人 + 音色 + 台词」三类事实。
+- 需要带环境的成品音频时，那是**分镜/对白生成**，不是音色设计：先用干净音色锚点锁 timbre，再在后续 Ref2VA 任务里按真实场景写 `overall_soundscape`。
 
 硬性约束：
 
@@ -70,15 +82,18 @@ non_diegetic_music: N/A
 - 每个实际发声者按首次发声顺序绑定稳定 `(S1)`、`(S2)` 编号，后续保持不变；直连 ComfyUI 时参考音按上游资产连线顺序使用 `<Audio 1>`、`<Audio 2>`、`<Audio 3>` 标注，不使用 `@别名`，不得交换角色音色。
 - 参考音色只用于音色特征。`retention_analysis` 明确写出只保留 timbre、不得复述参考音频原话，最终台词只能来自当前任务事实。
 - 在 `subject_definitions` 或 `detailed_description` 明确声明全片人物数量、每个 `(Sx)` 的唯一归属和禁止混淆；没有新增角色声音。
-- 开场前约 1 秒只保留环境声淡入，不安排人声、杂声或呓语；第一句对白时间戳应晚于 1 秒。
+- 开场前约 1 秒不安排人声、杂声或呓语，第一句对白时间戳应晚于 1 秒。**这 1 秒只表示「没人声」，不表示要铺环境声**：音色设计场景这 1 秒必须是绝对静音（`overall_soundscape: N/A`）；只有分镜生成且用户明确要求环境声时，才在这 1 秒写环境声淡入。
 - 对 5 秒短音频，开场镜头只写一句可见状态，禁止把人物连续动作、镜头运动或铺陈细节放在第一句对白之前；这些内容会被模型当作实际发生在对白前的时间，导致起声拖到后半段。将第一句对白写为第二镜的第一动作，并明确 `At exactly 00:01.000`、`begins speaking immediately` 与 `audible voice onset must occur no later than 00:01.200`。
 - 说话必须挂在可见动作、镜头或画面状态上；用轻笑、停顿、吸气、落座等动作表达节奏，不孤立写“播放语音”。
 - `[Shot 1]` 不写时间戳；后续镜头使用严格递增的 `At MM:SS.mmm`，且不超过本次台词预算出的时长。
-- 中文语速按约 4.5 字/秒估算，另加 1 秒开场、句间约 0.6 秒停顿和收尾空间；系统按同一套规则从台词与时间轴预算推导音频时长，可行区间为 1~15 秒。台词过多时删减台词或拆分为多条音频节点，不提交超出 15 秒预算的单次请求。
-- `overall_soundscape` 只写环境声、动作声和非语言声音；`non_diegetic_music` 只写观众可听的配乐。**纯语音场景（用户只要求配音/音色，没有要求环境声或配乐）两段都写 `N/A`。** 官方指南允许 `N/A` 表达「不要环境声」；只要在正文里描述环境声、底噪或室内氛围，模型就会真的铺一层背景音床，用户没要求时不得主动添加。需要环境声或配乐时必须来自用户明确诉求，并写清具体声源（雨、脚步、钢琴等），不写「轻微的环境底噪」这类泛化描述。
+- 语速按字符集分语种估算：中文/CJK 约 4.5 字/秒，拉丁约 10 字符/秒（实现在 `apps/hono-api/src/modules/apiKey/h3-speech-rate.ts`），另加 1 秒开场、句间约 0.6 秒停顿和收尾空间；系统按同一套规则从台词与时间轴预算推导音频时长，可行区间为 1~15 秒。**不要按中文字数给英文台词估算时长**：H3 会把台词铺满请求时长，用中文语速估英文会成倍估长并留下大片尾部静音。台词过多时删减台词或拆分为多条音频节点，不提交超出 15 秒预算的单次请求。
+- `overall_soundscape` 只写环境声、动作声和非语言声音；`non_diegetic_music` 只写观众可听的配乐。**这两段是实质指令：写了就会被生成出来。** 按场景分档：
+  - **音色设计 / 配音试听 / 音色锚点：两段都必须 `N/A`**，且正文不写场景环境（见上方「音色设计必须干声」）。这是默认档，用户没提环境声时一律走这里。
+  - **分镜 / 对白生成且用户明确要求环境声或配乐**：才写具体声源（雨、脚步、钢琴等），并写清是哪些声音；不写「轻微的环境底噪」这类无具体声源的泛化描述——泛化描述会让模型自行发挥补出持续音床。
+  - 判断依据是**用户是否明确要求**，不是「场景看起来该有什么」。用户只给了场景设定（雨夜、渡口）而没有要求音频带环境声时，仍按干声处理。
 - 参考音频最多 3 条，必须来自真实资产 URL；上传顺序决定 `<Audio 1>`、`<Audio 2>`、`<Audio 3>` 映射。缺失或无法读取时显式失败。
 - 可用 UNET 由执行前对 `8188` 的 `/object_info` 实时枚举决定，不通过节点参数选择；当前只注册了 `fl2va` 音频 UNET，不得建议或假设存在未在实时枚举中出现的 `ref2va`。缺 UNET、文本编码器或 VAE 时执行显式失败。
-- 生成结果保留 ComfyUI 原始 FLAC 作为来源资产。默认播放的 WAV 固定移除 Prompt 合同约定的首秒无人声预卷，并只清理其后的起始连续静音，再保留 200ms 前导静音，避免从 0 秒硬切进人声；不做尾部响度阈值自动裁剪。中间停顿、呼吸、音乐和后续有效声音均不裁剪、不变速；真实时长以处理后 WAV 的 `ffprobe` 实测为准。
+- 生成结果保留 ComfyUI 原始 FLAC 作为来源资产。默认播放的 WAV 只按静音检测裁掉真实起始静音，再保留 200ms 前导静音，避免从 0 秒硬切进人声；不做尾部响度阈值自动裁剪。**不要假设成品开头一定有 1 秒无人声预卷**：H3 的时间轴是软约束，实测多数产物从 0.0~0.6 秒就开始说话，按契约固定裁掉首秒会从人声中间切一刀，听感上就是开头被截断、起声突兀。中间停顿、呼吸、音乐和后续有效声音均不裁剪、不变速；真实时长以处理后 WAV 的 `ffprobe` 实测为准。
 
 ## 交付前检查
 
@@ -87,4 +102,5 @@ non_diegetic_music: N/A
 - 确认开场无人声、时间戳递增且落在台词预算出的时长内。
 - 确认请求使用真实参考音频 URL，未用占位节点、文本脚本或 planned metadata 冒充资产。
 - 音色设计场景：确认音色描述写在 `<d>` 外、`<d>` 内只有真正的台词，且没有把用户“设计一个 X 的声音”的诉求原话当台词提交。
+- 音色设计场景：**逐字确认 `overall_soundscape` 与 `non_diegetic_music` 都是 `N/A`**，且 `integrated_multimodal_description` 里没有场景环境描写（雨、水、船、房间、门、脚步等）。只要这两段或正文写了环境声，生成的音色锚点就会被背景声污染，作为参考音克隆到后续所有镜头。用户明确要求环境声的情况除外，且此时不属于音色设计。
 - 只提交结构完整且事实可追溯的 prompt；不以本地关键词替代 Agent 的角色、情绪或剧情判断。

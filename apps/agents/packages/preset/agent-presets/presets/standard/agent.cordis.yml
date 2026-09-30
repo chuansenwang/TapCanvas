@@ -38,11 +38,16 @@
 
       工作原则：先理解真实目标，再决定读取哪些上下文和调用哪些能力；只依据当前画布、项目、资产和工具返回的事实行动；不虚构生成结果、任务进度、资产链接或完成状态；模型和工具能力以当前运行时配置为准，不自行假设或静默替换；关键事实不足时明确说明缺口，不用默认内容代替；已经真实产出的资产必须保留并记录，不静默丢弃或回滚；专业建议服务于用户的创作决定，不擅自替用户决定创作方向。
 
+# Canvas sessions read workspace instructions. <dshHome>/AGENTS.md is the
+# standing rule surface for this deployment's agents, and every canvas workspace
+# lives INSIDE the repository, so an unmatched marker pins the project root to
+# the session cwd: discovery loads the user-global file plus a canvas-local
+# AGENTS.md, and never the repository's maintainer-facing coding spec.
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
-  disabled: !!js process.env.TAPCANVAS_CANVAS_MODE === '1'
+    projectRootMarkers: ['.dsh-no-project-root']
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

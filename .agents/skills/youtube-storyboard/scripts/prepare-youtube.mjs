@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePythonCommand, runSubtitleTranscribe } from "./lib/subtitle-bridge.mjs";
 import { probeDurationSec, probeFrameRate, runFfmpeg } from "./lib/media-tools.mjs";
+import { resolveStoryboardDir } from "./lib/output-layout.mjs";
 import {
   DEFAULT_MIN_CUT_GAP_SEC,
   DEFAULT_SCENE_THRESHOLD,
@@ -185,10 +186,12 @@ if (args.help || (!args.url && !args.media)) {
     "用法：node prepare-youtube.mjs --url <YouTube URL> [--format json] [--subtitles auto|youtube|whisper] " +
       "[--frame-mode scene|interval] [--scene-threshold 0.25] [--min-cut-gap 0.1] [--frame-interval 15]\n" +
       "      node prepare-youtube.mjs --media <本地视频> [--format json] [--subtitles whisper] " +
-      "[--metadata <info.json>] [--frame-mode scene|interval] [--scene-threshold 0.25] [--min-cut-gap 0.1] " +
+      "[--metadata <info.json>] [--out-dir <分镜产物目录>] [--frame-mode scene|interval] [--scene-threshold 0.25] [--min-cut-gap 0.1] " +
       "[--frame-interval 15]\n\n" +
       "  --frame-mode scene（默认）：ffmpeg 全帧率场景检测，输出镜头边界与逐镜头代表帧。\n" +
-      "  --frame-mode interval：按固定间隔均匀抽样候选帧，只作画面证据点，不做切点。\n",
+      "  --frame-mode interval：按固定间隔均匀抽样候选帧，只作画面证据点，不做切点。\n" +
+      "  --out-dir：指定分镜产物目录。本地视频默认 <视频所在目录>/<视频文件名>.storyboard；\n" +
+      "             链接输入默认复用 video-downloader 生成的下载目录。\n",
   );
   process.exitCode = args.help ? 0 : 2;
 } else {
@@ -224,6 +227,7 @@ if (args.help || (!args.url && !args.media)) {
     }
 
     let outputDir;
+    let storyboardDir;
     let videoPath;
     let metadata;
     if (args.media) {
@@ -233,7 +237,10 @@ if (args.help || (!args.url && !args.media)) {
       if (!/\.(mp4|webm|mov|m4v|mkv)$/i.test(videoPath)) {
         throw new Error(`--media 不是受支持的视频格式: ${videoPath}`);
       }
-      outputDir = path.dirname(videoPath);
+      // --download-dir 只决定链接输入把视频下到哪里；本地视频已有文件，用它会被静默忽略。
+      if (args["download-dir"]) {
+        throw new Error("--download-dir 只用于链接输入；本地视频请用 --out-dir 指定分镜产物目录");
+      }
       if (args.metadata) {
         const metadataPath = path.resolve(String(args.metadata));
         if (!fs.existsSync(metadataPath)) throw new Error(`--metadata 指定的文件不存在: ${metadataPath}`);
@@ -241,9 +248,12 @@ if (args.help || (!args.url && !args.media)) {
       } else {
         metadata = findSiblingMetadata(videoPath);
       }
+      // 本地视频与其它视频同处一个目录时，产物若平铺在旁边就无法判断归属；
+      // 这里为每个视频建同名专属目录，把帧、拼图、切点、字幕全部收进去。
+      storyboardDir = resolveStoryboardDir({ videoPath, outDir: args["out-dir"] ?? null });
     } else {
-      const outputRoot = args.downloadDir
-        ? path.resolve(String(args.downloadDir))
+      const outputRoot = args["download-dir"]
+        ? path.resolve(String(args["download-dir"]))
         : path.join(repoRoot, ".runtime", "youtube-storyboard", "downloads");
       outputDir = runDownloader(url, outputRoot);
       const reportPath = path.join(outputDir, "download-report.json");
@@ -253,7 +263,11 @@ if (args.help || (!args.url && !args.media)) {
       if (!videoPath || !fs.existsSync(videoPath)) throw new Error("video-downloader 报告成功但未找到视频文件");
       const infoPath = fs.readdirSync(outputDir).find((name) => /\.info\.json$/i.test(name));
       metadata = infoPath ? JSON.parse(fs.readFileSync(path.join(outputDir, infoPath), "utf8")) : {};
+      // 链接输入已由 video-downloader 生成“一次下载一个目录”，默认直接复用该目录；
+      // 只有用户显式要求时才改用 --out-dir。
+      storyboardDir = args["out-dir"] ? path.resolve(String(args["out-dir"])) : outputDir;
     }
+    fs.mkdirSync(storyboardDir, { recursive: true });
     const directVideoUrl = typeof metadata.url === "string"
       ? metadata.url
       : metadata.requested_formats?.find((item) => typeof item?.url === "string")?.url;
@@ -274,13 +288,13 @@ if (args.help || (!args.url && !args.media)) {
       threshold: sceneThreshold,
       minCutGapSec,
     })}-${sourceFingerprint(videoPath)}`;
-    const framesDir = path.join(outputDir, `candidate-frames-${frameVariant}`);
+    const framesDir = path.join(storyboardDir, `candidate-frames-${frameVariant}`);
     // scene 模式产出镜头边界与逐镜头代表帧；interval 模式只产出均匀抽样证据点。
     let shots = null;
     let frameExtraction;
     if (frameMode === "scene") {
       const frameRate = probeFrameRate(videoPath);
-      const boundariesPath = path.join(outputDir, `shot-boundaries-${frameVariant}.json`);
+      const boundariesPath = path.join(storyboardDir, `shot-boundaries-${frameVariant}.json`);
       // 同视频同参数已算过时直接复用，避免重复解码整片；参数变化必然落到新目录，不会串用。
       const reusable = loadReusableShots({
         boundariesPath,
@@ -295,7 +309,7 @@ if (args.help || (!args.url && !args.media)) {
         durationSec,
         frameRate,
         framesDir,
-        logPath: path.join(outputDir, `scene-cuts-${frameVariant}.txt`),
+        logPath: path.join(storyboardDir, `scene-cuts-${frameVariant}.txt`),
         threshold: sceneThreshold,
         minCutGapSec,
       });
@@ -373,7 +387,7 @@ if (args.help || (!args.url && !args.media)) {
     if (candidateFrames.length === 0) throw new Error(`ffmpeg 未产出候选帧：${framesDir}`);
     const contactSheets = buildContactSheets({
       frames: candidateFrames,
-      sheetsDir: path.join(outputDir, `candidate-sheets-${frameVariant}`),
+      sheetsDir: path.join(storyboardDir, `candidate-sheets-${frameVariant}`),
       variant: frameVariant,
     });
 
@@ -383,7 +397,7 @@ if (args.help || (!args.url && !args.media)) {
     let subtitles = null;
     if (args.subtitles && args.subtitles !== "none") {
       const mode = String(args.subtitles);
-      subtitles = runSubtitleTranscribe({ skillsRoot, videoPath, videoId, outputDir, mode });
+      subtitles = runSubtitleTranscribe({ skillsRoot, videoPath, videoId, outputDir: storyboardDir, mode });
     }
 
     const output = {
@@ -399,6 +413,8 @@ if (args.help || (!args.url && !args.media)) {
         directVideoUrl: directVideoUrl ?? null,
         mimeType: mimeTypeForPath(videoPath),
         localVideoPath: videoPath,
+        // 本次分镜产物的专属目录：候选帧、拼图、切点日志、镜头边界、字幕都在这里。
+        storyboardDir,
         // scene 模式下 candidateFrames 与 shots 一一对应（每个镜头一张代表帧）；
         // interval 模式下候选帧只是均匀抽样证据点，shots 为 null。
         shots,

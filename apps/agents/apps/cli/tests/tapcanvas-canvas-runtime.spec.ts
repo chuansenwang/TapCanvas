@@ -123,6 +123,32 @@ describe('TapCanvas 画布运行时挂载', () => {
         'tapcanvas_get_current_canvas',
         ...FILM_FUNCTION_NAMES,
       ]))
+      // 角色卡字段必须出现在模型真实可见的参数里，否则 Agent 无法声明
+      // identity_board_four_view 身份板，角色资产只能退化成普通图片。
+      const imageGenSchema = ctx.tools
+        .schemas(handle.agent)
+        .find(schema => schema.name === 'film_image_gen')
+      expect(imageGenSchema).toBeDefined()
+      const imageGenParameters = imageGenSchema?.parameters as
+        | Record<string, unknown>
+        | undefined
+      const characterCardFields = [
+        'character_asset_role',
+        'role_name',
+        'identity_board_spec',
+        'identity_anchors',
+        'prohibited_drift',
+        'state_key',
+        'state_description',
+      ]
+      const serializedParameters = JSON.stringify(imageGenParameters ?? {})
+      for (const field of characterCardFields) {
+        expect(serializedParameters).toContain(`"${field}"`)
+      }
+      // Skill 必须能被原生会话按需加载，否则角色卡方法论在运行时不可达，
+      // 角色资产仍然只会退化成普通图片。
+      const skillNames = await ctx.skills.list({ scope: handle.agent })
+      expect(skillNames.map(skill => skill.name)).toContain('tapcanvas-character-card')
     } finally {
       await handle.dispose()
     }

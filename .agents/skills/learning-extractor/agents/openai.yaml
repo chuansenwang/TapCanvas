@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI 错误经验登记"
+  short_description: "登记 AI 错误经验并判断是否升级为长期经验"
+  default_prompt: "使用 $learning-extractor，记录本次已确认的 AI 错误，更新 docs/engineering/learning-extractor.md（AI 错误经验登记），并判断是否需要同步升级 docs/engineering/ai-error-learnings.md。"

@@ -10,9 +10,13 @@ describe("MiniMax H3 直连 ComfyUI", () => {
     vi.unstubAllGlobals();
   });
 
-  it("交付音频移除首秒预卷和其后的起始静音，保留 200ms 前导且不裁尾", () => {
-    expect(h3DeliveryAudioFilter()).toBe(
-      "atrim=start=1,asetpts=PTS-STARTPTS,silenceremove=start_periods=1:start_duration=0.20:start_threshold=-45dB:start_silence=0.08,adelay=200:all=1",
+  // 回归：旧滤镜无条件 `atrim=start=1`，假设「首秒是预卷」。实测 23 条归档产物里
+  // 17 条首秒内已有真实人声，该裁剪等于从人声中间切一刀（开头被截断、起声突兀）。
+  it("交付音频只裁真实起始静音，不按契约假设固定裁掉首秒", () => {
+    const filter = h3DeliveryAudioFilter();
+    expect(filter).not.toContain("atrim=start=1");
+    expect(filter).toBe(
+      "silenceremove=start_periods=1:start_duration=0.20:start_threshold=-45dB:start_silence=0.08,adelay=200:all=1",
     );
   });
 
@@ -43,9 +47,9 @@ describe("MiniMax H3 直连 ComfyUI", () => {
     });
 
     expect(result.promptId).toBe("prompt-8188");
-    // 时长不来自用户输入：按 `<d>` 台词字符数（中文约 4.5 字/秒）加开场与收尾空间推导。
-    // 该 prompt 的对白是 "Hello." 共 6 个非空白字符 → 6/4.5 ≈ 1.33s，加 1s 开场与 1.5s 收尾 = 3.83s。
-    expect(result.selectedDuration).toBeCloseTo(3.83, 2);
+    // 时长不来自用户输入：按 `<d>` 台词字符数与语种语速加开场、句间、收尾空间推导。
+    // 该 prompt 的对白是 "Hello." 共 6 个拉丁字符 → 6/10 = 0.6s，加 1s 开场与 1.5s 收尾 = 3.1s。
+    expect(result.selectedDuration).toBeCloseTo(3.1, 2);
     expect(result.audio.byteLength).toBeGreaterThan(128);
     expect(String(fetchMock.mock.calls[0]![0])).toBe("http://127.0.0.1:8188/object_info");
     expect(String(fetchMock.mock.calls[1]![0])).toBe("https://assets.example.test/reference.wav");

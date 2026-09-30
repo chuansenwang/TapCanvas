@@ -552,11 +552,16 @@ if (!(await isAsyncImageWorkerHealthy())) {
   startService(
     'async-image-worker',
     pnpmCommand,
-    // 开发态必须执行源码并跟随源码变更重启：此前的 dist 产物是 2026-09-12 构建的，
-    // 源码在 2026-09-22 新增了 referenceImageRange 支持，worker 却仍在跑旧校验，导致
-    // 画布报「ComfyUI 工作流变体 2 缺少 id/taskKind/referenceImageCount」。
-    // `--watch` 让改动 worker 侧代码后无需手动 build 或重启（与 API dev 脚本同一机制）；
-    // dist 仅用于 docker-compose / pnpm start 的生产链路。
+    // 开发态必须执行源码：此前的 dist 产物是 2026-09-12 构建的，源码在 2026-09-22 新增了
+    // referenceImageRange 支持，worker 却仍在跑旧校验，导致画布报「ComfyUI 工作流变体 2
+    // 缺少 id/taskKind/referenceImageCount」。dist 仅用于 docker-compose / pnpm start 的生产链路。
+    //
+    // 这里刻意不使用 `node --watch`：一次 ComfyUI 图片任务可持续 60~180 秒，远超 BullMQ
+    // 默认 lockDuration(30s)；而 `node --watch` 重建子进程时不会投递 SIGTERM（实测 handler
+    // 从不执行），worker 既无法 drain 也无法续锁，任务会被 stalled 检测判为
+    // 「job stalled more than allowable limit」。由于图片 job 固定 maxStalledCount=0，
+    // 首次 stall 即终态失败；而供应商可能已经出图，等于把已产出的资产判成失败。
+    // 改动 worker 代码后请手动重启本服务，不得用 watch 换回这个故障。
     ['pnpm', '--filter', '@tapcanvas/api', 'async-image:worker:dev'],
     rootDirectory,
     workerEnvironment,

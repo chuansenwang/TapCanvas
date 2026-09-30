@@ -8,6 +8,7 @@ import {
   resolveH3AudioPrompt,
   splitDialogueLines,
 } from "./h3-audio-prompt-builder";
+import { h3SpeakingSeconds } from "./h3-speech-rate";
 
 describe("H3 音频简易模式", () => {
   it("把普通中文台词组装成满足音频合同的三段式提示词", () => {
@@ -113,6 +114,23 @@ describe("H3 音频简易模式", () => {
   it("纯英文台词标注 English，中文台词标注 Chinese", () => {
     expect(planH3DialogueShots(["Hello there friend"])[0]!.languageTag).toBe("English");
     expect(planH3DialogueShots(["你好亲爱的"])[0]!.languageTag).toBe("Chinese");
+  });
+
+  // 回归点：旧实现对所有台词统一套用中文 4.5 字/秒。实测一条 53 字符的英文台词
+  // 被请求 14.375 秒，而真实人声 8.25 秒就结束，尾部留下 6.13 秒静音。
+  // 英文（拉丁）必须按独立语速换算，否则时长会被成倍估长。
+  it("英文台词按拉丁语速估算，不套用中文语速", () => {
+    const english = "Hey! You're finally here — I've been waiting forever, you know!";
+    const nonSpace = [...english].filter((char) => !/\s/u.test(char)).length;
+
+    // 该句共 53 个非空白拉丁字符：新实现按 10 字符/秒得到约 5.3s，
+    // 旧实现按中文 4.5 字/秒会得到约 11.8s（实测人声 8.25s 就结束，尾部 6.13s 静音）。
+    expect(h3SpeakingSeconds(english)).toBeCloseTo(5.3, 1);
+    expect(h3SpeakingSeconds(english)).toBeLessThan(nonSpace / 4.5 / 2);
+
+    // 单句英文的时长预算是「1s 开场 + 拉丁语速 + 1.5s 收尾」，落在合理区间。
+    const duration = planH3DialogueDuration(planH3DialogueShots([english]));
+    expect(duration).toBeCloseTo(1 + 5.3 + 1.5, 1);
   });
 
   it("空台词显式失败，不产出空提示词", () => {

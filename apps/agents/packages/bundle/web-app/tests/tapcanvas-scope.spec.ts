@@ -14,6 +14,7 @@ import {
   tapCanvasWorkspaceKey,
   type TapCanvasScope,
 } from '../src/tapcanvas-scope.ts'
+import { projectCharacterCardNodeData } from '../src/character-card-contract.ts'
 
 const scope = (overrides: Partial<TapCanvasScope> = {}): TapCanvasScope => ({
   projectId: 'project-1',
@@ -101,6 +102,123 @@ describe('影视原生 Function 契约', () => {
       .toMatchObject({ prompt: '一只小狗', vendor: 'comfyui', ai_model: 'z-image' })
   })
 
+  it('普通生图不会被隐式升级成角色卡', () => {
+    const parsed = parseFilmImageGenArguments({ prompt: '一只小狗', vendor: 'comfyui' })
+    expect(parsed).not.toHaveProperty('characterCardIdentity')
+  })
+
+  it('半份角色卡字段显式失败，不静默退化成普通图片', () => {
+    expect(() => parseFilmImageGenArguments({
+      prompt: '角色身份板',
+      vendor: 'comfyui',
+      role_name: '林小满',
+    })).toThrow('character_asset_role')
+    expect(() => parseFilmImageGenArguments({
+      prompt: '角色身份板',
+      vendor: 'comfyui',
+      identity_anchors: ['圆脸，下颌线柔和'],
+    })).toThrow('role_name')
+  })
+
+  it('角色卡必须携带四视图身份板合同与身份事实', () => {
+    const identityBoardSpec = {
+      layout: 'identity_board_four_view',
+      faceViews: ['front', 'three_quarter'],
+      fullBodyViews: ['front', 'back'],
+      crossViewConsistency: true,
+      referenceRoleIsolation: true,
+      neutralReferenceBackground: true,
+      readableTextVisible: false,
+      brandingVisible: false,
+      neutralBaseState: true,
+      canonicalNameVisible: false,
+      ipSafeOriginal: true,
+    }
+    const baseRequest = {
+      prompt: '角色身份板',
+      vendor: 'comfyui',
+      character_asset_role: 'identity_anchor',
+      role_name: '林小满',
+      identity_board_spec: identityBoardSpec,
+      identity_anchors: ['圆脸，下颌线柔和', '黑色齐肩直发，中分'],
+      prohibited_drift: ['不得改成短发'],
+    }
+    const parsed = parseFilmImageGenArguments(baseRequest)
+    expect(parsed.characterCardIdentity).toMatchObject({
+      roleName: '林小满',
+      characterAssetRole: 'identity_anchor',
+      identityAnchors: ['圆脸，下颌线柔和', '黑色齐肩直发，中分'],
+      prohibitedDrift: ['不得改成短发'],
+    })
+    expect(projectCharacterCardNodeData(parsed.characterCardIdentity!)).toMatchObject({
+      referenceType: 'character',
+      roleName: '林小满',
+      characterAssetRole: 'identity_anchor',
+      characterProfileVersion: 'character-card/v3',
+      identityBoardSpec,
+    })
+
+    expect(() => parseFilmImageGenArguments({ ...baseRequest, role_name: '' }))
+      .toThrow('role_name 不能为空')
+    expect(() => parseFilmImageGenArguments({ ...baseRequest, identity_anchors: [] }))
+      .toThrow('identity_anchors 不能为空')
+    expect(() => parseFilmImageGenArguments({ ...baseRequest, prohibited_drift: [] }))
+      .toThrow('prohibited_drift 不能为空')
+    expect(() => parseFilmImageGenArguments({
+      ...baseRequest,
+      identity_board_spec: { ...identityBoardSpec, faceViews: ['three_quarter', 'front'] },
+    })).toThrow('faceViews 必须严格为 [front, three_quarter]')
+    expect(() => parseFilmImageGenArguments({
+      ...baseRequest,
+      identity_board_spec: { ...identityBoardSpec, fullBodyViews: ['front', 'front'] },
+    })).toThrow('fullBodyViews 必须严格为 [front, back]')
+    expect(() => parseFilmImageGenArguments({
+      ...baseRequest,
+      identity_board_spec: { ...identityBoardSpec, canonicalNameVisible: true },
+    })).toThrow('canonicalNameVisible 必须为 false')
+    expect(() => parseFilmImageGenArguments({
+      ...baseRequest,
+      identity_board_spec: { ...identityBoardSpec, renderingMode: 'photorealistic_studio_photography' },
+    })).toThrow('未支持字段')
+  })
+
+  it('状态卡必须引用精确上游身份资产，不得独立文生图另起一张脸', () => {
+    const stateRequest = {
+      prompt: '角色状态卡',
+      vendor: 'comfyui',
+      character_asset_role: 'state_variant',
+      role_name: '林小满',
+      identity_board_spec: {
+        layout: 'identity_board_four_view',
+        faceViews: ['front', 'three_quarter'],
+        fullBodyViews: ['front', 'back'],
+        crossViewConsistency: true,
+        referenceRoleIsolation: true,
+        neutralReferenceBackground: true,
+        readableTextVisible: false,
+        brandingVisible: false,
+        neutralBaseState: true,
+        canonicalNameVisible: false,
+        ipSafeOriginal: true,
+      },
+      identity_anchors: ['黑色齐肩直发，中分'],
+      prohibited_drift: ['不得改用卷发'],
+      state_key: 'wet',
+      state_description: '被雨淋湿，头发贴脸',
+    }
+    expect(() => parseFilmImageGenArguments(stateRequest)).toThrow('必须引用精确的上游角色资产')
+    expect(parseFilmImageGenArguments({ ...stateRequest, reference_nodes: ['card-1'] }))
+      .toMatchObject({
+        characterCardIdentity: {
+          characterAssetRole: 'state_variant',
+          stateKey: 'wet',
+          stateDescription: '被雨淋湿，头发贴脸',
+        },
+      })
+    expect(() => parseFilmImageGenArguments({ ...stateRequest, reference_nodes: ['card-1'], state_key: '' }))
+      .toThrow('state_key')
+  })
+
   it('包含附件主工具及任务管理展开函数', () => {
     expect(FILM_FUNCTION_NAMES).toEqual(expect.arrayContaining([
       'film_image_gen',
@@ -159,6 +277,18 @@ describe('影视原生 Function 契约', () => {
     const source = readFileSync(new URL('../src/tapcanvas-scope.ts', import.meta.url), 'utf8')
     expect(source).not.toContain('film_video_composite.audio_list 当前没有对应的 TapCanvas 原生合成执行器')
     expect(source).toContain("tapcanvas_video_concat', { clips, createNode: true, ...(audioNodeIds.length ? { audioNodeIds } : {})")
+  })
+
+  it('合片素材来源是 video_list，reference_nodes 不再必填', () => {
+    // 回归点：工具曾把 reference_nodes 声明为 `required: true`，但服务端
+    // `tapcanvas_video_concat` 只读 clips/audioNodeIds，从不读 reference_nodes。
+    // 于是调用方只传 reference_nodes 时，报错指向一个并不承载素材的参数，
+    // 把「漏传 video_list」误诊成「节点不够」。
+    const source = readFileSync(new URL('../src/tapcanvas-scope.ts', import.meta.url), 'utf8')
+    expect(source).toContain("video_list: { type: 'array', items: { type: 'object', additionalProperties: true }, required: true }")
+    expect(source).not.toContain("reference_nodes: { type: 'array', items: { type: 'string' }, required: true }")
+    // 缺 video_list 的报错必须自证素材来源，而不是把 reference_nodes 当输入。
+    expect(source).toContain('请用 [{ src: "<视频节点ID>" }, ...] 按拼接顺序给出，reference_nodes 不是素材来源')
   })
 
   it('媒体模型目录工具已注册，且要求先读目录再提交生成', () => {

@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 
 import { AppError } from "../../middleware/error";
+import {
+  H3_LINE_GAP_SECONDS,
+  H3_MAX_DURATION_SECONDS,
+  H3_MIN_DURATION_SECONDS,
+  H3_MIN_LINE_SECONDS,
+  H3_OPENING_SILENCE_SECONDS,
+  H3_TAIL_SECONDS,
+  h3SpeakingSeconds,
+  h3TimelineTimestamps,
+} from "./h3-speech-rate";
 
 type JsonRecord = Record<string, unknown>;
 type ComfyNode = { class_type: string; inputs: JsonRecord };
@@ -24,8 +34,8 @@ type ComfyAudioFile = {
  * 执行前以 `/object_info` 实时枚举校验，因此节点上没有「时长/步数/工作流」输入框。
  */
 const WORKFLOW_SCHEDULER_STEPS = 10;
-const MIN_DURATION_SECONDS = 1;
-const MAX_DURATION_SECONDS = 15;
+const MIN_DURATION_SECONDS = H3_MIN_DURATION_SECONDS;
+const MAX_DURATION_SECONDS = H3_MAX_DURATION_SECONDS;
 const FRAMES_PER_SECOND = 24;
 const FRAME_GRID_STEP = 17;
 const COMFY_TIMEOUT_MS = 1_200_000;
@@ -114,13 +124,28 @@ async function validateH3Models(baseUrl: string): Promise<void> {
   }
 }
 
+/**
+ * 由台词与时间轴推导 H3 音频长度。
+ *
+ * 语速按字符集区分中文与拉丁（见 `h3-speech-rate`）：旧实现对两种语言统一套用中文
+ * 4.5 字/秒，导致英文台词被系统性估长，交付音频尾部留下大片静音。时间轴正则同样要
+ * 接受 agent 手写的 `At exactly MM:SS.mmm`，否则手写结构化提示词的时间轴预算恒为 0。
+ */
 function estimateDurationSeconds(prompt: string): number {
-  const dialogueTexts = Array.from(prompt.matchAll(/<d>\s*\[[^\]]+\]\s*([\s\S]*?)\s*<\/d>/gu), (match) => match[1]!.replace(/\s/gu, ""));
-  const speechSeconds = dialogueTexts.reduce((sum, text) => sum + text.length / 4.5, 0);
-  const dialogueBudget = 1 + speechSeconds + Math.max(0, dialogueTexts.length - 1) * 0.6 + 1.5;
-  const timestamps = Array.from(prompt.matchAll(/At\s+(\d{1,2}):(\d{2}\.\d{3})/gu), (match) => Number(match[1]) * 60 + Number(match[2]));
-  const timelineBudget = timestamps.length && dialogueTexts.length
-    ? Math.max(...timestamps) + Math.max(1.5, dialogueTexts.at(-1)!.length / 4.5) + 1.5
+  const dialogueTexts = Array.from(
+    prompt.matchAll(/<d>\s*\[[^\]]+\]\s*([\s\S]*?)\s*<\/d>/gu),
+    (match) => match[1]!,
+  );
+  const spokenSeconds = dialogueTexts.map((text) => h3SpeakingSeconds(text));
+  const speechSeconds = spokenSeconds.reduce((sum, seconds) => sum + seconds, 0);
+  const dialogueBudget =
+    H3_OPENING_SILENCE_SECONDS +
+    speechSeconds +
+    Math.max(0, dialogueTexts.length - 1) * H3_LINE_GAP_SECONDS +
+    H3_TAIL_SECONDS;
+  const timestamps = h3TimelineTimestamps(prompt);
+  const timelineBudget = timestamps.length && spokenSeconds.length
+    ? Math.max(...timestamps) + Math.max(H3_MIN_LINE_SECONDS, spokenSeconds.at(-1)!) + H3_TAIL_SECONDS
     : 0;
   return Math.max(MIN_DURATION_SECONDS, dialogueBudget, timelineBudget);
 }

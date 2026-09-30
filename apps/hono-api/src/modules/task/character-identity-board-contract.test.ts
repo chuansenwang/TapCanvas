@@ -111,7 +111,7 @@ describe("CharacterIdentityBoardSpecSchema", () => {
     const skillDoc = await fs.readFile(
       path.resolve(
         process.cwd(),
-        "../agents-cli/skills/tapcanvas-character-card/SKILL.md",
+        "../agents/.agents/skills/tapcanvas-character-card/SKILL.md",
       ),
       "utf8",
     );

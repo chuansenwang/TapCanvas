@@ -4,6 +4,12 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import { defineTool, type ParameterSchemaSpec, type ToolRunContext } from '@deepseek-ai/dsh-tools'
+import {
+  CHARACTER_IDENTITY_BOARD_LAYOUT,
+  parseCharacterCardIdentity,
+  projectCharacterCardNodeData,
+  type CharacterCardIdentity,
+} from './character-card-contract.ts'
 
 export interface TapCanvasScope {
   readonly userId?: string | null
@@ -129,6 +135,7 @@ interface FilmImageGenArguments {
   reference_assets?: readonly string[]
   quality_spec?: string
   model_confirmation?: string
+  characterCardIdentity?: CharacterCardIdentity
 }
 
 interface FilmVideoGenArguments {
@@ -154,7 +161,6 @@ interface FilmVideoGenArguments {
 interface FilmVideoCompositeArguments {
   video_list?: readonly { src: string; start_position?: number; end_position?: number }[]
   audio_list?: readonly { src: string; start_time?: number; end_time?: number }[]
-  reference_nodes: readonly string[]
   video_volume?: number
   audio_volume?: number
   aspect_ratio?: string
@@ -267,6 +273,29 @@ export function parseFilmImageGenArguments(value: unknown): FilmImageGenArgument
   if (referenceAssets) result.reference_assets = referenceAssets
   if (qualitySpec) result.quality_spec = qualitySpec
   if (modelConfirmation) result.model_confirmation = modelConfirmation
+  // 角色卡字段是可选的资产职责声明：完全不传时按普通生图处理；一旦传了其中任何一项，
+  // 就必须走完整校验并显式失败，不能把半份角色卡字段静默丢成普通图片节点。
+  const characterCardKeys = [
+    'character_asset_role',
+    'role_name',
+    'identity_board_spec',
+    'identity_anchors',
+    'prohibited_drift',
+    'state_key',
+    'state_description',
+  ] as const
+  if (characterCardKeys.some(key => value[key] !== undefined)) {
+    result.characterCardIdentity = parseCharacterCardIdentity({
+      roleName: value.role_name,
+      characterAssetRole: value.character_asset_role,
+      identityBoardSpec: value.identity_board_spec,
+      identityAnchors: value.identity_anchors,
+      prohibitedDrift: value.prohibited_drift,
+      stateKey: value.state_key,
+      stateDescription: value.state_description,
+      hasUpstreamReference: Boolean(referenceNodes?.length || referenceAssets?.length),
+    })
+  }
   return result
 }
 
@@ -351,8 +380,6 @@ export function parseFilmAudioGenArguments(value: unknown): FilmAudioGenArgument
 
 function readFilmVideoCompositeArguments(value: unknown): FilmVideoCompositeArguments {
   if (!isRecord(value)) throw new Error('film_video_composite 参数必须是对象')
-  const referenceNodes = readStringList(value.reference_nodes, 'film_video_composite', 'reference_nodes', true)
-  if (referenceNodes.length === 0) throw new Error('film_video_composite.reference_nodes 不能为空')
   const readClips = (candidate: unknown, key: 'video_list' | 'audio_list') => {
     if (candidate === undefined) return undefined
     if (!Array.isArray(candidate)) throw new Error(`film_video_composite.${key} 必须是数组`)
@@ -368,7 +395,11 @@ function readFilmVideoCompositeArguments(value: unknown): FilmVideoCompositeArgu
       return result
     })
   }
-  const result: FilmVideoCompositeArguments = { reference_nodes: referenceNodes }
+  // 拼接的素材来源是 `video_list`/`audio_list` 的 `src` 节点 ID。此处不再接受
+  // `reference_nodes`：服务端执行器（`tapcanvas_video_concat`）只读 `clips`/
+  // `audioNodeIds`，一个从不被读取、且必须与 `video_list` 保持一致才不算错的
+  // 参数只会把「漏传 video_list」误诊成「引用节点不足」。
+  const result: FilmVideoCompositeArguments = {}
   const videos = readClips(value.video_list, 'video_list')
   const audios = readClips(value.audio_list, 'audio_list')
   if (videos !== undefined) result.video_list = videos.map(({ src, start_position, end_position }) => ({ src, ...(start_position === undefined ? {} : { start_position }), ...(end_position === undefined ? {} : { end_position }) }))
@@ -492,6 +523,9 @@ async function executeFilmImageGen(
     ...(input.prompt_template ? { promptTemplate: input.prompt_template } : {}),
     ...(input.quality_spec ? { qualitySpec: input.quality_spec } : {}),
     ...(input.model_confirmation ? { modelConfirmation: input.model_confirmation } : {}),
+    ...(input.characterCardIdentity
+      ? projectCharacterCardNodeData(input.characterCardIdentity)
+      : {}),
   }
   return executeNativeBridgeTool(scope, 'tapcanvas_image_generate_to_canvas', {
     node: { id: nodeId, type: 'taskNode', position: { x, y }, data: nodeData },
@@ -570,6 +604,13 @@ export function registerTapCanvasRuntime(ctx: Context): void {
       reference_assets: { type: 'array', items: { type: 'string' }, description: '已授权的参考资产 ID' },
       quality_spec: { type: 'string', description: '质量要求' },
       model_confirmation: { type: 'string', description: '模型确认信息' },
+      character_asset_role: { type: 'string', enum: ['identity_anchor', 'state_variant'], description: '角色卡资产职责：基础身份板用 identity_anchor，可见状态变化派生卡用 state_variant。仅生成角色卡时传；语义与结构见 tapcanvas-character-card Skill。' },
+      role_name: { type: 'string', description: 'canonical 角色名（章节号与版本号不进名字）。与 character_asset_role 一起传。' },
+      identity_board_spec: { type: 'object', additionalProperties: true, description: `identity_board_four_view 四视图结构合同：layout=${CHARACTER_IDENTITY_BOARD_LAYOUT}，faceViews 固定为 ["front","three_quarter"]，fullBodyViews 固定为 ["front","back"]，并声明 crossViewConsistency/referenceRoleIsolation/neutralReferenceBackground 为 true、readableTextVisible/brandingVisible/canonicalNameVisible 为 false。禁止携带体型、媒介、镜头等旧默认字段。` },
+      identity_anchors: { type: 'array', items: { type: 'string' }, description: '3-6 个画面可验证、跨镜必须稳定的身份事实（骨相、发型剪影、体型、核心配饰、基准服装结构、身份道具）。禁止抽象评价。' },
+      prohibited_drift: { type: 'array', items: { type: 'string' }, description: '仅基于已确认角色事实的禁止偏移项，不得凭空补设定。' },
+      state_key: { type: 'string', description: '状态卡的状态标识；character_asset_role=state_variant 时必填。' },
+      state_description: { type: 'string', description: '状态卡的可见状态描述；character_asset_role=state_variant 时必填。' },
     },
     output: {
       schema: { type: 'string' },
@@ -638,13 +679,13 @@ export function registerTapCanvasRuntime(ctx: Context): void {
     return executeNativeBridgeTool(scope, 'tapcanvas_video_generate_to_canvas', { node: { id: nodeId, type: 'taskNode', position: { x: 0, y: 0 }, data: nodeData } }, exec.signal, exec.callId)
   })
 
-  registerFilmTool('film_video_composite', '将已生成的视频按顺序拼接并写入当前画布，可同时合入外部音轨。视频与音频素材都必须使用当前画布真实节点 ID；不支持把 URL 作为隐式输入。audio_list 里的节点必须是已有真实 audioUrl 的音频节点（最多 3 条）：第 1 条替换原音轨，其后逐条混音；节点缺真实音频时显式失败。', {
-    video_list: { type: 'array', items: { type: 'object', additionalProperties: true } }, audio_list: { type: 'array', items: { type: 'object', additionalProperties: true } }, reference_nodes: { type: 'array', items: { type: 'string' }, required: true }, video_volume: { type: 'number' }, audio_volume: { type: 'number' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, fit: { type: 'string', enum: ['contain', 'cover'] }, format: { type: 'string' }, title: { type: 'string' }, tag: { type: 'string' }, reuse_clip_node_key: { type: 'string' },
+  registerFilmTool('film_video_composite', '将已生成的视频按顺序拼接并写入当前画布，可同时合入外部音轨。素材由 video_list/audio_list 的 src 给出，且必须是当前画布真实节点 ID；不支持把 URL 作为隐式输入。video_list 至少 2 条，按数组顺序拼接。audio_list 里的节点必须是已有真实 audioUrl 的音频节点（最多 3 条）：第 1 条替换原音轨，其后逐条混音；节点缺真实音频时显式失败。', {
+    video_list: { type: 'array', items: { type: 'object', additionalProperties: true }, required: true }, audio_list: { type: 'array', items: { type: 'object', additionalProperties: true } }, video_volume: { type: 'number' }, audio_volume: { type: 'number' }, aspect_ratio: { type: 'string' }, resolution: { type: 'string' }, fit: { type: 'string', enum: ['contain', 'cover'] }, format: { type: 'string' }, title: { type: 'string' }, tag: { type: 'string' }, reuse_clip_node_key: { type: 'string' },
   }, async (args, exec) => {
     const scope = scopeOrThrow(exec.agent)
     const input = readFilmVideoCompositeArguments(args)
     const clips = input.video_list?.map((item) => ({ nodeId: item.src, ...(item.start_position === undefined ? {} : { inSec: item.start_position }), ...(item.end_position === undefined ? {} : { outSec: item.end_position }) }))
-    if (!clips || clips.length < 2) throw new Error('film_video_composite.video_list 至少需要两个视频节点')
+    if (!clips || clips.length < 2) throw new Error('film_video_composite.video_list 至少需要两个视频节点；请用 [{ src: "<视频节点ID>" }, ...] 按拼接顺序给出，reference_nodes 不是素材来源')
     const audioNodeIds = (input.audio_list ?? []).map((item) => item.src.trim()).filter((nodeId) => nodeId.length > 0)
     return executeNativeBridgeTool(scope, 'tapcanvas_video_concat', { clips, createNode: true, ...(audioNodeIds.length ? { audioNodeIds } : {}), ...(input.aspect_ratio ? { aspect: input.aspect_ratio } : {}), ...(input.title ? { fileName: input.title } : {}), ...(input.video_volume === undefined ? {} : { videoVolume: input.video_volume }), ...(input.audio_volume === undefined ? {} : { audioVolume: input.audio_volume }) }, exec.signal, exec.callId)
   })

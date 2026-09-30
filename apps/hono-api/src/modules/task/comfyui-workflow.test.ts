@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { AppContext } from "../../types";
 import {
 	applyComfyUiWorkflowInputs,
+	fetchComfyUiTaskResult,
 	parseComfyUiWorkflowConfig,
 	resolveComfyUiSeed,
 	selectComfyUiWorkflowVariant,
@@ -518,5 +520,71 @@ describe("ComfyUI 工作流目录", () => {
 			seed: 42.9,
 			extras: {},
 		}, () => "00000000-0000-0000-0000-000000000002")).toBe(42);
+	});
+});
+
+describe("ComfyUI 历史结果取回", () => {
+	const context = { env: { COMFYUI_BASE_URL: "http://127.0.0.1:8188" } } as unknown as AppContext;
+
+	it("识别自定义输出键的音频产物，忽略不可下载的元数据条目", async () => {
+		// 真实历史：小珠光音频保存节点写 audio_saved（type=output），音频加载器回显
+		// audio_info（无 type，只能证明输入文件存在，无法通过 /view 取回）。
+		const history = {
+			status: { status_str: "success", completed: true },
+			outputs: {
+				"3": {
+					audio_saved: [{
+						filename: "xzg-audio_00011.mp3",
+						subfolder: "",
+						type: "output",
+						format: "mp3",
+						duration: 3.1695238095238096,
+						sample_rate: 22050,
+					}],
+				},
+				"4": {
+					audio_info: [{
+						filename: "tapcanvas-audio-1.wav",
+						sample_rate: 44100,
+						duration: 8.87,
+					}],
+				},
+			},
+		};
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/prompt")) throw new Error("不该提交新任务");
+			return new Response(JSON.stringify({ "prompt-1": history }), { status: 200, headers: { "content-type": "application/json" } });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const result = await fetchComfyUiTaskResult(context, { taskId: "prompt-1", taskKind: "text_to_audio" });
+			expect(result.status).toBe("succeeded");
+			expect(result.assets).toHaveLength(1);
+			expect(result.assets[0]).toEqual({
+				type: "audio",
+				url: "http://127.0.0.1:8188/view?filename=xzg-audio_00011.mp3&subfolder=&type=output",
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("官方音频输出键（PreviewAudio 的 audio/temp）仍可正常取回", async () => {
+		const history = {
+			status: { status_str: "success", completed: true },
+			outputs: {
+				"143": { audio: [{ filename: "ComfyUI_temp_qlula_00001.flac", subfolder: "", type: "temp" }] },
+			},
+		};
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ "prompt-2": history }), { status: 200, headers: { "content-type": "application/json" } }));
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const result = await fetchComfyUiTaskResult(context, { taskId: "prompt-2", taskKind: "text_to_audio" });
+			expect(result.status).toBe("succeeded");
+			expect(result.assets[0]?.url).toBe("http://127.0.0.1:8188/view?filename=ComfyUI_temp_qlula_00001.flac&subfolder=&type=temp");
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });

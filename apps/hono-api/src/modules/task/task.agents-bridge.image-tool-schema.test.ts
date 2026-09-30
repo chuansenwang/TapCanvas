@@ -444,6 +444,52 @@ describe("tapcanvas_image_generate_to_canvas schema contract", () => {
 		).toBe(true);
 	});
 
+	it("保留 canonical 角色卡 node data，不把身份板字段剥成普通图片", () => {
+		const identityBoardSpec = {
+			layout: "identity_board_four_view",
+			faceViews: ["front", "three_quarter"],
+			fullBodyViews: ["front", "back"],
+			crossViewConsistency: true,
+			referenceRoleIsolation: true,
+			neutralReferenceBackground: true,
+			readableTextVisible: false,
+			brandingVisible: false,
+			neutralBaseState: true,
+			canonicalNameVisible: false,
+			ipSafeOriginal: true,
+		};
+		const parsed = PublicAgentsImageGenerateToCanvasArgsSchema.safeParse({
+			node: {
+				type: "taskNode",
+				position: { x: 0, y: 0 },
+				data: {
+					kind: "image",
+					prompt: "角色身份板",
+					referenceType: "character",
+					roleName: "林小满",
+					characterAssetRole: "identity_anchor",
+					characterProfileVersion: "character-card/v3",
+					identityBoardSpec,
+					identityAnchors: ["圆脸，下颌线柔和", "黑色齐肩直发，中分"],
+					prohibitedDrift: ["不得改成短发"],
+				},
+			},
+		});
+
+		expect(parsed.success).toBe(true);
+		if (parsed.success) {
+			expect(parsed.data.node?.data).toMatchObject({
+				referenceType: "character",
+				roleName: "林小满",
+				characterAssetRole: "identity_anchor",
+				characterProfileVersion: "character-card/v3",
+				identityBoardSpec,
+				identityAnchors: ["圆脸，下颌线柔和", "黑色齐肩直发，中分"],
+				prohibitedDrift: ["不得改成短发"],
+			});
+		}
+	});
+
 	it("保留显式 clip 关键帧交接字段，不把它裁成孤立图片", () => {
 		const parsed = PublicAgentsImageGenerateToCanvasArgsSchema.safeParse({
 			node: {

@@ -113,7 +113,7 @@ resources/podcast_outputs/<video_id>/
 ## 供下游使用
 
 - 播客流水线：把 `<video_id>_transcript.txt` 直接作为 `transcript_file` 传入 `run_podcast_pipeline()`。
-- 分镜拆解：`youtube-storyboard` 用本 skill 的 `*_transcript_segments.json` 填充分镜表（默认段落级）的对话/声音字段，并在诊断中标注字幕来源；字幕缺失时标记 `subtitleEvidence: unavailable`，不得用标题或常识补写。
+- 分镜拆解：`youtube-storyboard` 用本 skill 的 `*_transcript_segments.json` 填充分镜表（镜头级切点）的对话/声音字段，并在诊断中标注字幕来源；字幕缺失时标记 `subtitleEvidence: unavailable`，不得用标题或常识补写。
 - 烧录字幕：直接使用 `<video_id>_transcript.srt`；不要用播客配音产出的 `*_subtitles.json`（那是合成语音时间线，不是源视频字幕）。
 
 ## References

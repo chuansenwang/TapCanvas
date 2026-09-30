@@ -1,6 +1,6 @@
 interface:
   display_name: "YouTube 分镜拆解"
-  short_description: "从 YouTube 链接或本地视频输出段落级近似时间码分镜表"
-  default_prompt: "使用 $youtube-storyboard 分析这个 YouTube 链接或本地视频并输出段落级近似时间码的分镜。"
+  short_description: "从 YouTube 链接或本地视频输出镜头边界、时间码与声音/对白列，默认不逐张读图"
+  default_prompt: "使用 $youtube-storyboard 分析这个 YouTube 链接或本地视频，输出镜头边界、时间码与声音/对白列。"
 policy:
   allow_implicit_invocation: true

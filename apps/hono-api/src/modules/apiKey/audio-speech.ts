@@ -287,13 +287,20 @@ export function isMiniMaxH3SpeechModel(model: Pick<NewApiModelDto, "tags">): boo
 }
 
 /**
- * H3 Prompt 合同要求首秒无人声：交付时移除这段预卷，并仅清理其后的连续起始静音。
- * 再保留 200ms 前导静音，避免播放器在 0 秒硬切入人声；不做尾端检测。
+ * H3 交付音频的起始处理。
+ *
+ * 旧实现无条件执行 `atrim=start=1`，理由是「提示词要求首秒无人声，这段是预卷」。
+ * 但实测本机历史产物后该假设不成立：模型并不遵守时间轴，真实台词经常从 0.0~0.6 秒
+ * 就开始，`atrim=start=1` 是从人声中间切一刀，听感上就是开头被截断、起声突兀。
+ * 实测 23 条归档产物里有 17 条在首秒内已有明显有声内容，其中多条整秒都是语音。
+ *
+ * 因此这里改为只做「真实起始静音裁剪」：按静音检测裁掉开头的连续静音
+ * （`start_duration=0.20` 保证短促气口不会被误判成静音），随后统一补 200ms 前导静音，
+ * 避免播放器在 0 秒硬切入人声。不再按契约假设固定裁掉任何时长的音频。
+ * 尾端不做任何响度阈值裁剪，保证后续有效声音完整保留。
  */
 export function h3DeliveryAudioFilter(): string {
 	return [
-		"atrim=start=1",
-		"asetpts=PTS-STARTPTS",
 		"silenceremove=start_periods=1:start_duration=0.20:start_threshold=-45dB:start_silence=0.08",
 		"adelay=200:all=1",
 	].join(",");

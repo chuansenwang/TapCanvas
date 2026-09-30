@@ -937,9 +937,26 @@ describe('mapStopReason / mapUsage', () => {
     'OpenAI Responses stream ended before a terminal response event',
     'openrouter stream ended without a terminal event',
     'Stream ended without finish_reason',
+    // Line-delimited readers surface a frame cut mid-JSON as the bare
+    // JSON.parse wording, with no transport noun left for the patterns above.
+    'Unexpected end of JSON input',
+    'Unterminated string in JSON at position 224 (line 1 column 225)',
   ])('maps pi-ai transport wording %j', (errorMessage) => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
       .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+  })
+
+  it('keeps complete-but-malformed JSON non-retryable', () => {
+    // Distinct from a truncated frame: the reader received a whole frame and
+    // the provider's own content was broken, where resending cannot help.
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: "Unexpected token '<', \"<html>\" is not valid JSON",
+    }))).toMatchObject({ kind: 'error', failure: { code: 'PI_AI_ERROR' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: "Expected property name or '}' in JSON at position 1",
+    }))).toMatchObject({ kind: 'error', failure: { code: 'PI_AI_ERROR' } })
   })
 
   it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {

@@ -1,0 +1,6 @@
+interface:
+  display_name: "英语教学文本创作"
+  short_description: "按话题、参考视频链接或本地文本，创作 A1–A2 纯英文教学视频脚本"
+  default_prompt: "使用 $english-lesson-authoring 按这个话题或参考视频创作一集 A1–A2 英语教学脚本。"
+policy:
+  allow_implicit_invocation: true

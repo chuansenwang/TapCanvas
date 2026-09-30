@@ -4,7 +4,7 @@
     {
       "id": 1,
       "prompt": "请分析这个 YouTube 视频并拆成标准影视分镜，输出带起止时间码的 Markdown 镜头表和 JSON：https://www.youtube.com/watch?v=example123",
-      "expected_output": "先验证视频可访问性，再按默认段落级输出可复核的 JSON/Markdown：用户提到“镜头表/起止时间码”但未要求精确切点，仍以场景/叙事单元切分、时间范围为秒级近似区间，并在交付中说明如需逐镜头精确切点需另行提出；若链接不可用必须显式失败，不得臆测。",
+      "expected_output": "先验证视频可访问性，再用 prepare-youtube.mjs 的默认 scene 模式在全帧率上跑 ffmpeg 场景检测，按脚本算出的真实切点输出镜头边界与秒级三位小数时间码（Markdown 表 + JSON）；默认不读取代表帧与 contact sheet，visual/action/shotLanguage 按契约留空，报告中如实说明帧与拼图已落盘但未逐张读取；若链接不可用必须显式失败，不得臆测。",
       "files": []
     },
     {
@@ -34,7 +34,7 @@
     {
       "id": 6,
       "prompt": "视频我已经下好了，就在 F:\\videos\\talk.mp4，帮我拆成带时间码的分镜，要原片对白",
-      "expected_output": "识别为本地视频文件输入：直接用 --media 做镜头检测，不调用 video-downloader、不重新下载；本地输入走 --subtitles whisper（或 auto 走本地 Whisper）产出字幕证据并原样映射到镜头区间，不合并字幕；source.url 与 directVideoUrl 为 null、durationSec 由 ffprobe 读出，不得伪造直链或网络版本。",
+      "expected_output": "识别为本地视频文件输入：直接用 --media 做镜头检测，不调用 video-downloader、不重新下载；本地输入走 --subtitles whisper（或 auto 走本地 Whisper）产出字幕证据并原样映射到镜头区间，不合并字幕；全部产物（候选帧、拼图、切点日志、镜头边界、字幕）写入视频专属目录 <视频所在目录>/<视频文件名>.storyboard/，不与视频文件平铺混放，source.storyboardDir 即该目录；source.url 与 directVideoUrl 为 null、durationSec 由 ffprobe 读出，不得伪造直链或网络版本。",
       "files": []
     },
     {
@@ -47,6 +47,18 @@
       "id": 8,
       "prompt": "这个视频是可变帧率拍摄的，帮我切镜头",
       "expected_output": "显式失败并说明原因：脚本按帧号定位代表帧，VFR 下帧号与时间不对应会让代表帧落到错误镜头；提示用户先用 ffmpeg 转成恒定帧率再拆分，不得按标称帧率硬算或静默继续。",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "帮我把这个本地视频拆成分镜，视频里是英语对话教学",
+      "expected_output": "字幕证据是默认交付的一部分：即使用户没单独提对白，也必须带 --subtitles whisper（本地输入）或 auto（链接）产出真实字幕证据，把 subtitle-transcribe 的 segments 按时间区间映射到每条镜头的 dialogue/audio，并标注来源、模型与片段数；「声音/对白」整列 unknown 属缺项，必须补跑字幕识别后再交付，不得因为「没传 --subtitles」就交付一张全 unknown 的固定列。画面描述（visual/action/shotLanguage）仍按契约留空，因为它不是本次要求。",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "这个视频我只要镜头切点和时间码，不要对白",
+      "expected_output": "用户明确表示不要对白，才允许不传 --subtitles 并把字幕证据记为 not_requested；分镜表「声音/对白」列留空或标注 not_requested 并说明是用户明确要求，不得在未询问的情况下自行补跑字幕识别。镜头切点仍由 prepare-youtube.mjs 的 scene 模式在全帧率上产出。",
       "files": []
     }
   ]
