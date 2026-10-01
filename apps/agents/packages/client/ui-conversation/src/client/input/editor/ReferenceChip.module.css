@@ -28,6 +28,19 @@
   flex: none;
 }
 
+/* Preview of a referenced picture. Square and clipped so an arbitrary asset
+   aspect cannot change the chip's 22px line box. A near-square corner, not a
+   rounded one: the chip capsule already owns the radius, and nesting a second
+   rounded container inside it is the double-rounding the design rules forbid. */
+.thumbnail {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: cover;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .label {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -44,6 +44,8 @@ interface ConversationAttachmentFace {
   ): Promise<SubmitOutcome>
   serializeDraftAttachments(attachmentIds: readonly DraftAttachmentId[]): Promise<DraftAttachmentSerializationResult>
   releaseDraftAttachment(id: DraftAttachmentId): void
+  /** Register browser files as draft attachments (reference-derived bytes). */
+  createDrafts(sessionId: SessionId, files: readonly File[]): readonly { readonly id: DraftAttachmentId }[]
 }
 
 /** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
@@ -89,6 +91,13 @@ export class InputHub implements SessionInputResolver {
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
       defaultSink: (text, attachmentIds, mode, signal) => this.sink(session, text, attachmentIds, mode, signal),
+      // 引用来源贡献的字节在这里进入与普通附件相同的草稿注册表：编码、限额与
+      // 释放都走同一条路径，不存在"引用专用"的第二套附件链路。
+      deriveAttachments: files => this.conversation().createDrafts(id, files).map(draft => draft.id),
+      releaseAttachments: (ids) => {
+        const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+        for (const attachmentId of ids) conversation?.releaseDraftAttachment(attachmentId)
+      },
       steerQueue: () => { void this.steerQueue(session, shell) },
       commandAttachments: {
         serialize: async (ids) => {

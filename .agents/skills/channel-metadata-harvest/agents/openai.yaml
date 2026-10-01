@@ -1,0 +1,6 @@
+interface:
+  display_name: "频道元数据采集"
+  short_description: "抓取 YouTube 频道的频道资料与全部视频元数据，整理成中文文档"
+  default_prompt: "使用 $channel-metadata-harvest 采集这个频道的资料和视频元数据，并生成一份中文文档。"
+policy:
+  allow_implicit_invocation: true

@@ -33,6 +33,94 @@ function chip(shell: SessionInputShell): void {
 }
 
 describe('reference submission', () => {
+  it('rides a reference-contributed file onto the same prompt as the reference text', async () => {
+    const contributed = new File([Uint8Array.of(1)], 'canvas.png', { type: 'image/png' })
+    const deriveAttachments = vi.fn(() => ['derived-1' as DraftAttachmentId])
+    const releaseAttachments = vi.fn()
+    const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
+    const inputTriggers = {
+      serializeReference: () => Promise.resolve('画布图片「角色定妆」（节点 node-image）'),
+      referenceAttachments: () => Promise.resolve([contributed]),
+      referenceContributesAttachments: () => true,
+      track: vi.fn(),
+      lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+    } as unknown as InputTriggerController
+    const shell = new SessionInputShell({
+      actx: {} as Context,
+      inputTriggers: () => inputTriggers,
+      defaultSink: sink,
+      deriveAttachments,
+      releaseAttachments,
+      commandAttachments,
+    })
+    chip(shell)
+    shell.submit('queue')
+    await vi.waitFor(() => {
+      expect(sink).toHaveBeenCalledWith(
+        '画布图片「角色定妆」（节点 node-image）',
+        ['derived-1'],
+        'queue',
+        expect.any(AbortSignal),
+      )
+    })
+    expect(deriveAttachments).toHaveBeenCalledWith([contributed])
+    expect(releaseAttachments).not.toHaveBeenCalled()
+  })
+
+  it('fails the send and keeps the chip when the reference bytes cannot be resolved', async () => {
+    const sink = vi.fn()
+    const inputTriggers = {
+      serializeReference: () => Promise.resolve(mention),
+      referenceAttachments: () => Promise.reject(new Error('canvas asset bytes unreadable')),
+      referenceContributesAttachments: () => true,
+      track: vi.fn(),
+      lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+    } as unknown as InputTriggerController
+    const shell = new SessionInputShell({
+      actx: {} as Context,
+      inputTriggers: () => inputTriggers,
+      defaultSink: sink,
+      commandAttachments,
+    })
+    chip(shell)
+    shell.submit('queue')
+    await vi.waitFor(() => {
+      expect(shell.notices.getSnapshot()).toMatchObject({
+        level: 'error',
+        text: 'canvas asset bytes unreadable',
+      })
+    })
+    expect(sink).not.toHaveBeenCalled()
+    expect(shell.snapshot.occurrences).toHaveLength(1)
+  })
+
+  it('fails the send when the composition cannot register reference files', async () => {
+    const sink = vi.fn()
+    const inputTriggers = {
+      serializeReference: () => Promise.resolve(mention),
+      referenceAttachments: () => Promise.resolve([new File([Uint8Array.of(1)], 'x.png', { type: 'image/png' })]),
+      referenceContributesAttachments: () => true,
+      track: vi.fn(),
+      lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+    } as unknown as InputTriggerController
+    const shell = new SessionInputShell({
+      actx: {} as Context,
+      inputTriggers: () => inputTriggers,
+      defaultSink: sink,
+      // 没有 deriveAttachments 接缝：宁可显式失败，也不能让用户以为图片已随行。
+      commandAttachments,
+    })
+    chip(shell)
+    shell.submit('queue')
+    await vi.waitFor(() => {
+      expect(shell.notices.getSnapshot()).toMatchObject({
+        level: 'error',
+        text: 'reference attachments unavailable',
+      })
+    })
+    expect(sink).not.toHaveBeenCalled()
+  })
+
   it('mirrors canonical reference text so a persisted draft remains resolvable after remount', async () => {
     const mirror = vi.fn()
     const first = new SessionInputShell({
@@ -83,6 +171,8 @@ describe('reference submission', () => {
       .mockResolvedValueOnce({ kind: 'success' })
     const inputTriggers = {
       serializeReference,
+      referenceAttachments: () => Promise.resolve([]),
+      referenceContributesAttachments: () => false,
       track: vi.fn(),
       lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
     } as unknown as InputTriggerController
@@ -129,6 +219,8 @@ describe('reference submission', () => {
     const sink = vi.fn()
     const inputTriggers = {
       serializeReference: () => Promise.reject(new Error('reference codec unavailable')),
+      referenceAttachments: () => Promise.resolve([]),
+      referenceContributesAttachments: () => false,
       track: vi.fn(),
       lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
     } as unknown as InputTriggerController

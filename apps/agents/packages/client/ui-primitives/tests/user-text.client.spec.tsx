@@ -43,6 +43,21 @@ describe('projectUserText', () => {
     expect(host.querySelector('[data-ref-chip="session"]')!.textContent).toBe('a')
   })
 
+  it('folds canvas image and video references to their labels with their own glyphs', () => {
+    const host = project('用 @[角色身份板](dsh-canvas:image:node-1) 和 @[镜头一](dsh-canvas:video:node-2) 做参考')
+    const kinds = [...host.querySelectorAll('[data-ref-chip]')].map(c =>
+      [c.getAttribute('data-ref-chip'), c.textContent])
+    expect(kinds).toEqual([
+      ['image', '角色身份板'],
+      ['video', '镜头一'],
+    ])
+    // 气泡里不该漏出原始 wire 标记。
+    expect(host.textContent).toBe('用 角色身份板 和 镜头一 做参考')
+    for (const chip of host.querySelectorAll('[data-ref-chip]')) {
+      expect(chip.querySelector('svg')).not.toBeNull()
+    }
+  })
+
   it('decorates recall-associated labels, files, folders, and quoted paths', () => {
     const host = project('@会话一 说 @src/deep/file.txt 与 @dir/ 与 @"a b.md"', ['会话一'])
     const kinds = [...host.querySelectorAll('[data-ref-chip]')].map(c =>

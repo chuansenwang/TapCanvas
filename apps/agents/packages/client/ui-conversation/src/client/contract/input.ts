@@ -61,7 +61,18 @@ export interface ReferenceInsert {
   readonly source: string
   readonly ref: string
   readonly label: string
-  readonly appearance?: 'session' | 'file' | 'folder'
+  /**
+   * Domain glyph. `image` / `video` mark a reference to a canvas asset the
+   * source resolved into real bytes (see the source's codec attachments).
+   */
+  readonly appearance?: 'session' | 'file' | 'folder' | 'image' | 'video'
+  /**
+   * Preview image URL for a reference that names a real picture (a canvas
+   * asset). The chip renders it as a thumbnail so the user can see what they
+   * referenced without leaving the composer. Display-only: the reference's
+   * model-visible bytes still come from the source's attachment codec.
+   */
+  readonly thumbnailUrl?: string
   readonly clipboardText: string
 }
 
@@ -131,6 +142,21 @@ export interface InputTriggerController {
   onSpace(): boolean
   /** @param source - reference source. @param ref - source-local id. @param signal - submit cancellation. @returns model text. */
   serializeReference(source: string, ref: string, signal: AbortSignal): Promise<string>
+  /**
+   * @param source - reference source. @param ref - source-local id. @param signal - submit cancellation.
+   * @returns the model-visible files this occurrence contributes, empty for text-only references.
+   */
+  referenceAttachments(source: string, ref: string, signal: AbortSignal): Promise<readonly File[]>
+  /**
+   * Whether this source's references carry model-visible bytes.
+   *
+   * Synchronous declaration read: a submission path that cannot deliver those
+   * bytes (for example a claimed command that refuses attachments) must refuse
+   * the send rather than silently dropping the image.
+   * @param source - reference source.
+   * @returns true when the source declares an attachment codec.
+   */
+  referenceContributesAttachments(source: string): boolean
   /** @param line - trimmed draft. @param signal - submit cancellation. @param envelope - attachment count. @returns winning result. */
   adjudicate(
     line: string,
@@ -318,7 +344,9 @@ export interface Occurrence {
   /** Inline display label (insert-time cache). */
   readonly label: string
   /** Optional domain glyph (insert-time cache). */
-  readonly appearance?: ReferenceInsert['appearance']
+  readonly appearance?: ReferenceInsert['appearance'] | undefined
+  /** Optional preview URL for a picture-bearing reference (insert-time cache). */
+  readonly thumbnailUrl?: string | undefined
   /** Clipboard / persistence projection, e.g. `/name` (insert-time cache, never the model form). */
   readonly clipboardText: string
   /** Owner-resolution failure flag: the chip renders the failure treatment. */

@@ -28,6 +28,30 @@ class TranscribeSubtitlesTests(unittest.TestCase):
         project_root = transcribe_subtitles.resolve_project_root()
         self.assertTrue((project_root / "app" / "service" / "audio_service.py").is_file())
 
+    def test_official_endpoint_guard_rejects_mirror(self):
+        """镜像端点必须被拦截，且错误信息要点明真实原因。"""
+        original = os.environ.get("HF_ENDPOINT")
+        try:
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+            with self.assertRaises(RuntimeError) as ctx:
+                transcribe_subtitles.ensure_official_hf_endpoint()
+            message = str(ctx.exception)
+            self.assertIn("HF_ENDPOINT", message)
+            self.assertIn("Invalid user token", message)
+
+            # 官方端点与未设置都应当放行。
+            os.environ["HF_ENDPOINT"] = "https://huggingface.co"
+            transcribe_subtitles.ensure_official_hf_endpoint()
+            os.environ["HF_ENDPOINT"] = "https://huggingface.co/"
+            transcribe_subtitles.ensure_official_hf_endpoint()
+            del os.environ["HF_ENDPOINT"]
+            transcribe_subtitles.ensure_official_hf_endpoint()
+        finally:
+            if original is None:
+                os.environ.pop("HF_ENDPOINT", None)
+            else:
+                os.environ["HF_ENDPOINT"] = original
+
     def test_default_output_dir_honours_podcast_output_dir(self):
         project_root = transcribe_subtitles.resolve_project_root()
         self.assertEqual(

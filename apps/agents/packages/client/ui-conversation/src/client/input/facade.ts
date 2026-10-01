@@ -67,6 +67,23 @@ export interface SessionInputDeps {
     mode: InputSubmitMode,
     signal: AbortSignal,
   ): Promise<SubmitOutcome>
+  /**
+   * Register reference-derived files as draft attachments and answer their ids.
+   *
+   * A reference source may resolve model-visible bytes (a board image). Those
+   * files enter the same draft registry ordinary attachments use, so the send
+   * path encodes them identically and the Host admission limits apply
+   * unchanged. Absent = no source can contribute bytes (text-only references).
+   */
+  deriveAttachments?(files: readonly File[]): readonly DraftAttachmentId[]
+  /**
+   * Free reference-derived attachments that will never be sent.
+   *
+   * They are not part of the user's rail, so a failed or abandoned send drops
+   * them outright: the chip stays in the draft and resolves its bytes again on
+   * the next attempt. Absent = nothing to free.
+   */
+  releaseAttachments?(ids: readonly DraftAttachmentId[]): void
   /** Command-plane attachment plumbing (the hub owns the conversation face and the copy). */
   commandAttachments: {
     /** Resolve ordered draft ids to wire payloads without sending them; rejects when an id no longer resolves. */
@@ -113,11 +130,62 @@ const REFERENCE_PLACEHOLDER_RE = /[\uE100-\uE11D\uFFFC]/gu
 /** Undo merge window for contiguous typing, in ms (the old machine's mergeWindowMs). */
 const HISTORY_MERGE_DELAY_MS = 1000
 
+/**
+ * 草稿文本里持久化的引用 wire 形式。
+ *
+ * 草稿按剪贴板文本持久化，重挂载后回灌的是字面文本而不是 chip 节点。若提交时
+ * 只看 chip 出现点，这些引用会以"看起来正常、其实没有附件"的形式发出去。这里
+ * 扫出它们，让持久化过的引用与刚插入的 chip 走同一条附件解析路径。
+ */
+const PERSISTED_REFERENCE_RE = /@\[[^\]\n]*\]\((dsh-[a-z0-9-]+:[^)\s]+)\)/gu
+
+/**
+ * 从草稿文本里提取仍带附件语义的持久化引用，跳过已被 chip 覆盖的范围。
+ *
+ * 覆盖判断按字符区间：一处 chip 与它自己的 wire 文本占据同一段草稿，若不排除
+ * 就会把同一张图解析两次、重复附加。
+ * @param draft - 剪贴板投影的草稿文本。
+ * @param covered - 已由 chip 出现的区间（offset + length）。
+ * @returns 每处未覆盖引用的来源名与其 owner-scoped ref，按出现顺序。
+ */
+function scanPersistedReferences(
+  draft: string,
+  covered: readonly { readonly offset: number; readonly length: number }[],
+  contributesAttachments: (source: string) => boolean,
+): readonly { source: string; ref: string; offset: number; length: number }[] {
+  const found: { source: string; ref: string; offset: number; length: number }[] = []
+  PERSISTED_REFERENCE_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = PERSISTED_REFERENCE_RE.exec(draft)) !== null) {
+    const ref = match[1]
+    if (ref === undefined) continue
+    const start = match.index
+    const end = start + match[0].length
+    if (covered.some(range => start >= range.offset && end <= range.offset + range.length)) continue
+    // 方案前缀的后半段就是来源名（`dsh-canvas:...` → `canvas`）。
+    const separator = ref.indexOf(':')
+    const source = separator < 0 ? '' : ref.slice(4, separator)
+    if (source === '') continue
+    // 只有会贡献字节的来源才需要这条补救路径：会话、文件等纯文本引用在草稿里
+    // 就是文本，按原样交给模型即可，替它们多做一次解析只会凭空制造失败。
+    if (!contributesAttachments(source)) continue
+    found.push({ source, ref, offset: start, length: match[0].length })
+  }
+  return found
+}
+
 /** Editor and attachment snapshot owned by one detached default send. */
 interface DetachedDraft {
   readonly draft: string
   readonly occurrences: readonly Occurrence[]
   readonly attachmentIds: readonly DraftAttachmentId[]
+  /**
+   * 引用来源在本轮贡献的附件 id。
+   *
+   * 它们属于「这一次引用」而不是用户附件栏：失败时释放（由引用本身在重试时
+   * 重新贡献），成功时随发送一起被 Host 认领，绝不混入草稿栏。
+   */
+  derivedAttachmentIds: DraftAttachmentId[]
 }
 
 /**
@@ -169,6 +237,15 @@ export class SessionInputShell implements SessionInput {
     readonly controller: AbortController
     readonly attachmentIds: readonly DraftAttachmentId[]
   }>()
+  /**
+   * Reference-derived attachment ids per in-flight attempt.
+   *
+   * The draft record cannot carry them alone: a scope disposed while a
+   * resolution is in flight drops the record without ever reading it, and
+   * those registered bytes would outlive every owner. Disposal drains this
+   * map, so an aborted attempt never leaks its files.
+   */
+  private readonly derivedFlights = new Map<number, readonly DraftAttachmentId[]>()
 
   constructor(private readonly deps: SessionInputDeps) {
     this.editor = createEditor({
@@ -385,7 +462,12 @@ export class SessionInputShell implements SessionInput {
     // Enter-time adjudication applies the same policy for unclaimed lines
     // inside the command source itself.
     const before = this.snapshot
-    if (before.phase === 'claimed' && this.attachmentIds.length > 0 && before.claim?.attachments !== true) {
+    // A claimed command that refuses attachments never submits while the draft
+    // carries bytes — whether they sit on the rail or come from a canvas
+    // reference. Sending text alone would tell the model an image arrived when
+    // it did not, so this refuses outright instead of downgrading.
+    if (before.phase === 'claimed' && before.claim?.attachments !== true
+      && (this.attachmentIds.length > 0 || this.hasAttachmentContributingReference())) {
       this.notify('error', this.deps.commandAttachments.unsupportedNotice(before.claim?.token ?? before.draft))
       return
     }
@@ -573,6 +655,10 @@ export class SessionInputShell implements SessionInput {
     for (const record of this.detachedDrafts.values()) {
       for (const attachmentId of record.attachmentIds) retained.add(attachmentId)
     }
+    // Reference-derived bytes have no rail owner: an attempt that never
+    // settles must free them here or they outlive the session scope.
+    const derived = [...this.derivedFlights.values()].flat()
+    this.deps.releaseAttachments?.(derived)
     for (const flight of this.attachmentFlights.values()) {
       for (const attachmentId of flight.attachmentIds) retained.add(attachmentId)
       flight.controller.abort()
@@ -584,6 +670,7 @@ export class SessionInputShell implements SessionInput {
     this.detachedDrafts.clear()
     this.failedDetached.clear()
     this.attachmentFlights.clear()
+    this.derivedFlights.clear()
     return [...retained]
   }
 
@@ -691,23 +778,37 @@ export class SessionInputShell implements SessionInput {
     const attachmentIds = [...this.attachmentIds]
     this.attachmentIds = []
     const occurrences = this.projection.occurrences
-    const record = { draft, occurrences, attachmentIds }
+    const record: DetachedDraft = { draft, occurrences, attachmentIds, derivedAttachmentIds: [] }
     this.detachedDrafts.set(attempt.seq, record)
     if (this.failedRestoreRev === this.rev) {
       this.failedDetached.clear()
       this.failedRestoreRev = undefined
     }
-    if (occurrences.length === 0) {
+    const inputTriggers = this.deps.inputTriggers?.()
+    const contributesAttachments = (source: string): boolean =>
+      inputTriggers?.referenceContributesAttachments(source) ?? false
+    // 持久化回灌的草稿只剩字面 wire 文本；它同样携带附件语义，必须与 chip 一起
+    // 解析，否则重开对话后的引用会静默丢掉图片。
+    const persisted = scanPersistedReferences(draft, occurrences, contributesAttachments)
+    if (occurrences.length === 0 && persisted.length === 0) {
       this.settleSink(attempt, this.deps.defaultSink(draft.trim(), attachmentIds, mode, attempt.signal))
       return
     }
-    const inputTriggers = this.deps.inputTriggers?.()
-    void Promise.all(occurrences.map(async (o) => {
+    const resolutions = [
+      ...occurrences.map(o => ({ source: o.source, ref: o.ref, offset: o.offset, length: o.length })),
+      ...persisted.map(p => ({ source: p.source, ref: p.ref, offset: p.offset, length: p.length })),
+    ].sort((left, right) => left.offset - right.offset)
+    void Promise.all(resolutions.map(async (o) => {
       if (inputTriggers === undefined) throw new Error(`no serializer for reference source "${o.source}"`)
+      // Reference bytes resolve in the same attempt as the reference text: a
+      // source that promised model-visible files either delivers them with
+      // this send or fails it, never silently dropping to a URL-only prompt.
+      const files = await inputTriggers.referenceAttachments(o.source, o.ref, attempt.signal)
       return {
         offset: o.offset,
         length: o.length,
         text: await inputTriggers.serializeReference(o.source, o.ref, attempt.signal),
+        files,
       }
     })).then(
       (parts) => {
@@ -722,7 +823,14 @@ export class SessionInputShell implements SessionInput {
           cursor = part.offset + part.length
         }
         out += draft.slice(cursor)
-        this.settleSink(attempt, this.deps.defaultSink(out.trim(), attachmentIds, mode, attempt.signal))
+        const derived = this.deriveAttachmentIds(parts.flatMap(part => [...part.files]))
+        if (derived === null) {
+          this.settleDetachedFailure(attempt, 'reference attachments unavailable')
+          return
+        }
+        record.derivedAttachmentIds.push(...derived)
+        this.derivedFlights.set(attempt.seq, derived)
+        this.settleSink(attempt, this.deps.defaultSink(out.trim(), [...attachmentIds, ...derived], mode, attempt.signal))
       },
       (error: unknown) => {
         if (this.dead(attempt)) return
@@ -730,6 +838,51 @@ export class SessionInputShell implements SessionInput {
         this.settleDetachedFailure(attempt, message)
       },
     )
+  }
+
+  /**
+   * Register reference-derived files, or answer null when the composition
+   * cannot carry them.
+   *
+   * A reference source only contributes files when the conversation layer
+   * mounted the derivation seam; a source that produced files against a missing
+   * seam is a wiring defect, and sending the text alone would tell the user an
+   * image was attached while the model never saw it.
+   * @param files - files contributed by every occurrence of this attempt.
+   * @returns the registered draft ids, or null when the seam is absent.
+   */
+  private deriveAttachmentIds(files: readonly File[]): readonly DraftAttachmentId[] | null {
+    if (files.length === 0) return []
+    const deps = this.deps
+    if (deps.deriveAttachments === undefined) return null
+    return deps.deriveAttachments(files)
+  }
+
+  /**
+   * Whether any chip in the current draft belongs to a source that carries
+   * model-visible bytes.
+   *
+   * The claimed-command path cannot transport them when the claim refuses
+   * attachments, and `codec.serialize` still renders the reference as an
+   * attached asset. Refusing the send is the only honest outcome: sending the
+   * text alone would tell the model a picture arrived when it did not.
+   * @returns true when at least one occurrence contributes attachments.
+   */
+  private hasAttachmentContributingReference(): boolean {
+    const inputTriggers = this.deps.inputTriggers?.()
+    if (inputTriggers === undefined) return false
+    const occurrences = this.projection.occurrences
+    if (occurrences.some(occurrence => inputTriggers.referenceContributesAttachments(occurrence.source))) {
+      return true
+    }
+    // A draft restored from persistence carries the same references as literal
+    // text; they contribute bytes just like chips do.
+    return scanPersistedReferences(
+      this.projection.clipboardText,
+      occurrences,
+      source => inputTriggers.referenceContributesAttachments(source),
+    )
+      .some(reference => inputTriggers.referenceContributesAttachments(reference.source))
   }
 
   /** Settle one detached default send independently of other sends. */
@@ -744,6 +897,7 @@ export class SessionInputShell implements SessionInput {
           this.settleDetachedFailure(attempt, outcome.text)
           return
         }
+        this.derivedFlights.delete(attempt.seq)
         this.detachedDrafts.delete(attempt.seq)
         this.dispatchRun(({ type: 'sink-settled', attempt, ok: true, outcome }))
       },
@@ -759,6 +913,11 @@ export class SessionInputShell implements SessionInput {
     const record = this.detachedDrafts.get(attempt.seq)
     if (record === undefined) return
     this.detachedDrafts.delete(attempt.seq)
+    // Reference-derived attachments belong to this attempt alone; the chip
+    // that produced them stays in the draft and re-resolves on retry, so
+    // dropping the bytes here cannot lose user content.
+    this.derivedFlights.delete(attempt.seq)
+    this.deps.releaseAttachments?.(record.derivedAttachmentIds)
     this.restoreAttachments(record.attachmentIds)
     this.failedDetached.set(attempt.seq, record)
     if (this.projection.clipboardText === '' || this.failedRestoreRev === this.rev) {
@@ -808,6 +967,9 @@ export class SessionInputShell implements SessionInput {
             ref: occurrence.ref,
             label: occurrence.label,
             ...(occurrence.appearance === undefined ? {} : { appearance: occurrence.appearance }),
+            // Restored failures keep whatever preview the original chip showed;
+            // a reference that never carried one stays glyph-only.
+            ...(occurrence.thumbnailUrl === undefined ? {} : { thumbnailUrl: occurrence.thumbnailUrl }),
             clipboardText: occurrence.clipboardText,
           }, occurrence.invalid === true))
           cursor = occurrence.offset + occurrence.length

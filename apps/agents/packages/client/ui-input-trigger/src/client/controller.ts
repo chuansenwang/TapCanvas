@@ -306,6 +306,38 @@ export class InputTriggerController {
   }
 
   /**
+   * Resolve the model-visible files one reference occurrence contributes.
+   * A source without an attachment codec contributes nothing (its reference is
+   * text-only by construction); a source whose codec throws blocks the send,
+   * because a reference that promised bytes must never degrade to a bare URL.
+   * @param source - owning source name.
+   * @param ref - owner-scoped reference id.
+   * @param signal - the submit attempt's abort signal.
+   * @returns the occurrence's files in order, empty for text-only references.
+   */
+  referenceAttachments(source: string, ref: string, signal: AbortSignal): Promise<readonly File[]> {
+    const owner = this.deps.roster.all().find(s => s.name === source)
+    const codec = owner?.codec
+    if (codec?.attachments === undefined) return Promise.resolve([])
+    return codec.attachments(ref, signal)
+  }
+
+  /**
+   * Whether one source's references carry model-visible bytes.
+   *
+   * Synchronous and declaration-only: callers use it to refuse a submission
+   * path that cannot deliver those bytes (a claimed command that does not
+   * accept attachments), instead of sending text while the user believes the
+   * image rode along.
+   * @param source - owning source name.
+   * @returns true when the source declares an attachment codec.
+   */
+  referenceContributesAttachments(source: string): boolean {
+    const owner = this.deps.roster.all().find(s => s.name === source)
+    return owner?.codec?.attachments !== undefined
+  }
+
+  /**
    * Enter last adjudication: polls sources' matchEnter in registration
    * order, first non-undefined wins. The outcome returns to the caller (the
    * input machine applies it inside the same submit attempt — no event).

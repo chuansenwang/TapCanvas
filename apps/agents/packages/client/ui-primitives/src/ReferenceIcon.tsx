@@ -4,7 +4,7 @@ import {
 } from './icons/index.tsx'
 
 /** Reference domains with distinct composer and transcript glyphs. */
-export type ReferenceIconKind = 'session' | 'file' | 'folder'
+export type ReferenceIconKind = 'session' | 'file' | 'folder' | 'image' | 'video'
 
 /** Props shared by inline reference glyphs. */
 export interface ReferenceIconProps {
@@ -20,6 +20,24 @@ export interface ReferenceIconProps {
  */
 export function ReferenceIcon({ kind, size = 16, className }: ReferenceIconProps): ReactNode {
   switch (kind) {
+    case 'image':
+      return (
+        <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path
+            d="M2.4 2.4h11.2v11.2H2.4V2.4Zm1.2 1.2v5.06l1.61-1.61a.6.6 0 0 1 .85 0l2.42 2.43 1.2-1.2a.6.6 0 0 1 .85 0l1.87 1.87V3.6H3.6Zm8.8 8.8v-.99l-2.3-2.29-1.19 1.2a.6.6 0 0 1-.85 0L5.63 7.67 3.6 9.7v2.7h8.8Z"
+            fill="currentColor"
+          />
+        </svg>
+      )
+    case 'video':
+      return (
+        <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path
+            d="M2.4 3.6h7.2v8.8H2.4V3.6Zm1.2 1.2v6.4h4.8V4.8H3.6Zm6.4 1.2 3.6-2.1v7.4l-3.6-2.1V6Z"
+            fill="currentColor"
+          />
+        </svg>
+      )
     case 'session':
       return (
         <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>

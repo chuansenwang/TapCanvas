@@ -205,6 +205,26 @@ def download_audio(url: str, output_dir: Path, video_id: str) -> Path:
     return candidates[0]
 
 
+def ensure_official_hf_endpoint() -> None:
+    """说话人分离必须走 Hugging Face 官方端点，镜像站不认官方签发的 token。
+
+    环境里存在 HF_ENDPOINT 且指向非官方域名时，token 校验会统一返回
+    "Invalid user token"，症状容易被误判成 token 本身失效。这里提前拦截，
+    把真实原因直接说清楚，而不是让调用方去猜 token。
+    """
+    endpoint = os.environ.get("HF_ENDPOINT", "").strip()
+    if not endpoint:
+        return
+    if endpoint.rstrip("/").lower() == "https://huggingface.co":
+        return
+    raise RuntimeError(
+        f"检测到 HF_ENDPOINT={endpoint}（非官方端点），说话人分离的 token 校验会失败。\n"
+        "镜像站不认 Hugging Face 官方签发的 token，报错通常表现为 Invalid user token。\n"
+        "处理方式：运行前清除该变量，例如 PowerShell 执行 "
+        "Remove-Item Env:HF_ENDPOINT，或把它从系统环境变量中移除后重试。"
+    )
+
+
 def prepare_diarization_audio(media_path: Path, output_dir: Path, video_id: str) -> Path:
     """给 pyannote 准备 16 kHz 单声道 WAV；输入已是 WAV 时直接复用。"""
     if media_path.suffix.lower() == ".wav":
@@ -267,6 +287,7 @@ def label_speakers(
     AudioService 在 pyannote 不可用时会按停顿猜说话人，这里先检查模型可用性，
     拿不到真实分离结果就失败，绝不写入猜测出来的说话人。
     """
+    ensure_official_hf_endpoint()
     project_root = resolve_project_root()
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))

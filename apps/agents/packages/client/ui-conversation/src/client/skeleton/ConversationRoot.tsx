@@ -417,13 +417,13 @@ export function ConversationRoot({
     >
       {tapCanvasScope !== null && (
         <div className={css.tapCanvasScope} role="status">
-          <span className={css.tapCanvasScopeLabel}>当前画布</span>
+          <span className={css.tapCanvasScopeLabel}>{t('canvas.scope.label')}</span>
           <span className={css.tapCanvasScopeValue}>
-            {tapCanvasScope.chapterTitle ?? tapCanvasScope.projectName ?? tapCanvasScope.projectId ?? '未命名项目'}
+            {tapCanvasScope.chapterTitle ?? tapCanvasScope.projectName ?? tapCanvasScope.projectId ?? t('canvas.scope.unnamed')}
           </span>
           {tapCanvasScope.selectedNodeIds.length > 0 && (
             <span className={css.tapCanvasScopeSelection}>
-              已选 {tapCanvasScope.selectedNodeIds.length} 个节点
+              {t('canvas.scope.selected', { count: tapCanvasScope.selectedNodeIds.length })}
             </span>
           )}
         </div>

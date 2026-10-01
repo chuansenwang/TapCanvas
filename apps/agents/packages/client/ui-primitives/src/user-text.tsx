@@ -22,6 +22,12 @@ import css from './user-text.module.css'
 /** The wire form a session chip serializes to; label is the display text. */
 const SESSION_WIRE_RE = /@\[([^\]\n]+)\]\(dsh-session:[^)\s]+\)/gu
 
+/**
+ * The wire form a canvas-asset chip serializes to. The kind rides the scheme so
+ * one regex folds both domains; the identity half is opaque here.
+ */
+const CANVAS_WIRE_RE = /@\[([^\]\n]+)\]\(dsh-canvas:(image|video):[^)\s]+\)/gu
+
 /** Sentence punctuation a bare `@name` token may carry without being part of the reference. */
 const TRAILING_PUNCTUATION_RE = /[.,;:!?，。；：！？]+$/u
 
@@ -30,7 +36,7 @@ interface DecorationRange {
   readonly end: number
   /** Matched source text (hover title). */
   readonly label: string
-  readonly kind: 'session' | 'plain'
+  readonly kind: 'session' | 'canvas-image' | 'canvas-video' | 'plain'
   /** Pre-resolved display text (wire folds); derived from label when absent. */
   readonly display?: string
 }
@@ -63,6 +69,17 @@ export function projectUserText(
       display: wire[1] as string, // non-optional capture in SESSION_WIRE_RE
     })
   }
+  CANVAS_WIRE_RE.lastIndex = 0
+  let canvas: RegExpExecArray | null
+  while ((canvas = CANVAS_WIRE_RE.exec(text)) !== null) {
+    ranges.push({
+      start: canvas.index,
+      end: canvas.index + canvas[0].length,
+      label: canvas[0],
+      kind: canvas[2] === 'video' ? 'canvas-video' : 'canvas-image',
+      display: canvas[1] as string, // non-optional capture in CANVAS_WIRE_RE
+    })
+  }
   for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
     const label = `@${rawLabel}`
     let start = text.indexOf(label)
@@ -85,7 +102,7 @@ export function projectUserText(
     if (label.startsWith('/') && !slashNames.includes(label.slice(1))) continue
     ranges.push({ start: tokenStart, end: tokenStart + label.length, label, kind: 'plain' })
   }
-  const rankOf = (range: DecorationRange): number => range.kind === 'session' ? 0 : 1
+  const rankOf = (range: DecorationRange): number => range.kind === 'plain' ? 1 : 0
   ranges.sort((a, b) => a.start - b.start || rankOf(a) - rankOf(b) || b.end - a.end)
   const parts: ReactNode[] = []
   let cursor = 0
@@ -98,13 +115,17 @@ export function projectUserText(
     if (tokenStart > cursor) pushPlain(cursor, tokenStart)
     const referenceKind = kind === 'session'
       ? 'session'
-      : label.startsWith('@')
-        ? label.endsWith('/') ? 'folder' : 'file'
-        : undefined
+      : kind === 'canvas-image'
+        ? 'image'
+        : kind === 'canvas-video'
+          ? 'video'
+          : label.startsWith('@')
+            ? label.endsWith('/') ? 'folder' : 'file'
+            : undefined
     const displayLabel = range.display
       ?? (referenceKind === undefined
         ? label
-        : referenceKind === 'session'
+        : referenceKind === 'session' || referenceKind === 'image' || referenceKind === 'video'
           ? label.slice(1)
           : label.slice(1).replace(/^"|"$/gu, '').split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1))
     parts.push(

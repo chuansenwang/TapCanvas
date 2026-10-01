@@ -207,6 +207,7 @@ export function $projectComposer(idOf: (key: NodeKey) => number): EditorProjecti
       length: segment.clipboardLength,
       label: chip.getLabel(),
       ...(chip.getAppearance() === undefined ? {} : { appearance: chip.getAppearance() }),
+      ...(chip.getThumbnailUrl() === undefined ? {} : { thumbnailUrl: chip.getThumbnailUrl() }),
       clipboardText: chip.getTextContent(),
       ...(chip.isInvalid() ? { invalid: true } : {}),
     })

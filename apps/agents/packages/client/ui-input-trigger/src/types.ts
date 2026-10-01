@@ -41,7 +41,7 @@ export type PickVia = 'menu' | 'space' | 'enter'
 export type PickAction = 'pick' | 'drill'
 
 /** Leading glyph token of one menu candidate, mapped to its SVG by the menu view. */
-export type InputTriggerCandidateIcon = 'file' | 'folder' | 'session'
+export type InputTriggerCandidateIcon = 'file' | 'folder' | 'session' | 'image' | 'video'
 
 /** One menu candidate. Pure display data — zero behavior declaration. */
 export interface InputTriggerCandidate {
@@ -133,6 +133,17 @@ export interface ReferenceCodec {
   clipboardText(ref: string): string
   /** Model serialization of one reference (e.g. `<skill>name</skill>`). */
   serialize(ref: string, signal: AbortSignal): Promise<string>
+  /**
+   * Optional attachment contribution of one reference occurrence.
+   *
+   * A source whose reference carries model-visible bytes (an image on the
+   * user's board, a screenshot) resolves them here instead of leaving the
+   * model to read a URL. The submit attempt awaits every occurrence's
+   * contribution before the sink runs and registers the returned files as
+   * ordinary draft attachments, so a send either carries the bytes or fails
+   * loudly — never a silent text-only downgrade.
+   */
+  attachments?(ref: string, signal: AbortSignal): Promise<readonly File[]>
 }
 
 /**

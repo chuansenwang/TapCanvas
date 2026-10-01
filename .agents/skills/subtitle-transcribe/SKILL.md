@@ -37,6 +37,7 @@ description: 把已经下载好的视频/音频识别成带时间码的字幕事
 - 项目根目录：脚本向上查找含 `app/service/audio_service.py` 的目录（当前为 `F:\aigc\aigc`），也可用 `AIGC_PROJECT_ROOT` 覆盖。说话人分离复用该项目 `AudioService` 的 pyannote 链路。
 - `PODCAST_OUTPUT_DIR`：可选。设置后默认输出目录改为该值下的 `<video_id>/`；相对路径按项目根解析，使脚本从任意 cwd 调用都写入同一位置，与播客流水线一致。
 - `HF_TOKEN`：只有 `--with-speakers` 需要。未配置时直接失败，不使用基于停顿的猜测标签。
+- `HF_ENDPOINT`：**只有 `--with-speakers` 时需要留意**。若该变量指向非官方端点（如 `https://hf-mirror.com`），镜像站不认 Hugging Face 官方签发的 token，token 校验会统一报 `Invalid user token`，极易被误判成 token 失效。脚本会在说话人分离前主动拦截并给出明确提示；此时清除该变量（PowerShell：`Remove-Item Env:HF_ENDPOINT`）后重试即可。不带 `--with-speakers` 时不受影响。
 
 ## 默认输出
 
@@ -75,6 +76,9 @@ resources/podcast_outputs/<video_id>/
 访谈/对白类内容需要说话人：
 
 ```powershell
+# 先清除可能存在的镜像端点，否则 token 校验必然失败
+Remove-Item Env:HF_ENDPOINT -ErrorAction SilentlyContinue
+
 & F:\aigc\aigc\.venv\Scripts\python.exe .agents\skills\subtitle-transcribe\scripts\transcribe_subtitles.py `
   --media "<本地视频路径>" `
   --mode whisper `

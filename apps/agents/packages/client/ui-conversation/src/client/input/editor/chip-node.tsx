@@ -21,6 +21,7 @@ export type SerializedReferenceChipNode = Spread<{
   ref: string
   label: string
   appearance?: ReferenceInsert['appearance']
+  thumbnailUrl?: string
   clipboardText: string
   invalid: boolean
 }, SerializedLexicalNode>
@@ -35,6 +36,8 @@ export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
   __label: string
   /** Optional domain glyph (insert-time cache). */
   __appearance: ReferenceInsert['appearance']
+  /** Optional preview URL for a picture-bearing reference (insert-time cache). */
+  __thumbnailUrl: ReferenceInsert['thumbnailUrl']
   /** Clipboard / persistence projection, e.g. `/name` (never the model form). */
   __clipboardText: string
   /** Owner-resolution failure flag: chip renders invalid; serialization must fail. */
@@ -56,7 +59,8 @@ export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
         source: node.__source,
         ref: node.__ref,
         label: node.__label,
-        appearance: node.__appearance,
+        ...(node.__appearance === undefined ? {} : { appearance: node.__appearance }),
+        ...(node.__thumbnailUrl === undefined ? {} : { thumbnailUrl: node.__thumbnailUrl }),
         clipboardText: node.__clipboardText,
       },
       node.__invalid,
@@ -75,7 +79,8 @@ export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
         source: json.source,
         ref: json.ref,
         label: json.label,
-        appearance: json.appearance,
+        ...(json.appearance === undefined ? {} : { appearance: json.appearance }),
+        ...(json.thumbnailUrl === undefined ? {} : { thumbnailUrl: json.thumbnailUrl }),
         clipboardText: json.clipboardText,
       },
       json.invalid,
@@ -93,6 +98,7 @@ export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
     this.__ref = insert.ref
     this.__label = insert.label
     this.__appearance = insert.appearance
+    this.__thumbnailUrl = insert.thumbnailUrl
     this.__clipboardText = insert.clipboardText
     this.__invalid = invalid
   }
@@ -107,6 +113,7 @@ export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
       ref: this.__ref,
       label: this.__label,
       ...(this.__appearance === undefined ? {} : { appearance: this.__appearance }),
+      ...(this.__thumbnailUrl === undefined ? {} : { thumbnailUrl: this.__thumbnailUrl }),
       clipboardText: this.__clipboardText,
       invalid: this.__invalid,
     }
@@ -183,12 +190,18 @@ export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
     return this.getLatest().__appearance
   }
 
+  /** Preview URL for a picture-bearing reference, when the owner supplied one. */
+  getThumbnailUrl(): ReferenceInsert['thumbnailUrl'] {
+    return this.getLatest().__thumbnailUrl
+  }
+
   /** React face rendered into the host element by the decorator portal. */
   override decorate(): JSX.Element {
     return (
       <ReferenceChip
         label={this.__label}
         appearance={this.__appearance}
+        thumbnailUrl={this.__thumbnailUrl}
         invalid={this.__invalid}
       />
     )

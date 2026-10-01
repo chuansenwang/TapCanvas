@@ -37,7 +37,11 @@ import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { resolveActiveView } from './view-selection.ts'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
-import { type TapCanvasScope } from './tapcanvasScope.ts'
+import { tapCanvasScopeHub, type TapCanvasScope } from './tapcanvasScope.ts'
+import {
+  createTapCanvasCanvasReferenceSource,
+  registerTapCanvasCanvasReferences,
+} from './tapcanvasCanvasReference.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -152,6 +156,9 @@ function concreteConversation(ctx: Context): ConversationController {
 export function apply(ctx: Context, config: Config = Config({})): void {
   const sessions = ctx.sessions
   const slots = ctx.slots
+  // 画布作用域是 TapCanvas 会话的一等事实：这里挂载唯一的父页面监听并注册服务，
+  // 会话界面与其它客户端插件都读同一份已校验快照。
+  ctx.provide('tapCanvasScope', tapCanvasScopeHub)
   // Schemastery's field default is materialized before Cordis calls apply.
   const maxConcurrentFileUploads = config.maxConcurrentFileUploads as number
   const workspaceNavigation = ctx.get('uiWorkspace') as unknown as WorkspaceNavigation
@@ -188,6 +195,9 @@ export function apply(ctx: Context, config: Config = Config({})): void {
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')
   const t = ctx.locale.bind(NS)
+  // 画布素材是用户此刻正在看的画面，与文件和会话并列出现在同一个 `@` 菜单里。
+  // 该来源把图片取成真实多模态附件、把视频取成首帧，取不到字节即显式失败。
+  registerTapCanvasCanvasReferences(ctx, [createTapCanvasCanvasReferenceSource(tapCanvasScopeHub, t)])
   const conversationStore = createConversationStore()
   const submissionPolicy = new ComposerSubmissionPolicy(
     ctx.settingsScope.bind<ConversationSettings>({ namespace: CONVERSATION_SETTINGS_NAMESPACE }),
